@@ -26,12 +26,6 @@ const authReady = {
   channel: "official",
 };
 
-const authMissing = {
-  hasState: false,
-  missingFields: ["token", "userId", "deviceId"],
-};
-
-let currentAuthStatus: typeof authReady | typeof authMissing = authReady;
 let requestLog: Array<{ method: string; path: string; body: unknown; transportPath?: string }> = [];
 let currentRemoteSignalEvents: unknown[] = [];
 let joinRoomFailure: boolean;
@@ -45,7 +39,6 @@ let remoteTrackPlan: Array<{ id: string; kind: "audio" | "video" }>;
 
 describe("App console", () => {
   beforeEach(() => {
-    currentAuthStatus = authReady;
     requestLog = [];
     joinRoomFailure = false;
     lastControlIceId = "";
@@ -113,7 +106,6 @@ describe("App console", () => {
   });
 
   it("supports the app-aligned mobile login flow and local state export", async () => {
-    currentAuthStatus = authMissing;
     window.localStorage.removeItem("uurc.loginState");
     const user = userEvent.setup();
     render(<App />);
@@ -187,6 +179,22 @@ describe("App console", () => {
     await waitFor(() => {
       expect(requestLog.some((call) => call.path === "/api/remote/signal/start")).toBe(true);
     });
+  });
+
+  it("warns and does not occupy a room when browser WebRTC is unavailable", async () => {
+    currentParticipants = [];
+    const user = userEvent.setup();
+    render(<App />);
+
+    await openOfficeMacControl(user);
+
+    const message = "当前浏览器未启用 WebRTC，无法建立远控画面。请允许 WebRTC 后重试。";
+    expect(screen.getByText(message)).toBeInTheDocument();
+    await user.click(getPrimaryAction("开始连接"));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(message);
+    expect(uuCalls("/api/v1/room/join/by_device/desktop-1")).toHaveLength(0);
+    expect(requestLog.some((call) => call.path === "/api/remote/signal/start")).toBe(false);
   });
 
   it("starts a partner remote-assistance session by device ID and code", async () => {
@@ -407,6 +415,7 @@ describe("App console", () => {
   });
 
   it("starts the signal gateway from the first room signal entry", async () => {
+    vi.stubGlobal("RTCPeerConnection", TestPeerConnection);
     currentParticipants = [];
     currentSignalServers = ["wss://signal-a.example", "wss://signal-b.example"];
     const user = userEvent.setup();
@@ -424,6 +433,7 @@ describe("App console", () => {
   });
 
   it("asks the operator to rejoin the room when the signal gateway rejects a stale RoomConfig", async () => {
+    vi.stubGlobal("RTCPeerConnection", TestPeerConnection);
     currentParticipants = [];
     signalStartError = true;
     const user = userEvent.setup();
@@ -494,6 +504,7 @@ describe("App console", () => {
   });
 
   it("shows the upstream room join blocker when the service refuses an occupied target", async () => {
+    vi.stubGlobal("RTCPeerConnection", TestPeerConnection);
     joinRoomFailure = true;
     const user = userEvent.setup();
     render(<App />);
@@ -510,7 +521,6 @@ describe("App console", () => {
   });
 
   it("blocks joining the current controller device as a remote target", async () => {
-    currentAuthStatus = { ...authReady, deviceId: "desktop-1" };
     seedLoginState({ ...authReady, deviceId: "desktop-1" });
     render(<App />);
 
@@ -1170,19 +1180,13 @@ describe("App console", () => {
     await screen.findByRole("button", { name: "控制中" });
 
     const stage = screen.getByRole("application", { name: "远控画面" }) as HTMLDivElement;
-    // 全屏对包含命令栏的容器（.control-stage-frame，即 stage 的父元素）请求；
-    // 用 mock 模拟浏览器进入全屏：设置 fullscreenElement 并派发 fullscreenchange。
     const stageFrame = stage.parentElement as HTMLDivElement;
-    const requestFullscreen = vi.fn(async () => {
-      Object.defineProperty(document, "fullscreenElement", { configurable: true, value: stageFrame });
-      document.dispatchEvent(new Event("fullscreenchange"));
-    });
-    stageFrame.requestFullscreen = requestFullscreen;
     const toolbar = screen.getByLabelText("远控主流程");
 
     // 非全屏：工具栏固定在原位——没有拖动手柄，也没有 fixed 浮动定位。
     expect(screen.queryByRole("button", { name: "拖动工具栏" })).not.toBeInTheDocument();
     expect(toolbar.style.position).toBe("");
+    expect(stageFrame).not.toHaveClass("control-stage-frame--fullscreen");
 
     expect(stage).toHaveClass("remote-stage-fit");
     await user.click(screen.getByRole("button", { name: "填充画面" }));
@@ -1192,7 +1196,8 @@ describe("App console", () => {
 
     // 进入全屏后才出现拖动手柄，并可把工具栏悬浮拖到画面内任意位置。
     await user.click(screen.getByRole("button", { name: "全屏" }));
-    expect(requestFullscreen).toHaveBeenCalledTimes(1);
+    expect(stageFrame).toHaveClass("control-stage-frame--fullscreen");
+    expect(screen.getByRole("button", { name: "退出全屏" })).toBeInTheDocument();
     const dragHandle = await screen.findByRole("button", { name: "拖动工具栏" });
     vi.spyOn(toolbar.parentElement as HTMLElement, "getBoundingClientRect").mockReturnValue(
       rectFrom({ left: 0, top: 0, width: 900, height: 500 }),
@@ -1213,9 +1218,8 @@ describe("App console", () => {
     expect(TestPeerConnection.sentByLabel.CONTROL_DATA_CHANNEL?.length).toBeGreaterThan(sentBefore);
     expect(screen.getByRole("button", { name: "Cmd Opt Esc" })).toBeInTheDocument();
 
-    // 清理：退出全屏，避免 fullscreenElement 残留影响后续用例。
-    Object.defineProperty(document, "fullscreenElement", { configurable: true, value: null });
-    document.dispatchEvent(new Event("fullscreenchange"));
+    await user.click(screen.getByRole("button", { name: "退出全屏" }));
+    expect(stageFrame).not.toHaveClass("control-stage-frame--fullscreen");
   });
 
   it("shows a first-class disconnect action that closes the browser remote session", async () => {
@@ -1574,7 +1578,6 @@ async function handleUuProxyFetch(body: unknown): Promise<Response> {
 
   if (request.path === "/api/v1/login/by_mobile" && request.method === "POST") {
     expect(request.body).toEqual({ country_code: "86", mobile: "13800000000", code: "123456" });
-    currentAuthStatus = authReady;
     return jsonResponse(uuResponse({
       code: 0,
       data: {

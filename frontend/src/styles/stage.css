@@ -11,10 +11,14 @@
 }
 
 .remote-stage-interactive {
-  cursor: crosshair;
+  cursor: none;
   /* 仅在解锁输入控制时拦截触屏手势与文本选择；未交互时允许页面正常滚动/选择 */
   touch-action: none;
   user-select: none;
+}
+
+.remote-stage-interactive * {
+  cursor: none;
 }
 
 .remote-video-grid {

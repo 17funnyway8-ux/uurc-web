@@ -51,7 +51,7 @@ export function RemoteConnectionQualityPanel({
           </div>
         </details>
       ) : null}
-      <label className="auto-reconnect-toggle">
+      <label className="switch-control switch-control-inline">
         <input
           type="checkbox"
           checked={autoReconnectEnabled}
@@ -61,6 +61,7 @@ export function RemoteConnectionQualityPanel({
           <RotateCcw size={15} />
           自动重连
         </span>
+        <i aria-hidden="true" />
       </label>
       <small>{autoReconnectLabel}</small>
     </section>

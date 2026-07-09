@@ -106,6 +106,20 @@ function readAutoConnectPref(): boolean {
   }
 }
 
+function detectBrowserWebRtcUnavailableReason(): string {
+  if (typeof RTCPeerConnection !== "function") {
+    return "当前浏览器未启用 WebRTC，无法建立远控画面。请允许 WebRTC 后重试。";
+  }
+
+  try {
+    const peer = new RTCPeerConnection({ iceServers: [] });
+    peer.close();
+    return "";
+  } catch {
+    return "当前浏览器无法创建 WebRTC 连接。请检查浏览器隐私设置或扩展拦截后重试。";
+  }
+}
+
 // 把底层/协议级英文错误映射成用户能看懂、带“怎么办”的中文；未知错误原样返回。
 function toFriendlyError(message: string): string {
   const text = message || "";
@@ -170,6 +184,7 @@ export function useRemoteControlController() {
   const [autoConnect, setAutoConnect] = useState<boolean>(readAutoConnectPref);
   const [remoteStageViewMode, setRemoteStageViewMode] = useState<RemoteStageViewMode>("fit");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [browserWebRtcUnavailableReason] = useState(detectBrowserWebRtcUnavailableReason);
   const [signalServerIndex, setSignalServerIndex] = useState(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<BusyAction>("status");
@@ -249,12 +264,6 @@ export function useRemoteControlController() {
     const timer = window.setInterval(() => setSmsCountdown((value) => Math.max(0, value - 1)), 1000);
     return () => window.clearInterval(timer);
   }, [smsCounting]);
-
-  useEffect(() => {
-    const onFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
-    document.addEventListener("fullscreenchange", onFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
-  }, []);
 
   useEffect(() => {
     const serverCount = remoteBootstrap?.signalServers.length ?? 0;
@@ -635,6 +644,7 @@ export function useRemoteControlController() {
   }
 
   async function startBrowserRemoteSession(options: { skipReadinessCheck?: boolean; forceRelay?: boolean } = {}) {
+    if (browserWebRtcUnavailableReason) throw new Error(browserWebRtcUnavailableReason);
     if (!authStatus?.deviceId) throw new Error("登录已失效");
     if (!selectedDeviceId) throw new Error("请选择设备");
     if (!options.skipReadinessCheck && !roomReadyForBrowserRtc) throw new Error(browserRtcBlockedReason);
@@ -691,9 +701,7 @@ export function useRemoteControlController() {
           throw new Error(formatSignalGatewayErrorHint(status) || "连接服务未启动");
         }
       }
-      if (typeof RTCPeerConnection !== "undefined") {
-        await startBrowserRemoteSession({ skipReadinessCheck: true, forceRelay: escalateRelay ? true : undefined });
-      }
+      await startBrowserRemoteSession({ skipReadinessCheck: true, forceRelay: escalateRelay ? true : undefined });
     });
   }
 
@@ -719,20 +727,24 @@ export function useRemoteControlController() {
       await loadDevices();
       return;
     }
+    if (browserWebRtcUnavailableReason) {
+      setError(browserWebRtcUnavailableReason);
+      return;
+    }
     if (!roomJoinedForSelectedDevice || roomRequiresTakeover || signalGatewayState === "error") {
       // 自己上一个会话占用时直接接管（force），无需用户再点一次；他人占用仍保留显式两步。
       const joinWithForce = roomRequiresTakeover || occupiedBySelfClient ? true : forceJoin;
       const nextContext = await joinRoomForDevice(selectedDeviceId, joinWithForce);
       if (!nextContext || (nextContext.occupiedAtJoin && !nextContext.forceJoin)) return;
       const status = await handleStartSignalGateway(nextContext);
-      if (status?.status === "connected" && typeof RTCPeerConnection !== "undefined") {
+      if (status?.status === "connected") {
         await handleStartBrowserRemote({ skipReadinessCheck: true });
       }
       return;
     }
     if (!signalGatewayMatchesRoom) {
       const status = await handleStartSignalGateway();
-      if (status?.status === "connected" && typeof RTCPeerConnection !== "undefined") {
+      if (status?.status === "connected") {
         await handleStartBrowserRemote({ skipReadinessCheck: true });
       }
       return;
@@ -833,18 +845,7 @@ export function useRemoteControlController() {
   }
 
   function handleToggleFullscreen() {
-    // 对包含命令栏的容器请求全屏，避免全屏后命令栏（解锁输入/退出全屏等）一并消失。
-    const target = remoteStageFrameRef.current ?? remoteStageRef.current;
-    if (!target) return;
-    try {
-      if (document.fullscreenElement) {
-        void document.exitFullscreen?.();
-        return;
-      }
-      void target.requestFullscreen?.();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
+    setIsFullscreen((current) => !current);
   }
 
   function handleToggleInputControl() {
@@ -1045,7 +1046,7 @@ export function useRemoteControlController() {
     signalReadiness.checks.offerSent &&
     !signalReadiness.checks.answerReceived;
   const normalJoinTakeoverHint = normalJoinLeftBeforeAnswer ? "画面未返回。" : "";
-  const browserRtcReady = roomReadyForBrowserRtc && busy === null;
+  const browserRtcReady = roomReadyForBrowserRtc && busy === null && !browserWebRtcUnavailableReason;
   const browserIceServers = browserRemoteState.controlResult?.iceServers.length ?? 0;
   const connectionPathLabel = formatConnectionPath(browserRemoteState.connectionPath);
   const inboundVideoStatsLabel = formatInboundVideoStats(browserRemoteState.inboundVideo);
@@ -1372,6 +1373,7 @@ export function useRemoteControlController() {
     autoReconnectLabel,
     browserIceServers,
     browserRemoteState,
+    browserWebRtcUnavailableReason,
     browserRtcDescription,
     browserRtcReady,
     browserStageLabel,

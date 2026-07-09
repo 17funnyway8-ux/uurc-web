@@ -3,6 +3,24 @@ import { CircleStop, LoaderCircle, Monitor, PlugZap } from "lucide-react";
 import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
 import { ParticipantList } from "./ParticipantList.js";
 
+function SwitchControl({
+  checked,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  label: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="switch-control">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span>{label}</span>
+      <i aria-hidden="true" />
+    </label>
+  );
+}
+
 export function RemoteControlSettingsDrawer({
   autoConnect,
   browserRtcReady,
@@ -46,10 +64,7 @@ export function RemoteControlSettingsDrawer({
   return (
     <details className="control-drawer">
       <summary>控制设置</summary>
-      <label className="control-field auto-connect-field">
-        <span className="control-field-label">进入设备自动连接</span>
-        <input type="checkbox" checked={autoConnect} onChange={(event) => onAutoConnectChange(event.target.checked)} />
-      </label>
+      <SwitchControl checked={autoConnect} label="进入设备自动连接" onChange={onAutoConnectChange} />
       {selectedDevice ? (
         <div className="control-field">
           <span className="control-field-label">正在占用该设备的控制端</span>

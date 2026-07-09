@@ -39,6 +39,7 @@ export interface RemoteControlPageProps {
   canReadLocalClipboard: boolean;
   canReconnectRemote: boolean;
   canSendClipboardText: boolean;
+  browserWebRtcUnavailableReason: string;
   candidatePairSummary: string;
   clipboardPreviewLabel: string;
   clipboardStatusLabel: string;

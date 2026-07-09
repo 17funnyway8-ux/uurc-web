@@ -166,9 +166,11 @@
   aspect-ratio: auto;
 }
 
-/* 全屏：包含命令栏的容器铺满整个视口，画面填满，命令栏悬浮在画面顶部居中（可拖动）。
-   用 class（由 isFullscreen 状态驱动）而非 :fullscreen 伪类，兼容性更可靠。 */
+/* 网页内全屏：只覆盖当前页面视口，不触发浏览器/桌面级 Fullscreen API。 */
 .control-stage-frame--fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
   width: 100vw;
   height: 100vh;
   background: #000;

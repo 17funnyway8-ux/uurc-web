@@ -3,6 +3,7 @@ import { Info, TriangleAlert } from "lucide-react";
 import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
 
 export function RemoteControlWarnings({
+  browserWebRtcUnavailableReason,
   forceJoin,
   normalJoinTakeoverHint,
   occupiedBySelfClient,
@@ -13,6 +14,7 @@ export function RemoteControlWarnings({
   signalGatewayErrorHint,
 }: Pick<
   RemoteControlPageProps,
+  | "browserWebRtcUnavailableReason"
   | "forceJoin"
   | "normalJoinTakeoverHint"
   | "occupiedBySelfClient"
@@ -24,6 +26,12 @@ export function RemoteControlWarnings({
 >) {
   return (
     <>
+      {browserWebRtcUnavailableReason ? (
+        <div className="occupancy-callout takeover">
+          <TriangleAlert size={17} />
+          <span>{browserWebRtcUnavailableReason}</span>
+        </div>
+      ) : null}
       {occupiedBySelfClient ? (
         <div className="occupancy-callout info">
           <Info size={17} />

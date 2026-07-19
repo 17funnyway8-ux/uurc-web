@@ -880,12 +880,13 @@ describe("App console", () => {
     await waitFor(() => {
       expect(requestLog.filter((call) => call.path === "/api/remote/signal/control")).toHaveLength(1);
     });
+    await user.click(screen.getByRole("tab", { name: "状态" }));
     await user.click(screen.getByRole("checkbox", { name: "自动重连" }));
 
     TestPeerConnection.closeDataChannel("CONTROL_DATA_CHANNEL");
 
     await screen.findByText("控制连接已断开");
-    const reconnectButton = screen.getByRole("button", { name: "重新连接" });
+    const reconnectButton = screen.getByRole("button", { name: "立即重连" });
     expect(reconnectButton).toBeEnabled();
 
     await user.click(reconnectButton);

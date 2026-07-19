@@ -487,12 +487,11 @@ describe("App console", () => {
 
     await openOfficeMacControl(user, { waitForReady: false });
     await user.click(getPrimaryAction("开始连接"));
+    await user.click(await screen.findByRole("button", { name: "接管控制" }));
 
     await waitFor(() => {
       expect(document.body.textContent).toContain("服务端拒绝加入房间");
     });
-    // 占用者非本人时，提示合并到占用条：告知可点「接管并开始连接」强制接管。
-    expect(document.body.textContent).toContain("接管并开始连接");
     expect(screen.queryByRole("button", { name: "打开远控画面" })).not.toBeInTheDocument();
   });
 

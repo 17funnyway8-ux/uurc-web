@@ -1,4 +1,36 @@
-import type { UuDevice } from "@uurc/shared/types";
+import type { UuDevice, UuDeviceGroups } from "@uurc/shared/types";
+
+export type DeviceCategory = "desktop" | "mobile" | "tv";
+
+export interface CategorizedDevice {
+  device: UuDevice;
+  category: DeviceCategory;
+  categoryLabel: string;
+}
+
+const CATEGORY_LABELS: Record<DeviceCategory, string> = {
+  desktop: "桌面端",
+  mobile: "移动端",
+  tv: "TV",
+};
+
+// flattenDeviceGroups() 按 UU API 的三个字段分组返回，单个 UuDevice 上没有类别字段；
+// 新版设备列表按在线/离线平铺展示、类别只作为行内说明文字，因此在合并时把类别信息一并打上标签。
+export function categorizeDeviceGroups(groups: UuDeviceGroups): CategorizedDevice[] {
+  return [
+    ...groups.desktopDevices.map((device) => ({
+      device,
+      category: "desktop" as const,
+      categoryLabel: CATEGORY_LABELS.desktop,
+    })),
+    ...groups.mobileDevices.map((device) => ({
+      device,
+      category: "mobile" as const,
+      categoryLabel: CATEGORY_LABELS.mobile,
+    })),
+    ...groups.tvDevices.map((device) => ({ device, category: "tv" as const, categoryLabel: CATEGORY_LABELS.tv })),
+  ];
+}
 
 // 把 UU 返回的英文/大写连接状态映射成中文；未知状态原样兜底。
 const CONNECTION_STATUS_LABELS: Record<string, string> = {

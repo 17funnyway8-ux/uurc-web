@@ -16,9 +16,11 @@ import {
   type DecodedStreamerCursorShape,
 } from "@uurc/shared/streamer/controlChannel";
 import {
+  STREAMER_CLIPBOARD_FORMAT_NAMES,
   STREAMER_CLIPBOARD_RESULTS,
+  decodeStreamerClipboardV4Message,
   decodeStreamerClipboardTextChangeRequest,
-  encodeStreamerClipboardTextChangeRequest,
+  encodeStreamerClipboardFormatDataAskRequest,
 } from "@uurc/shared/streamer/clipboard";
 import {
   buildStreamerKeyboardInputMessage,
@@ -824,13 +826,12 @@ describe("BrowserRemoteSession", () => {
     ]);
   });
 
-  it("sends Clipboard v3 text unchanged and resolves only after the matching success response", async () => {
+  it("sends Clipboard v3 text unchanged and resolves after the text channel accepts it", async () => {
     const nowMs = 1_752_938_123_456;
     const { session, fileChannel, textChannel } = await startClipboardSession({ now: () => nowMs });
     const clipboardText = "  first line\n\u7b2c\u4e8c\u884c \ud83d\udc4b\n";
 
-    const send = session.sendClipboardText(clipboardText);
-    await flushMicrotasks();
+    await expect(session.sendClipboardText(clipboardText)).resolves.toBeUndefined();
 
     expect(textChannel.sent).toHaveLength(1);
     expect(fileChannel.sent).toHaveLength(0);
@@ -843,30 +844,6 @@ describe("BrowserRemoteSession", () => {
       formatId: 1,
       text: clipboardText,
     });
-
-    let settled = false;
-    void send.then(() => {
-      settled = true;
-    });
-    await flushMicrotasks();
-    expect(settled).toBe(false);
-
-    textChannel.emitMessage(clipboardTextChangeResponse(1n, STREAMER_CLIPBOARD_RESULTS.succeeded).buffer);
-    await expect(send).resolves.toBeUndefined();
-    expect(settled).toBe(true);
-  });
-
-  it("also accepts a clipboard response on the file channel", async () => {
-    const { session, fileChannel, textChannel } = await startClipboardSession();
-    const send = session.sendClipboardText("file-channel response");
-    await flushMicrotasks();
-    const request = decodeStreamerClipboardTextChangeRequest(textChannel.sent[0] as Uint8Array)!;
-
-    fileChannel.emitMessage(
-      clipboardTextChangeResponse(request.requestId, STREAMER_CLIPBOARD_RESULTS.succeeded).buffer,
-    );
-
-    await expect(send).resolves.toBeUndefined();
   });
 
   it("preserves empty, whitespace-only, and Unicode clipboard values", async () => {
@@ -874,197 +851,402 @@ describe("BrowserRemoteSession", () => {
     const values = ["", " \n\t ", "\u526a\u8d34\u677f \ud83d\udc4b"];
 
     for (const [index, value] of values.entries()) {
-      const send = session.sendClipboardText(value);
-      await flushMicrotasks();
+      await session.sendClipboardText(value);
       const request = decodeStreamerClipboardTextChangeRequest(textChannel.sent[index] as Uint8Array);
       expect(request?.text).toBe(value);
-      textChannel.emitMessage(
-        clipboardTextChangeResponse(request!.requestId, STREAMER_CLIPBOARD_RESULTS.succeeded).buffer,
-      );
-      await expect(send).resolves.toBeUndefined();
     }
   });
 
-  it("rejects failed and unspecified clipboard responses and retries the same text", async () => {
+  it("re-sends an unchanged local clipboard value when explicitly requested", async () => {
     const { session, textChannel } = await startClipboardSession();
-    const firstSend = session.sendClipboardText("retry me");
-    await flushMicrotasks();
-    const firstRequest = decodeStreamerClipboardTextChangeRequest(textChannel.sent[0] as Uint8Array)!;
-
-    textChannel.emitMessage(
-      clipboardTextChangeResponse(firstRequest.requestId, STREAMER_CLIPBOARD_RESULTS.failed).buffer,
-    );
-    await expect(firstSend).rejects.toThrow("\u8fdc\u7aef\u62d2\u7edd\u66f4\u65b0\u526a\u8d34\u677f");
-
-    const retry = session.sendClipboardText("retry me");
-    await flushMicrotasks();
-    const retryRequest = decodeStreamerClipboardTextChangeRequest(textChannel.sent[1] as Uint8Array)!;
-    expect(retryRequest.requestId).not.toBe(firstRequest.requestId);
-    expect(retryRequest.text).toBe("retry me");
-
-    textChannel.emitMessage(
-      clipboardTextChangeResponse(retryRequest.requestId, STREAMER_CLIPBOARD_RESULTS.unspecified).buffer,
-    );
-    await expect(retry).rejects.toThrow("\u8fdc\u7aef\u672a\u786e\u8ba4\u526a\u8d34\u677f\u66f4\u65b0");
+    await session.sendClipboardText("same value");
+    await session.sendClipboardText("same value");
+    expect(textChannel.sent).toHaveLength(2);
   });
 
-  it("ignores unknown responses while keeping the matching clipboard request pending", async () => {
+  it("rejects a local clipboard send when the text channel is closed", async () => {
     const { session, textChannel } = await startClipboardSession();
-    const send = session.sendClipboardText("match by request id");
-    await flushMicrotasks();
-    const request = decodeStreamerClipboardTextChangeRequest(textChannel.sent[0] as Uint8Array)!;
-    let settled = false;
-    void send.finally(() => {
-      settled = true;
-    });
-
-    textChannel.emitMessage(
-      clipboardTextChangeResponse(request.requestId + 50n, STREAMER_CLIPBOARD_RESULTS.succeeded).buffer,
-    );
-    await flushMicrotasks();
-    expect(settled).toBe(false);
-
-    textChannel.emitMessage(
-      clipboardTextChangeResponse(request.requestId, STREAMER_CLIPBOARD_RESULTS.succeeded).buffer,
-    );
-    await expect(send).resolves.toBeUndefined();
-    expect(session.getState().debugEvents).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          summary: "\u5ffd\u7565\u672a\u77e5\u6216\u5df2\u8fc7\u671f\u7684\u526a\u8d34\u677f\u54cd\u5e94",
-        }),
-      ]),
-    );
+    textChannel.close();
+    await expect(session.sendClipboardText("cannot send")).rejects.toThrow(/not open/);
   });
 
-  it("times out Clipboard v3 after five seconds, ignores the late response, and permits a retry", async () => {
+  it("requests the Mac UTF-8 clipboard format on TEXT and receives its data on FILE", async () => {
     vi.useFakeTimers();
     try {
-      const { session, textChannel } = await startClipboardSession();
-      const send = session.sendClipboardText("slow clipboard");
-      await flushMicrotasks();
-      const request = decodeStreamerClipboardTextChangeRequest(textChannel.sent[0] as Uint8Array)!;
-      const rejection = expect(send).rejects.toThrow(
-        "\u7b49\u5f85\u8fdc\u7aef\u786e\u8ba4\u526a\u8d34\u677f\u66f4\u65b0\u8d85\u65f6",
-      );
+      const received: string[] = [];
+      const nowMs = 1_752_938_123_456;
+      const { session, fileChannel, textChannel } = await startClipboardSession({
+        now: () => nowMs,
+        onRemoteClipboard: (text) => received.push(text),
+      });
+      session.requestRemoteClipboardText();
 
-      await vi.advanceTimersByTimeAsync(4999);
-      expect(textChannel.sent).toHaveLength(1);
-      await vi.advanceTimersByTimeAsync(1);
-      await rejection;
+      expect(textChannel.sent).toEqual([
+        encodeStreamerClipboardFormatDataAskRequest({
+          sequence: 1,
+          timestampMs: Math.floor(nowMs / 1000),
+          requestId: 1,
+          blockKey: "uurc-web-1-1",
+          formatId: 0,
+          formatName: STREAMER_CLIPBOARD_FORMAT_NAMES.macUtf8Text,
+        }),
+      ]);
+      expect(fileChannel.sent).toHaveLength(0);
 
-      textChannel.emitMessage(
-        clipboardTextChangeResponse(request.requestId, STREAMER_CLIPBOARD_RESULTS.succeeded).buffer,
+      const remoteText = " remote \n\u526a\u8d34\u677f \ud83d\udc4b\0";
+      fileChannel.emitMessage(
+        clipboardDataBlockRequest({
+          sequence: 10,
+          requestId: 20,
+          blockKey: "uurc-web-1-1",
+          blockId: 1,
+          data: encodeUtf8(remoteText),
+        }).buffer,
       );
-      const retry = session.sendClipboardText("slow clipboard");
-      await flushMicrotasks();
-      const retryRequest = decodeStreamerClipboardTextChangeRequest(textChannel.sent[1] as Uint8Array)!;
-      expect(retryRequest.requestId).not.toBe(request.requestId);
-      textChannel.emitMessage(
-        clipboardTextChangeResponse(retryRequest.requestId, STREAMER_CLIPBOARD_RESULTS.succeeded).buffer,
-      );
-      await expect(retry).resolves.toBeUndefined();
-      session.close();
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(received).toEqual([" remote \n\u526a\u8d34\u677f \ud83d\udc4b"]);
+      expect(fileChannel.sent).toHaveLength(1);
+      expect(decodeStreamerClipboardV4Message(fileChannel.sent[0] as Uint8Array)).toMatchObject({
+        type: "data-block-confirm",
+        requestId: 20n,
+        blockKey: "uurc-web-1-1",
+        blockId: 1,
+        result: STREAMER_CLIPBOARD_RESULTS.succeeded,
+      });
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("delivers remote clipboard notifications from text and file channels once and suppresses echoes", async () => {
+  it("assembles multiple Clipboard v4 blocks in block-id order", async () => {
+    vi.useFakeTimers();
+    try {
+      const received: string[] = [];
+      const { session, fileChannel } = await startClipboardSession({
+        onRemoteClipboard: (text) => received.push(text),
+      });
+      session.requestRemoteClipboardText();
+      const bytes = encodeUtf8("first line\n\u7b2c\u4e8c\u884c\0");
+      const splitAt = 12;
+
+      fileChannel.emitMessage(
+        clipboardDataBlockRequest({
+          sequence: 11,
+          requestId: 31,
+          blockKey: "uurc-web-1-1",
+          blockId: 2,
+          data: bytes.subarray(splitAt),
+        }).buffer,
+      );
+      fileChannel.emitMessage(
+        clipboardDataBlockRequest({
+          sequence: 10,
+          requestId: 30,
+          blockKey: "uurc-web-1-1",
+          blockId: 1,
+          data: bytes.subarray(0, splitAt),
+        }).buffer,
+      );
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(received).toEqual(["first line\n\u7b2c\u4e8c\u884c"]);
+      expect(fileChannel.sent.map((payload) => decodeStreamerClipboardV4Message(payload as Uint8Array))).toEqual([
+        expect.objectContaining({ type: "data-block-confirm", blockId: 2 }),
+        expect.objectContaining({ type: "data-block-confirm", blockId: 1 }),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for a later block after acknowledging a full 128 KiB block", async () => {
+    vi.useFakeTimers();
+    try {
+      const received: string[] = [];
+      const { session, fileChannel } = await startClipboardSession({
+        onRemoteClipboard: (text) => received.push(text),
+      });
+      session.requestRemoteClipboardText();
+      const firstBlock = new Uint8Array(0x20000).fill(0x61);
+
+      fileChannel.emitMessage(
+        clipboardDataBlockRequest({
+          sequence: 10,
+          requestId: 30,
+          blockKey: "uurc-web-1-1",
+          blockId: 1,
+          data: firstBlock,
+        }).buffer,
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(received).toEqual([]);
+
+      fileChannel.emitMessage(
+        clipboardDataBlockRequest({
+          sequence: 11,
+          requestId: 31,
+          blockKey: "uurc-web-1-1",
+          blockId: 2,
+          data: encodeUtf8("tail"),
+        }).buffer,
+      );
+      expect(received).toEqual([`${"a".repeat(0x20000)}tail`]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("completes a single full 128 KiB Clipboard v4 block after the fallback window", async () => {
+    vi.useFakeTimers();
+    try {
+      const received: string[] = [];
+      const { session, fileChannel } = await startClipboardSession({
+        onRemoteClipboard: (text) => received.push(text),
+      });
+      session.requestRemoteClipboardText();
+      fileChannel.emitMessage(
+        clipboardDataBlockRequest({
+          sequence: 10,
+          requestId: 30,
+          blockKey: "uurc-web-1-1",
+          blockId: 1,
+          data: new Uint8Array(0x20000).fill(0x61),
+        }).buffer,
+      );
+
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(received).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(received).toEqual(["a".repeat(0x20000)]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("renews the read timeout while multiple full Clipboard v4 blocks make progress", async () => {
+    vi.useFakeTimers();
+    try {
+      const received: string[] = [];
+      const { session, fileChannel } = await startClipboardSession({
+        onRemoteClipboard: (text) => received.push(text),
+      });
+      session.requestRemoteClipboardText();
+      for (let blockId = 1; blockId <= 3; blockId += 1) {
+        fileChannel.emitMessage(
+          clipboardDataBlockRequest({
+            sequence: 10 + blockId,
+            requestId: 30 + blockId,
+            blockKey: "uurc-web-1-1",
+            blockId,
+            data: new Uint8Array(0x20000).fill(0x60 + blockId),
+          }).buffer,
+        );
+        if (blockId < 3) await vi.advanceTimersByTimeAsync(1800);
+      }
+
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(received).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(received).toEqual([`${"a".repeat(0x20000)}${"b".repeat(0x20000)}${"c".repeat(0x20000)}`]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("synchronizes an empty clipboard from a zero-byte Clipboard v4 block", async () => {
     const received: string[] = [];
-    const { session, fileChannel, textChannel } = await startClipboardSession({
+    const { session, fileChannel } = await startClipboardSession({
       onRemoteClipboard: (text) => received.push(text),
     });
-    const remoteText = " remote \n\u526a\u8d34\u677f ";
-
-    textChannel.emitMessage(clipboardTextChangeNotification(40, 41, remoteText).buffer);
-    fileChannel.emitMessage(clipboardTextChangeNotification(41, 42, remoteText).buffer);
-    expect(received).toEqual([remoteText]);
-
-    const localText = "local echo";
-    const send = session.sendClipboardText(localText);
-    await flushMicrotasks();
-    const request = decodeStreamerClipboardTextChangeRequest(textChannel.sent[0] as Uint8Array)!;
-    fileChannel.emitMessage(clipboardTextChangeNotification(42, 43, localText).buffer);
-    expect(received).toEqual([remoteText]);
-
-    textChannel.emitMessage(
-      clipboardTextChangeResponse(request.requestId, STREAMER_CLIPBOARD_RESULTS.succeeded).buffer,
+    session.requestRemoteClipboardText();
+    fileChannel.emitMessage(
+      clipboardDataBlockRequest({
+        sequence: 10,
+        requestId: 30,
+        blockKey: "uurc-web-1-1",
+        blockId: 1,
+        data: new Uint8Array(),
+      }).buffer,
     );
-    await send;
-    textChannel.emitMessage(clipboardTextChangeNotification(43, 44, localText).buffer);
-    expect(received).toEqual([remoteText]);
-
-    textChannel.emitMessage(clipboardTextChangeNotification(44, 45, "").buffer);
-    expect(received).toEqual([remoteText, ""]);
+    expect(received).toEqual([""]);
   });
 
-  it("receives clipboard responses and notifications from a remote-created text channel as Blob data", async () => {
-    const received: string[] = [];
-    const { peer, session, textChannel } = await startClipboardSession({
-      onRemoteClipboard: (text) => received.push(text),
-    });
-    const incomingTextChannel = peer.emitIncomingDataChannel(STREAMER_DATA_CHANNEL_LABELS.text);
-    const send = session.sendClipboardText("local clipboard");
-    await flushMicrotasks();
-    const request = decodeStreamerClipboardTextChangeRequest(textChannel.sent[0] as Uint8Array)!;
-
-    incomingTextChannel.emitMessage(
-      blobFromBytes(clipboardTextChangeResponse(request.requestId, STREAMER_CLIPBOARD_RESULTS.succeeded)),
-    );
-    await expect(send).resolves.toBeUndefined();
-
-    incomingTextChannel.emitMessage(blobFromBytes(clipboardTextChangeNotification(70, 71, "remote clipboard")));
-    await vi.waitFor(() => expect(received).toEqual(["remote clipboard"]));
-
-    session.close();
-    expect(incomingTextChannel.closed).toBe(true);
-    expect(peer.ondatachannel).toBeNull();
+  it("suppresses a polled echo of text just sent to the remote clipboard", async () => {
+    vi.useFakeTimers();
+    try {
+      const received: string[] = [];
+      const { session, fileChannel } = await startClipboardSession({
+        onRemoteClipboard: (text) => received.push(text),
+      });
+      await session.sendClipboardText("local echo");
+      session.requestRemoteClipboardText();
+      fileChannel.emitMessage(
+        clipboardDataBlockRequest({
+          sequence: 10,
+          requestId: 20,
+          blockKey: "uurc-web-1-2",
+          blockId: 1,
+          data: encodeUtf8("local echo\0"),
+        }).buffer,
+      );
+      await vi.advanceTimersByTimeAsync(250);
+      expect(received).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("rejects pending clipboard RPCs when the session or text channel closes", async () => {
-    const first = await startClipboardSession();
-    const sessionSend = first.session.sendClipboardText("close session");
-    await flushMicrotasks();
-    const sessionRejection = expect(sessionSend).rejects.toMatchObject({ name: "AbortError" });
-    first.session.close();
-    await sessionRejection;
+  it("drops malformed Clipboard v4 text and permits the next poll", async () => {
+    vi.useFakeTimers();
+    try {
+      const received: string[] = [];
+      const { session, fileChannel, textChannel } = await startClipboardSession({
+        onRemoteClipboard: (text) => received.push(text),
+      });
+      session.requestRemoteClipboardText();
+      fileChannel.emitMessage(
+        clipboardDataBlockRequest({
+          sequence: 10,
+          requestId: 20,
+          blockKey: "uurc-web-1-1",
+          blockId: 1,
+          data: new Uint8Array([0xff]),
+        }).buffer,
+      );
+      await vi.advanceTimersByTimeAsync(250);
 
-    const second = await startClipboardSession();
-    const channelSend = second.session.sendClipboardText("close channel");
-    await flushMicrotasks();
-    const channelRejection = expect(channelSend).rejects.toMatchObject({ name: "AbortError" });
-    second.textChannel.close();
-    await channelRejection;
+      expect(received).toEqual([]);
+      session.requestRemoteClipboardText();
+      expect(textChannel.sent).toHaveLength(2);
+      expect(session.getState().debugEvents).toEqual(
+        expect.arrayContaining([expect.objectContaining({ summary: "远端剪贴板文本解码失败" })]),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("keeps clipboard text and encoded payload prefixes out of debug events", async () => {
-    const secret = "clipboard-secret-\u526a\u8d34\u677f";
-    const { session, fileChannel } = await startClipboardSession();
-    fileChannel.emitMessage(clipboardTextChangeNotification(50, 51, secret).buffer);
-    fileChannel.emitMessage(new TextEncoder().encode(`malformed-${secret}`).buffer);
+  it("times out an unanswered Clipboard v4 poll and permits a retry", async () => {
+    vi.useFakeTimers();
+    try {
+      const { session, textChannel } = await startClipboardSession();
+      session.requestRemoteClipboardText();
+      session.requestRemoteClipboardText();
+      expect(textChannel.sent).toHaveLength(1);
 
-    const events = session.getState().debugEvents;
-    const serialized = JSON.stringify(events);
-    expect(serialized).not.toContain(secret);
-    expect(events).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          summary: "收到远端剪贴板通知",
-          details: expect.objectContaining({
-            label: STREAMER_DATA_CHANNEL_LABELS.file,
-            messageType: "text-changed-notification",
-            requestId: "51",
-            timestampMs: expect.any(String),
-            byteLength: expect.any(Number),
-            textLength: secret.length,
+      await vi.advanceTimersByTimeAsync(5000);
+      session.requestRemoteClipboardText();
+      expect(textChannel.sent).toHaveLength(2);
+      expect(session.getState().debugEvents).toEqual(
+        expect.arrayContaining([expect.objectContaining({ summary: "读取远端剪贴板超时" })]),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels Clipboard v4 assembly when either clipboard channel closes", async () => {
+    vi.useFakeTimers();
+    try {
+      const received: string[] = [];
+      const { session, fileChannel } = await startClipboardSession({
+        onRemoteClipboard: (text) => received.push(text),
+      });
+      session.requestRemoteClipboardText();
+      fileChannel.close();
+      fileChannel.emitMessage(
+        clipboardDataBlockRequest({
+          sequence: 10,
+          requestId: 20,
+          blockKey: "uurc-web-1-1",
+          blockId: 1,
+          data: encodeUtf8("late\0"),
+        }).buffer,
+      );
+      await vi.advanceTimersByTimeAsync(500);
+      expect(received).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("receives Clipboard v4 blocks from a remote-created FILE channel as Blob data", async () => {
+    vi.useFakeTimers();
+    try {
+      const received: string[] = [];
+      const { peer, session, fileChannel } = await startClipboardSession({
+        onRemoteClipboard: (text) => received.push(text),
+      });
+      const incomingFileChannel = peer.emitIncomingDataChannel(STREAMER_DATA_CHANNEL_LABELS.file);
+      session.requestRemoteClipboardText();
+      incomingFileChannel.emitMessage(
+        blobFromBytes(
+          clipboardDataBlockRequest({
+            sequence: 10,
+            requestId: 20,
+            blockKey: "uurc-web-1-1",
+            blockId: 1,
+            data: encodeUtf8("remote clipboard\0"),
           }),
-        }),
-      ]),
-    );
-    expect(
-      events.some((event) => event.kind === "data_recv" && event.details && Object.hasOwn(event.details, "hexPrefix")),
-    ).toBe(false);
+        ),
+      );
+      await flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(250);
+      expect(received).toEqual(["remote clipboard"]);
+      expect(decodeStreamerClipboardV4Message(fileChannel.sent[0] as Uint8Array)).toMatchObject({
+        type: "data-block-confirm",
+        requestId: 20n,
+        blockId: 1,
+      });
+
+      session.close();
+      expect(incomingFileChannel.closed).toBe(true);
+      expect(peer.ondatachannel).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps Clipboard v4 text and encoded payload prefixes out of debug events", async () => {
+    vi.useFakeTimers();
+    try {
+      const secret = "clipboard-secret-\u526a\u8d34\u677f";
+      const { session, fileChannel } = await startClipboardSession();
+      session.requestRemoteClipboardText();
+      fileChannel.emitMessage(
+        clipboardDataBlockRequest({
+          sequence: 10,
+          requestId: 20,
+          blockKey: "uurc-web-1-1",
+          blockId: 1,
+          data: encodeUtf8(`${secret}\0`),
+        }).buffer,
+      );
+      await vi.advanceTimersByTimeAsync(250);
+
+      const events = session.getState().debugEvents;
+      expect(JSON.stringify(events)).not.toContain(secret);
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            summary: "远端剪贴板读取完成",
+            details: expect.objectContaining({
+              blockCount: 1,
+              byteLength: expect.any(Number),
+              textLength: secret.length,
+            }),
+          }),
+        ]),
+      );
+      expect(
+        events.some(
+          (event) => event.kind === "data_recv" && event.details && Object.hasOwn(event.details, "hexPrefix"),
+        ),
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("sends desktop mouse input on the App control channel", async () => {
@@ -2497,36 +2679,53 @@ async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
 }
 
-function clipboardTextChangeNotification(sequence: number, requestId: number, text: string): Uint8Array {
-  return encodeStreamerClipboardTextChangeRequest({
-    sequence,
-    timestampMs: sequence + 1,
-    requestId,
-    text,
-  });
+function clipboardDataBlockRequest(input: {
+  sequence: number;
+  requestId: number;
+  blockKey: string;
+  blockId: number;
+  data: Uint8Array;
+}): Uint8Array {
+  const header = protobufVarintField(1, input.requestId);
+  const block = [
+    ...protobufBytesField(1, new TextEncoder().encode(input.blockKey)),
+    ...(input.blockId === 0 ? [] : protobufVarintField(2, input.blockId)),
+    ...protobufBytesField(3, input.data),
+  ];
+  const clipboardRequest = protobufBytesField(3, new Uint8Array(block));
+  const rpcRequest = [
+    ...protobufBytesField(1, new Uint8Array(header)),
+    ...protobufBytesField(9, new Uint8Array(clipboardRequest)),
+  ];
+  return new Uint8Array([
+    ...protobufVarintField(1, input.sequence),
+    ...protobufVarintField(2, input.sequence + 1),
+    ...protobufBytesField(21, new Uint8Array(rpcRequest)),
+  ]);
 }
 
-function clipboardTextChangeResponse(requestId: bigint, result: number): Uint8Array {
-  if (requestId < 0n || requestId > 0x7fn || result < 0 || result > 0x7f) {
-    throw new RangeError("test Clipboard response fixture only supports one-byte varints");
-  }
-  return new Uint8Array([
-    0x08,
-    0x5b,
-    0x10,
-    0x5c,
-    0xb2,
-    0x01,
-    0x08,
-    0x0a,
-    0x02,
-    0x08,
-    Number(requestId),
-    0x32,
-    0x02,
-    0x08,
-    result,
-  ]);
+function encodeUtf8(text: string): Uint8Array {
+  return new TextEncoder().encode(text);
+}
+
+function protobufVarintField(tag: number, value: number): number[] {
+  return [...protobufVarint(tag * 8), ...protobufVarint(value)];
+}
+
+function protobufBytesField(tag: number, value: Uint8Array): number[] {
+  return [...protobufVarint(tag * 8 + 2), ...protobufVarint(value.byteLength), ...value];
+}
+
+function protobufVarint(value: number): number[] {
+  const bytes: number[] = [];
+  let remaining = value;
+  do {
+    let byte = remaining % 128;
+    remaining = Math.floor(remaining / 128);
+    if (remaining > 0) byte |= 0x80;
+    bytes.push(byte);
+  } while (remaining > 0);
+  return bytes;
 }
 
 function soacEvent(id: number, payload: unknown): RemoteSignalGatewayEvent {

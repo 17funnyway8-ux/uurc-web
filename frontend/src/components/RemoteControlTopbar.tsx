@@ -1,6 +1,7 @@
-import { CircleStop, LoaderCircle } from "lucide-react";
+import { ChevronLeft, CircleStop, LoaderCircle, PanelRight } from "lucide-react";
 
-import type { RemoteControlTopbarProps } from "../app/remoteControlPageProps.js";
+import type { RemoteControlTopbarProps, RemoteVideoSourcePanelProps } from "../app/remoteControlPageProps.js";
+import { RemoteScreenPicker } from "./RemoteScreenPicker.js";
 import { StatusPill } from "./StatusPill.js";
 
 export function RemoteControlTopbar({
@@ -12,31 +13,65 @@ export function RemoteControlTopbar({
   selectedDevice,
   selectedTargetLabel,
   signalGatewayDisplay,
-}: RemoteControlTopbarProps) {
+  screenPicker,
+  panelOpen,
+  onTogglePanel,
+}: RemoteControlTopbarProps & {
+  screenPicker: RemoteVideoSourcePanelProps;
+  panelOpen: boolean;
+  onTogglePanel: () => void;
+}) {
+  const stage = browserRemoteState.stage;
+  const negotiating = stage === "controlled" || stage === "offered";
+  const pillState = stage === "connected" ? "ready" : negotiating ? "connecting" : "idle";
+  const pillLabel = stage === "connected" ? "已连接" : negotiating ? "连接中" : signalGatewayDisplay;
+
   return (
     <header className="control-topbar">
-      <button className="secondary-button" onClick={onReturnToDevices} disabled={busy !== null}>
-        返回设备列表
+      <button
+        className="icon-button icon-button-dark"
+        onClick={onReturnToDevices}
+        disabled={busy !== null}
+        title="返回设备列表"
+        aria-label="返回设备列表"
+      >
+        <ChevronLeft size={16} />
       </button>
-      <div>
-        <h1>{selectedDevice?.alias ?? selectedTargetLabel}</h1>
-      </div>
-      <div className="topbar-actions">
-        <StatusPill state={browserRemoteState.stage === "connected" ? "ready" : "idle"}>
-          {browserRemoteState.stage === "connected" ? "已连接" : signalGatewayDisplay}
-        </StatusPill>
-        {canDisconnectRemote ? (
-          <button
-            className="danger-button"
-            onClick={onStopSignalGateway}
-            disabled={busy !== null}
-            title="断开连接，释放设备占用"
-          >
-            {busy === "signal-stop" ? <LoaderCircle className="spin" size={17} /> : <CircleStop size={17} />}
-            断开连接
-          </button>
-        ) : null}
-      </div>
+      <h1 className="control-topbar-title">{selectedDevice?.alias ?? selectedTargetLabel}</h1>
+      <StatusPill dark state={pillState}>
+        {pillLabel}
+      </StatusPill>
+      <span className="control-topbar-spacer" />
+      <RemoteScreenPicker {...screenPicker} />
+      <button
+        type="button"
+        className={`icon-button icon-button-dark${panelOpen ? " is-active" : ""}`}
+        onClick={onTogglePanel}
+        title="会话面板"
+        aria-label="切换会话面板"
+        aria-pressed={panelOpen}
+      >
+        <PanelRight size={14} />
+      </button>
+      {negotiating ? (
+        <button
+          className="secondary-button control-topbar-cancel"
+          onClick={onStopSignalGateway}
+          disabled={busy !== null}
+        >
+          取消
+        </button>
+      ) : canDisconnectRemote ? (
+        <button
+          className="control-topbar-disconnect"
+          onClick={onStopSignalGateway}
+          disabled={busy !== null}
+          title="断开连接，释放设备占用"
+        >
+          {busy === "signal-stop" ? <LoaderCircle className="spin" size={14} /> : <CircleStop size={14} />}
+          断开
+        </button>
+      ) : null}
     </header>
   );
 }

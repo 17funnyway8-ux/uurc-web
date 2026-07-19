@@ -1,5 +1,3 @@
-import { Monitor } from "lucide-react";
-
 import type { RemoteVideoSourcePanelProps } from "../app/remoteControlPageProps.js";
 
 export function RemoteVideoSourcePanel({
@@ -10,15 +8,8 @@ export function RemoteVideoSourcePanel({
   const hasSources = remoteVideoSources.length > 0;
 
   return (
-    <section className="control-insight-panel" aria-label="画面源">
-      <header>
-        <div>
-          <Monitor size={17} />
-          <h2>画面源</h2>
-        </div>
-        <span>{hasSources ? `${remoteVideoSources.length} 路` : "等待画面"}</span>
-      </header>
-      <p>{hasSources ? "选择要显示的画面" : "连接后显示可用画面"}</p>
+    <section className="video-source-panel" aria-label="画面源">
+      <div className="video-source-caption">{hasSources ? `画面源 · ${remoteVideoSources.length} 路` : "画面源"}</div>
       <div className="video-source-list">
         {hasSources ? (
           remoteVideoSources.map((source) => (

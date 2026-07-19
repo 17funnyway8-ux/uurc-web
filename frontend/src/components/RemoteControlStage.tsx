@@ -1,5 +1,6 @@
 import {
   Ban,
+  Check,
   CircleHelp,
   Crosshair,
   Hand,
@@ -15,9 +16,11 @@ import {
 } from "lucide-react";
 
 import type { RemoteControlStageProps } from "../app/remoteControlPageProps.js";
+import { getConnectingStageSteps } from "../remote/remoteControlUiModel.js";
 import { RemoteVideoTile } from "./RemoteVideoTile.js";
 
 export function RemoteControlStage({
+  browserRemoteState,
   browserStageLabel,
   hasRemoteVideo,
   inputControlActive,
@@ -90,6 +93,15 @@ export function RemoteControlStage({
           </div>
           <RemoteCursorOverlay />
         </>
+      ) : stageStatusLabel === "连接中…" ? (
+        <>
+          <div className="stage-grid" />
+          <div className="stage-center">
+            <span className="stage-spinner" aria-hidden="true" />
+            <strong>正在连接 {selectedDevice?.alias ?? "设备"}…</strong>
+            <ConnectingSteps browserRemoteState={browserRemoteState} hasRemoteVideo={hasRemoteVideo} />
+          </div>
+        </>
       ) : (
         <>
           <div className="stage-grid" />
@@ -100,6 +112,26 @@ export function RemoteControlStage({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function ConnectingSteps({
+  browserRemoteState,
+  hasRemoteVideo,
+}: Pick<RemoteControlStageProps, "browserRemoteState" | "hasRemoteVideo">) {
+  const steps = getConnectingStageSteps(browserRemoteState.stage, hasRemoteVideo);
+  return (
+    <div className="connecting-steps">
+      {steps.map((step, index) => (
+        <span key={step.key} className="connecting-steps-item">
+          {index > 0 ? <span className="connecting-steps-arrow">→</span> : null}
+          <span className={`connecting-steps-label connecting-steps-${step.status}`}>
+            {step.status === "done" ? <Check size={12} /> : null}
+            {step.label}
+          </span>
+        </span>
+      ))}
     </div>
   );
 }

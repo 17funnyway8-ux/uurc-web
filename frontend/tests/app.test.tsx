@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  STREAMER_CLIENT_TYPES,
   STREAMER_CONTROL_CONNECT_TYPES,
   buildDefaultStreamerConnectOptionsBase64,
 } from "@uurc/shared/streamer/connectOptions";
@@ -248,6 +249,7 @@ describe("App console", () => {
     expect(controlCall?.body).toMatchObject({
       appDataBase64: buildDefaultStreamerConnectOptionsBase64({
         deviceId: "web-device-1",
+        clientType: STREAMER_CLIENT_TYPES.Client_MAC,
         controlConnectType: STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_Assistance,
         cursorCapture: false,
       }),

@@ -19,11 +19,25 @@
   --warn-soft: #fffbeb;
   --danger: #dc2626;
   --danger-soft: #fef2f2;
+  --success-border: #bbf7d0;
+  --warn-border: #fde68a;
+  --danger-border: #fecaca;
   --stage: #0a0a0a;
+
+  /* 中性灰阶（区别于 --text-muted/--text-dim 的偏蓝灰阶）：新版侧栏/命令面板/会话
+     周边浅色界面使用，避免与旧界面尚未迁移的部分混用出现两套灰色体系。 */
+  --gray-600: #666666;
+  --gray-500: #777777;
+  --gray-450: #888888;
+  --gray-400: #999999;
+  --gray-350: #aaaaaa;
+  --gray-300: #bbbbbb;
 
   --radius-sm: 6px;
   --radius: 8px;
+  --radius-xl: 10px;
   --radius-lg: 12px;
+  --radius-full: 999px;
 
   color: var(--text);
   background: var(--bg);

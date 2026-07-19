@@ -44,6 +44,7 @@ export interface RemoteControlViewProps {
   browserRtcReady: boolean;
   browserStageLabel: string;
   busy: BusyAction;
+  autoReconnectAttemptCount: number;
   autoReconnectEnabled: boolean;
   autoReconnectLabel: string;
   canDisconnectRemote: boolean;
@@ -178,6 +179,7 @@ export type RemoteControlTopbarProps = Pick<
 
 export type RemoteCommandBarProps = Pick<
   RemoteControlViewProps,
+  | "autoReconnectAttemptCount"
   | "busy"
   | "canReconnectRemote"
   | "controlChannelState"
@@ -198,6 +200,7 @@ export type RemoteCommandBarProps = Pick<
 
 export type RemoteControlStageProps = Pick<
   RemoteControlViewProps,
+  | "browserRemoteState"
   | "browserStageLabel"
   | "hasRemoteVideo"
   | "inputControlActive"
@@ -355,6 +358,7 @@ export function createRemoteControlPageProps(props: RemoteControlViewProps): Rem
       "signalGatewayDisplay",
     ]),
     commandBar: pick(props, [
+      "autoReconnectAttemptCount",
       "busy",
       "canReconnectRemote",
       "controlChannelState",
@@ -373,6 +377,7 @@ export function createRemoteControlPageProps(props: RemoteControlViewProps): Rem
       "remoteStageViewMode",
     ]),
     stage: pick(props, [
+      "browserRemoteState",
       "browserStageLabel",
       "hasRemoteVideo",
       "inputControlActive",

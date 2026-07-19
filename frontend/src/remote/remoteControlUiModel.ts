@@ -736,6 +736,28 @@ export function formatBrowserRemoteStage(stage: BrowserRemoteSessionState["stage
   }
 }
 
+export interface ConnectingStageStep {
+  key: "signal" | "negotiate" | "video";
+  label: string;
+  status: "done" | "active" | "pending";
+}
+
+// 连接中的三段式提示：信令网关先于浏览器 RTC 协商建立，一旦进入 controlled/offered/connected
+// 任一阶段就说明信令已经连通，因此“信令已连接”这一步不需要单独的信令网关状态即可推导。
+export function getConnectingStageSteps(
+  browserStage: BrowserRemoteSessionState["stage"],
+  hasRemoteVideo: boolean,
+): ConnectingStageStep[] {
+  const negotiateDone = browserStage === "connected";
+  const videoDone = negotiateDone && hasRemoteVideo;
+
+  return [
+    { key: "signal", label: "信令已连接", status: "done" },
+    { key: "negotiate", label: "媒体协商中", status: negotiateDone ? "done" : "active" },
+    { key: "video", label: "等待画面", status: videoDone ? "done" : negotiateDone ? "active" : "pending" },
+  ];
+}
+
 export function formatConnectionPath(path: BrowserRemoteSessionState["connectionPath"]): string {
   switch (path) {
     case "lan":

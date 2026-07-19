@@ -12,7 +12,6 @@
 }
 
 @media (max-width: 780px) {
-  .app-shell,
   .product-shell,
   .control-shell,
   .auth-product-shell {

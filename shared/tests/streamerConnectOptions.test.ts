@@ -234,6 +234,14 @@ describe("streamer connect options", () => {
     ).toBe(
       "CAEQ////////////ARoQCAIQAxgBIAEqBgiADxC4CCIMCDwQARiAHiDwECgBMggIgA8QuAgYPEACSgx3ZWItZGV2aWNlLTFQAloOCAIQARgCIAIwAjgCQANiBjQuMjMuMA==",
     );
+    expect(
+      buildDefaultStreamerConnectOptionsBase64({
+        deviceId: "web-device-1",
+        clientType: STREAMER_CLIENT_TYPES.Client_MAC,
+      }),
+    ).toBe(
+      "CAEQ////////////ARoQCAIQAxgBIAEqBgiADxC4CCIMCDwQARiAHiDwECgBMggIgA8QuAgYPEAESgx3ZWItZGV2aWNlLTFQAVoOCAIQARgCIAIwAjgCQANiBjQuMjMuMA==",
+    );
   });
 
   it("omits the ConnectOptions type_value tag by default for normal desktop control", () => {

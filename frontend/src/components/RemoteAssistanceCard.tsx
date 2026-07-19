@@ -1,4 +1,4 @@
-import { Handshake, KeyRound, LoaderCircle } from "lucide-react";
+import { Handshake, Info, KeyRound, LoaderCircle } from "lucide-react";
 
 export function RemoteAssistanceCard({
   busy,
@@ -21,19 +21,19 @@ export function RemoteAssistanceCard({
   const disabled = busy !== null || connectId.trim().length === 0;
 
   return (
-    <section className="remote-assistance-card" aria-labelledby="remote-assistance-title">
-      <div className="remote-assistance-heading">
-        <span className="remote-assistance-icon" aria-hidden="true">
-          <Handshake size={18} />
+    <section aria-labelledby="remote-assistance-title">
+      <div className="assistance-header">
+        <span className="assistance-icon" aria-hidden="true">
+          <Handshake size={19} />
         </span>
         <div>
-          <h3 id="remote-assistance-title">远控伙伴设备</h3>
+          <h2 id="remote-assistance-title">远控伙伴设备</h2>
           <p>通过伙伴的设备 ID 和设备验证码发起远程协助。</p>
         </div>
       </div>
 
       <form
-        className="remote-assistance-form"
+        className="assistance-form"
         onSubmit={(event) => {
           event.preventDefault();
           if (!disabled) onStart();
@@ -52,26 +52,31 @@ export function RemoteAssistanceCard({
         </label>
 
         <label>
-          <span>伙伴的设备验证码</span>
+          <span>
+            设备验证码 <span className="assistance-optional">· 可留空</span>
+          </span>
           <input
             autoCapitalize="characters"
             autoComplete="one-time-code"
             onChange={(event) => onConnectCodeChange(event.target.value.trim())}
-            placeholder="可留空，由对方确认"
+            placeholder="留空时由对方在设备上确认"
             spellCheck={false}
             value={connectCode}
           />
         </label>
 
-        <button className="primary-action-button remote-assistance-submit" disabled={disabled} type="submit">
+        <button className="primary-action-button" disabled={disabled} type="submit">
           {submitting ? <LoaderCircle className="spin" size={17} /> : <KeyRound size={17} />}
-          连接
+          发起连接
         </button>
-      </form>
 
-      <p className="remote-assistance-note">
-        {notice || "验证码可留空：留空时对方需在其设备上点「确认」；若对方设置了验证码，则需向对方索取后填入。"}
-      </p>
+        <div className="assistance-hint">
+          <Info size={13} aria-hidden="true" />
+          <span>
+            {notice || "验证码留空：对方需在其设备上点「确认」；若对方设置了验证码，向对方索取后填入即可直连。"}
+          </span>
+        </div>
+      </form>
     </section>
   );
 }

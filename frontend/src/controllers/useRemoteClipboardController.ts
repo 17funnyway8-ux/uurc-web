@@ -4,10 +4,14 @@ import { getLocalClipboardAccessIssue, readLocalClipboardText, writeLocalClipboa
 import type { BrowserRemoteSession, BrowserRemoteSessionState } from "../remote/browserRemoteSession.js";
 
 const RESUME_READ_THROTTLE_MS = 500;
+const REMOTE_CLIPBOARD_INITIAL_POLL_DELAY_MS = 1200;
+const REMOTE_CLIPBOARD_POLL_INTERVAL_MS = 2000;
 
 interface UseRemoteClipboardControllerOptions {
   browserSessionRef: RefObject<BrowserRemoteSession | null>;
   sessionKey: string;
+  fileChannelState: RTCDataChannelState;
+  remoteClipboardReadEnabled: boolean;
   textChannelState: RTCDataChannelState;
   onError(message: string): void;
   onSessionStateChange(state: BrowserRemoteSessionState): void;
@@ -33,6 +37,8 @@ interface RemoteClipboardUiState {
 export function useRemoteClipboardController({
   browserSessionRef,
   sessionKey,
+  fileChannelState,
+  remoteClipboardReadEnabled,
   textChannelState,
   onError,
   onSessionStateChange,
@@ -52,13 +58,13 @@ export function useRemoteClipboardController({
   const synchronizedTextRef = useRef<{ hasValue: boolean; text: string }>({ hasValue: false, text: "" });
   const lastResumeReadAtRef = useRef(0);
   const previousSessionKeyRef = useRef(sessionKey);
-  const textChannelOpenedRef = useRef(false);
-  const textChannelStateRef = useRef(textChannelState);
-  textChannelStateRef.current = textChannelState;
+  const clipboardChannelsOpenedRef = useRef(false);
+  const clipboardChannelsOpenRef = useRef(false);
+  clipboardChannelsOpenRef.current = textChannelState === "open" && fileChannelState === "open";
 
   const readIssue = getLocalClipboardAccessIssue("read");
   const writeIssue = getLocalClipboardAccessIssue("write");
-  const clipboardSyncAvailable = textChannelState === "open" && !readIssue && !writeIssue;
+  const clipboardSyncAvailable = clipboardChannelsOpenRef.current && !readIssue && !writeIssue;
 
   const resetClipboardSession = useCallback((): void => {
     generationRef.current += 1;
@@ -73,9 +79,10 @@ export function useRemoteClipboardController({
     remoteWriteTailRef.current = Promise.resolve();
     synchronizedTextRef.current = { hasValue: false, text: "" };
     lastResumeReadAtRef.current = 0;
-    textChannelOpenedRef.current = false;
+    clipboardChannelsOpenedRef.current = false;
+    browserSessionRef.current?.cancelRemoteClipboardRead();
     setState(createInitialState(enabled));
-  }, []);
+  }, [browserSessionRef]);
 
   useEffect(() => {
     if (previousSessionKeyRef.current === sessionKey) return;
@@ -95,14 +102,14 @@ export function useRemoteClipboardController({
       sendSequenceRef.current += 1;
       remoteWriteSequenceRef.current += 1;
       remoteWriteTailRef.current = Promise.resolve();
-      textChannelOpenedRef.current = false;
+      clipboardChannelsOpenedRef.current = false;
     };
   }, []);
 
   const sendClipboardText = useCallback(
     async (text: string): Promise<void> => {
       const session = browserSessionRef.current;
-      if (!session || textChannelStateRef.current !== "open") {
+      if (!session || !clipboardChannelsOpenRef.current) {
         setState((current) => ({ ...current, sending: false, localStatus: "剪贴板连接尚未就绪" }));
         return;
       }
@@ -204,16 +211,52 @@ export function useRemoteClipboardController({
   );
 
   useEffect(() => {
-    if (textChannelState === "open") {
-      if (textChannelOpenedRef.current) return;
-      textChannelOpenedRef.current = true;
+    const channelsOpen = textChannelState === "open" && fileChannelState === "open";
+    if (channelsOpen) {
+      if (clipboardChannelsOpenedRef.current) return;
+      clipboardChannelsOpenedRef.current = true;
       if (syncEnabledRef.current && !readIssue) void readClipboard("resume", true);
       return;
     }
-    if (!textChannelOpenedRef.current) return;
-    textChannelOpenedRef.current = false;
+    if (!clipboardChannelsOpenedRef.current) return;
+    clipboardChannelsOpenedRef.current = false;
     resetClipboardSession();
-  }, [readClipboard, readIssue, resetClipboardSession, sessionKey, textChannelState]);
+  }, [fileChannelState, readClipboard, readIssue, resetClipboardSession, sessionKey, textChannelState]);
+
+  useEffect(() => {
+    if (!state.enabled || !remoteClipboardReadEnabled || textChannelState !== "open" || fileChannelState !== "open") {
+      return;
+    }
+    const session = browserSessionRef.current;
+    if (!session) return;
+
+    let pollTimer: ReturnType<typeof setInterval> | undefined;
+    const requestRemoteClipboard = (): void => {
+      if (
+        browserSessionRef.current !== session ||
+        !syncEnabledRef.current ||
+        readInFlightRef.current ||
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      try {
+        session.requestRemoteClipboardText();
+      } catch {
+        // Channel state changes are reflected by the session state callback and retried after reconnect.
+      }
+    };
+    const initialTimer = setTimeout(() => {
+      requestRemoteClipboard();
+      pollTimer = setInterval(requestRemoteClipboard, REMOTE_CLIPBOARD_POLL_INTERVAL_MS);
+    }, REMOTE_CLIPBOARD_INITIAL_POLL_DELAY_MS);
+
+    return () => {
+      clearTimeout(initialTimer);
+      if (pollTimer !== undefined) clearInterval(pollTimer);
+      session.cancelRemoteClipboardRead();
+    };
+  }, [browserSessionRef, fileChannelState, remoteClipboardReadEnabled, sessionKey, state.enabled, textChannelState]);
 
   useEffect(() => {
     if (!state.enabled) return;
@@ -246,6 +289,7 @@ export function useRemoteClipboardController({
     sendSequenceRef.current += 1;
     remoteWriteSequenceRef.current += 1;
     remoteWriteTailRef.current = Promise.resolve();
+    if (!enabled) browserSessionRef.current?.cancelRemoteClipboardRead();
     setState((current) => ({
       ...current,
       enabled,
@@ -348,9 +392,12 @@ export function useRemoteClipboardController({
   }
 
   const canReadLocalClipboard =
-    !state.reading && !readIssue && textChannelState === "open" && browserSessionRef.current !== null;
+    !state.reading && !readIssue && clipboardChannelsOpenRef.current && browserSessionRef.current !== null;
   const canSendClipboardText =
-    state.localText !== null && !state.sending && textChannelState === "open" && browserSessionRef.current !== null;
+    state.localText !== null &&
+    !state.sending &&
+    clipboardChannelsOpenRef.current &&
+    browserSessionRef.current !== null;
   const remoteClipboardPendingText = state.remoteFallback?.text ?? null;
 
   return {

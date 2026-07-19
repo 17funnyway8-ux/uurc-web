@@ -1,6 +1,7 @@
-import { Clipboard, ClipboardCheck, Copy, RefreshCw } from "lucide-react";
+import { ClipboardCheck, Copy, RefreshCw } from "lucide-react";
 
 import type { RemoteClipboardPanelProps } from "../app/remoteControlPageProps.js";
+import { Switch } from "./ui/Switch.js";
 
 export function RemoteClipboardPanel({
   canCopyRemoteClipboard,
@@ -8,7 +9,6 @@ export function RemoteClipboardPanel({
   canSendClipboardText,
   clipboardSyncAvailable,
   clipboardSyncEnabled,
-  clipboardPreviewLabel,
   localClipboardStatusLabel,
   remoteClipboardPendingText,
   remoteClipboardStatusLabel,
@@ -18,27 +18,19 @@ export function RemoteClipboardPanel({
   onSendClipboardText,
 }: RemoteClipboardPanelProps) {
   return (
-    <section className="control-insight-panel" aria-label="剪贴板">
-      <header>
-        <div>
-          <Clipboard size={17} />
-          <h2>剪贴板</h2>
-        </div>
-        <span>{clipboardPreviewLabel}</span>
-      </header>
-      <label className={`switch-control switch-control-inline${clipboardSyncAvailable ? "" : " is-disabled"}`}>
-        <input
-          type="checkbox"
-          checked={clipboardSyncEnabled}
-          disabled={!clipboardSyncAvailable}
-          onChange={(event) => onClipboardSyncEnabledChange(event.target.checked)}
-        />
-        <span>
-          <RefreshCw size={15} />
-          同步剪贴板
-        </span>
-        <i aria-hidden="true" />
-      </label>
+    <section className="metric-panel" aria-label="剪贴板">
+      <Switch
+        inline
+        checked={clipboardSyncEnabled}
+        disabled={!clipboardSyncAvailable}
+        onChange={onClipboardSyncEnabledChange}
+        label={
+          <>
+            <RefreshCw size={15} />
+            同步剪贴板
+          </>
+        }
+      />
       <div className="clipboard-direction-status" aria-live="polite">
         <p>
           <strong>本机到远端</strong>

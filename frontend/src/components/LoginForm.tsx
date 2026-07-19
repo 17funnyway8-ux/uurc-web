@@ -33,7 +33,7 @@ export function LoginForm({
 }) {
   return (
     <form
-      className="form-section auth-card"
+      className="form-section"
       aria-label="用手机号登录"
       onSubmit={(event) => {
         event.preventDefault();
@@ -44,7 +44,6 @@ export function LoginForm({
         }
       }}
     >
-      <h2>登录</h2>
       <div className="inline-fields">
         <label htmlFor="region-code">
           <span>区号</span>

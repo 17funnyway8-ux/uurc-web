@@ -46,8 +46,50 @@ export const STREAMER_CLIPBOARD_RPC_WIRE_FIELDS = {
   },
 } as const;
 
+export const STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS = {
+  request: {
+    clipRequestTag: 9,
+  },
+  response: {
+    clipResponseTag: 5,
+  },
+  clipRequest: {
+    formatDataAskTag: 2,
+    dataBlockTag: 3,
+  },
+  clipResponse: {
+    formatDataConfirmTag: 2,
+    dataBlockConfirmTag: 3,
+  },
+  formatDataAsk: {
+    formatIdTag: 1,
+    blockKeyTag: 2,
+    formatNameTag: 3,
+  },
+  formatDataConfirm: {
+    resultTag: 1,
+    blockKeyTag: 2,
+    blockCountTag: 3,
+  },
+  dataBlock: {
+    blockKeyTag: 1,
+    blockIdTag: 2,
+    dataTag: 3,
+  },
+  dataBlockConfirm: {
+    blockKeyTag: 1,
+    blockIdTag: 2,
+    resultTag: 3,
+  },
+} as const;
+
 export const STREAMER_CLIPBOARD_FORMATS = {
   text: 1,
+  unicodeText: 13,
+} as const;
+
+export const STREAMER_CLIPBOARD_FORMAT_NAMES = {
+  macUtf8Text: "public.utf8-plain-text",
 } as const;
 
 export const STREAMER_CLIPBOARD_RESULTS = {
@@ -72,6 +114,24 @@ export interface EncodeStreamerClipboardTextChangeRequestInput {
   requestId: number | bigint;
   text: string;
   formatId?: number;
+}
+
+export interface EncodeStreamerClipboardFormatDataAskRequestInput {
+  sequence: number | bigint;
+  timestampMs: number | bigint;
+  requestId: number | bigint;
+  blockKey: string;
+  formatId?: number;
+  formatName?: string;
+}
+
+export interface EncodeStreamerClipboardDataBlockConfirmResponseInput {
+  sequence: number | bigint;
+  timestampMs: number | bigint;
+  requestId: number | bigint;
+  blockKey: string;
+  blockId: number;
+  result?: number;
 }
 
 interface DecodedStreamerClipboardEnvelope {
@@ -99,6 +159,32 @@ export interface DecodedStreamerClipboardTextChangedNotification extends Decoded
 
 export type DecodedStreamerClipboardMessage =
   DecodedStreamerClipboardTextChangeRequest | DecodedStreamerClipboardTextChangeResponse;
+
+export interface DecodedStreamerClipboardFormatDataConfirm extends DecodedStreamerClipboardEnvelope {
+  type: "format-data-confirm";
+  blockKey: string;
+  blockCount: number;
+  result: number;
+}
+
+export interface DecodedStreamerClipboardDataBlockRequest extends DecodedStreamerClipboardEnvelope {
+  type: "data-block-request";
+  blockKey: string;
+  blockId: number;
+  data: Uint8Array;
+}
+
+export interface DecodedStreamerClipboardDataBlockConfirm extends DecodedStreamerClipboardEnvelope {
+  type: "data-block-confirm";
+  blockKey: string;
+  blockId: number;
+  result: number;
+}
+
+export type DecodedStreamerClipboardV4Message =
+  | DecodedStreamerClipboardFormatDataConfirm
+  | DecodedStreamerClipboardDataBlockRequest
+  | DecodedStreamerClipboardDataBlockConfirm;
 
 export function encodeStreamerClipboardTextChangeRequest(
   input: EncodeStreamerClipboardTextChangeRequestInput,
@@ -155,6 +241,59 @@ export function encodeStreamerClipboardTextChangeRequest(
   return encoded;
 }
 
+export function encodeStreamerClipboardFormatDataAskRequest(
+  input: EncodeStreamerClipboardFormatDataAskRequestInput,
+): Uint8Array {
+  const formatId = input.formatId ?? STREAMER_CLIPBOARD_FORMATS.unicodeText;
+  assertClipboardInt32(formatId, "formatId");
+  if (!input.blockKey) throw new RangeError("blockKey must not be empty");
+
+  const bodyBytes: number[] = [];
+  if (formatId !== 0) {
+    pushVarintField(bodyBytes, STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.formatDataAsk.formatIdTag, formatId);
+  }
+  pushStringField(bodyBytes, STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.formatDataAsk.blockKeyTag, input.blockKey);
+  if (input.formatName) {
+    pushStringField(bodyBytes, STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.formatDataAsk.formatNameTag, input.formatName);
+  }
+
+  return encodeClipboardV4Envelope({
+    sequence: input.sequence,
+    timestampMs: input.timestampMs,
+    requestId: input.requestId,
+    rpcTag: STREAMER_CLIPBOARD_RPC_WIRE_FIELDS.envelope.rpcRequestTag,
+    clipboardTag: STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.request.clipRequestTag,
+    bodyTag: STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.clipRequest.formatDataAskTag,
+    body: new Uint8Array(bodyBytes),
+  });
+}
+
+export function encodeStreamerClipboardDataBlockConfirmResponse(
+  input: EncodeStreamerClipboardDataBlockConfirmResponseInput,
+): Uint8Array {
+  assertClipboardPositiveInt32(input.blockId, "blockId");
+  const result = input.result ?? STREAMER_CLIPBOARD_RESULTS.succeeded;
+  assertClipboardInt32(result, "result");
+  if (!input.blockKey) throw new RangeError("blockKey must not be empty");
+
+  const bodyBytes: number[] = [];
+  pushStringField(bodyBytes, STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.dataBlockConfirm.blockKeyTag, input.blockKey);
+  pushVarintField(bodyBytes, STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.dataBlockConfirm.blockIdTag, input.blockId);
+  if (result !== STREAMER_CLIPBOARD_RESULTS.unspecified) {
+    pushVarintField(bodyBytes, STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.dataBlockConfirm.resultTag, result);
+  }
+
+  return encodeClipboardV4Envelope({
+    sequence: input.sequence,
+    timestampMs: input.timestampMs,
+    requestId: input.requestId,
+    rpcTag: STREAMER_CLIPBOARD_RPC_WIRE_FIELDS.envelope.rpcResponseTag,
+    clipboardTag: STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.response.clipResponseTag,
+    bodyTag: STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.clipResponse.dataBlockConfirmTag,
+    body: new Uint8Array(bodyBytes),
+  });
+}
+
 export function decodeStreamerClipboardMessage(
   data: ArrayBuffer | ArrayBufferView,
 ): DecodedStreamerClipboardMessage | undefined {
@@ -179,6 +318,54 @@ export function decodeStreamerClipboardMessage(
     return decodeTextChangeRequest(rpcBytes, sequence, timestampMs);
   }
   return decodeTextChangeResponse(rpcBytes, sequence, timestampMs);
+}
+
+export function decodeStreamerClipboardV4Message(
+  data: ArrayBuffer | ArrayBufferView,
+): DecodedStreamerClipboardV4Message | undefined {
+  const bytes = toUint8Array(data);
+  const envelopeFields = readClipboardFields(bytes, STREAMER_CLIPBOARD_DECODE_LIMITS.maxMessageBytes);
+  if (!envelopeFields) return undefined;
+
+  const sequence = readInt64(envelopeFields, STREAMER_CLIPBOARD_RPC_WIRE_FIELDS.envelope.sequenceTag);
+  const timestampMs = readInt64(envelopeFields, STREAMER_CLIPBOARD_RPC_WIRE_FIELDS.envelope.timestampMsTag);
+  if (sequence === undefined || timestampMs === undefined) return undefined;
+
+  const rpcFields = envelopeFields.filter(
+    (field) =>
+      field.tag === STREAMER_CLIPBOARD_RPC_WIRE_FIELDS.envelope.rpcRequestTag ||
+      field.tag === STREAMER_CLIPBOARD_RPC_WIRE_FIELDS.envelope.rpcResponseTag,
+  );
+  if (rpcFields.length !== 1) return undefined;
+  const rpcBytes = protobufLengthDelimitedFieldBytes(bytes, rpcFields[0]);
+  if (!rpcBytes) return undefined;
+
+  const rpcMessageFields = readClipboardFields(rpcBytes, STREAMER_CLIPBOARD_DECODE_LIMITS.maxMessageBytes);
+  if (!rpcMessageFields) return undefined;
+  const headerBytes = readSingleMessageField(
+    rpcBytes,
+    rpcMessageFields,
+    STREAMER_CLIPBOARD_RPC_WIRE_FIELDS.request.headerTag,
+  );
+  if (!headerBytes) return undefined;
+  const requestId = decodeRequestId(headerBytes);
+  if (requestId === undefined) return undefined;
+
+  if (rpcFields[0].tag === STREAMER_CLIPBOARD_RPC_WIRE_FIELDS.envelope.rpcRequestTag) {
+    const clipBytes = readSingleMessageField(
+      rpcBytes,
+      rpcMessageFields,
+      STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.request.clipRequestTag,
+    );
+    return clipBytes ? decodeClipboardV4Request(clipBytes, sequence, timestampMs, requestId) : undefined;
+  }
+
+  const clipBytes = readSingleMessageField(
+    rpcBytes,
+    rpcMessageFields,
+    STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.response.clipResponseTag,
+  );
+  return clipBytes ? decodeClipboardV4Response(clipBytes, sequence, timestampMs, requestId) : undefined;
 }
 
 export function decodeStreamerClipboardTextChangeRequest(
@@ -268,6 +455,132 @@ function decodeTextChangeResponse(
   };
 }
 
+function decodeClipboardV4Request(
+  bytes: Uint8Array,
+  sequence: bigint,
+  timestampMs: bigint,
+  requestId: bigint,
+): DecodedStreamerClipboardDataBlockRequest | undefined {
+  const fields = readClipboardFields(bytes, STREAMER_CLIPBOARD_DECODE_LIMITS.maxMessageBytes);
+  if (!fields) return undefined;
+  const supportedFields = fields.filter(
+    (field) => field.tag === STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.clipRequest.dataBlockTag,
+  );
+  if (supportedFields.length !== 1) return undefined;
+  const bodyBytes = protobufLengthDelimitedFieldBytes(bytes, supportedFields[0]);
+  if (!bodyBytes) return undefined;
+  const bodyFields = readClipboardFields(bodyBytes, STREAMER_CLIPBOARD_DECODE_LIMITS.maxMessageBytes);
+  if (!bodyFields) return undefined;
+
+  const blockKey = readText(bodyBytes, bodyFields, STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.dataBlock.blockKeyTag);
+  const blockId = readInt32(bodyFields, STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.dataBlock.blockIdTag);
+  const blockData = readBytes(bodyBytes, bodyFields, STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.dataBlock.dataTag);
+  if (!blockKey || blockId === undefined || !blockData) return undefined;
+
+  return {
+    type: "data-block-request",
+    sequence,
+    timestampMs,
+    requestId,
+    blockKey,
+    blockId,
+    data: blockData,
+  };
+}
+
+function decodeClipboardV4Response(
+  bytes: Uint8Array,
+  sequence: bigint,
+  timestampMs: bigint,
+  requestId: bigint,
+): DecodedStreamerClipboardFormatDataConfirm | DecodedStreamerClipboardDataBlockConfirm | undefined {
+  const fields = readClipboardFields(bytes, STREAMER_CLIPBOARD_DECODE_LIMITS.maxMessageBytes);
+  if (!fields) return undefined;
+  const supportedFields = fields.filter(
+    (field) =>
+      field.tag === STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.clipResponse.formatDataConfirmTag ||
+      field.tag === STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.clipResponse.dataBlockConfirmTag,
+  );
+  if (supportedFields.length !== 1) return undefined;
+  const bodyBytes = protobufLengthDelimitedFieldBytes(bytes, supportedFields[0]);
+  if (!bodyBytes) return undefined;
+  const bodyFields = readClipboardFields(bodyBytes, STREAMER_CLIPBOARD_DECODE_LIMITS.maxMessageBytes);
+  if (!bodyFields) return undefined;
+
+  if (supportedFields[0].tag === STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.clipResponse.formatDataConfirmTag) {
+    const result = readInt32(bodyFields, STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.formatDataConfirm.resultTag);
+    const blockKey = readText(
+      bodyBytes,
+      bodyFields,
+      STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.formatDataConfirm.blockKeyTag,
+    );
+    const blockCount = readInt32(bodyFields, STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.formatDataConfirm.blockCountTag);
+    if (result === undefined || !blockKey || blockCount === undefined) return undefined;
+    return {
+      type: "format-data-confirm",
+      sequence,
+      timestampMs,
+      requestId,
+      result,
+      blockKey,
+      blockCount,
+    };
+  }
+
+  const blockKey = readText(bodyBytes, bodyFields, STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.dataBlockConfirm.blockKeyTag);
+  const blockId = readInt32(bodyFields, STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.dataBlockConfirm.blockIdTag);
+  const result = readInt32(bodyFields, STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS.dataBlockConfirm.resultTag);
+  if (!blockKey || blockId === undefined || result === undefined) return undefined;
+  return {
+    type: "data-block-confirm",
+    sequence,
+    timestampMs,
+    requestId,
+    blockKey,
+    blockId,
+    result,
+  };
+}
+
+function encodeClipboardV4Envelope(input: {
+  sequence: number | bigint;
+  timestampMs: number | bigint;
+  requestId: number | bigint;
+  rpcTag: number;
+  clipboardTag: number;
+  bodyTag: number;
+  body: Uint8Array;
+}): Uint8Array {
+  const sequence = checkedInt64(input.sequence, "sequence");
+  const timestampMs = checkedInt64(input.timestampMs, "timestampMs");
+  const requestId = checkedInt64(input.requestId, "requestId");
+
+  const headerBytes: number[] = [];
+  if (requestId !== 0n) pushVarintField(headerBytes, STREAMER_CLIPBOARD_RPC_WIRE_FIELDS.header.requestIdTag, requestId);
+
+  const clipboardBytes: number[] = [];
+  pushMessageField(clipboardBytes, input.bodyTag, input.body);
+
+  const rpcBytes: number[] = [];
+  pushMessageField(rpcBytes, STREAMER_CLIPBOARD_RPC_WIRE_FIELDS.request.headerTag, new Uint8Array(headerBytes));
+  pushMessageField(rpcBytes, input.clipboardTag, new Uint8Array(clipboardBytes));
+
+  const envelopeBytes: number[] = [];
+  if (sequence !== 0n) {
+    pushVarintField(envelopeBytes, STREAMER_CLIPBOARD_RPC_WIRE_FIELDS.envelope.sequenceTag, sequence);
+  }
+  if (timestampMs !== 0n) {
+    pushVarintField(envelopeBytes, STREAMER_CLIPBOARD_RPC_WIRE_FIELDS.envelope.timestampMsTag, timestampMs);
+  }
+  pushMessageField(envelopeBytes, input.rpcTag, new Uint8Array(rpcBytes));
+
+  const encoded = new Uint8Array(envelopeBytes);
+  if (encoded.byteLength > STREAMER_CLIPBOARD_DECODE_LIMITS.maxMessageBytes) {
+    throw new RangeError(`clipboard message exceeds ${STREAMER_CLIPBOARD_DECODE_LIMITS.maxMessageBytes} bytes`);
+  }
+  return encoded;
+}
+
 function decodeRequestId(bytes: Uint8Array): bigint | undefined {
   const fields = readClipboardFields(bytes, STREAMER_CLIPBOARD_DECODE_LIMITS.maxMessageBytes);
   return fields ? readInt64(fields, STREAMER_CLIPBOARD_RPC_WIRE_FIELDS.header.requestIdTag) : undefined;
@@ -312,6 +625,17 @@ function readText(bytes: Uint8Array, fields: readonly ProtobufField[], tag: numb
   } catch {
     return undefined;
   }
+}
+
+function readBytes(bytes: Uint8Array, fields: readonly ProtobufField[], tag: number): Uint8Array | undefined {
+  const matching = fields.filter((field) => field.tag === tag);
+  if (matching.some((field) => field.wireType !== protobufWireType.lengthDelimited)) return undefined;
+  const field = matching.at(-1);
+  if (!field) return new Uint8Array();
+  if (field.byteLength === undefined || field.byteLength > STREAMER_CLIPBOARD_DECODE_LIMITS.maxTextBytes) {
+    return undefined;
+  }
+  return protobufLengthDelimitedFieldBytes(bytes, field);
 }
 
 function readClipboardFields(bytes: Uint8Array, maxBytes: number): ProtobufField[] | undefined {
@@ -441,6 +765,17 @@ function checkedInt64(value: number | bigint, name: string): bigint {
     throw new RangeError(`${name} must fit in a non-negative int64`);
   }
   return normalized;
+}
+
+function assertClipboardInt32(value: number, name: string): void {
+  if (!Number.isSafeInteger(value) || value < 0 || BigInt(value) > MAX_SIGNED_INT32) {
+    throw new RangeError(`${name} must be a non-negative int32`);
+  }
+}
+
+function assertClipboardPositiveInt32(value: number, name: string): void {
+  assertClipboardInt32(value, name);
+  if (value === 0) throw new RangeError(`${name} must be a positive int32`);
 }
 
 function toUint8Array(data: ArrayBuffer | ArrayBufferView): Uint8Array {

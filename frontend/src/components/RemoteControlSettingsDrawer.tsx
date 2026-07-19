@@ -2,24 +2,8 @@ import { CircleStop, LoaderCircle, Monitor, PlugZap } from "lucide-react";
 
 import type { RemoteControlSettingsDrawerProps } from "../app/remoteControlPageProps.js";
 import { ParticipantList } from "./ParticipantList.js";
-
-function SwitchControl({
-  checked,
-  label,
-  onChange,
-}: {
-  checked: boolean;
-  label: string;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <label className="switch-control">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
-      <span>{label}</span>
-      <i aria-hidden="true" />
-    </label>
-  );
-}
+import { SegmentedControl } from "./ui/SegmentedControl.js";
+import { Switch } from "./ui/Switch.js";
 
 export function RemoteControlSettingsDrawer({
   autoConnect,
@@ -42,9 +26,8 @@ export function RemoteControlSettingsDrawer({
   signalServerOptions,
 }: RemoteControlSettingsDrawerProps) {
   return (
-    <details className="control-drawer">
-      <summary>控制设置</summary>
-      <SwitchControl checked={autoConnect} label="进入设备自动连接" onChange={onAutoConnectChange} />
+    <div className="control-settings-tab">
+      <Switch checked={autoConnect} label="进入设备自动连接" onChange={onAutoConnectChange} />
       {selectedDevice ? (
         <div className="control-field">
           <span className="control-field-label">正在占用该设备的控制端</span>
@@ -54,16 +37,16 @@ export function RemoteControlSettingsDrawer({
       {selectedDevice ? (
         <div className="control-field">
           <span className="control-field-label">加入模式</span>
-          <fieldset className="join-mode-control" aria-label="加入模式">
-            <label>
-              <input type="radio" name="joinMode" checked={!forceJoin} onChange={() => onForceJoinChange(false)} />
-              <span>普通加入</span>
-            </label>
-            <label>
-              <input type="radio" name="joinMode" checked={forceJoin} onChange={() => onForceJoinChange(true)} />
-              <span>接管控制</span>
-            </label>
-          </fieldset>
+          <SegmentedControl
+            name="joinMode"
+            ariaLabel="加入模式"
+            value={forceJoin ? "force" : "normal"}
+            onChange={(value) => onForceJoinChange(value === "force")}
+            options={[
+              { value: "normal", label: "普通加入" },
+              { value: "force", label: "接管控制" },
+            ]}
+          />
         </div>
       ) : null}
 
@@ -102,51 +85,31 @@ export function RemoteControlSettingsDrawer({
         ) : null}
         <div className="control-field">
           <span className="control-field-label">画面兼容性</span>
-          <fieldset className="segmented-control" aria-label="画面协商">
-            <label>
-              <input
-                type="radio"
-                name="sdpTransportMode"
-                checked={sdpTransportMode === "gzip"}
-                onChange={() => onSdpTransportModeChange("gzip")}
-              />
-              <span>标准模式</span>
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="sdpTransportMode"
-                checked={sdpTransportMode === "plain"}
-                onChange={() => onSdpTransportModeChange("plain")}
-              />
-              <span>兼容模式</span>
-            </label>
-          </fieldset>
+          <SegmentedControl
+            name="sdpTransportMode"
+            ariaLabel="画面协商"
+            value={sdpTransportMode}
+            onChange={onSdpTransportModeChange}
+            options={[
+              { value: "gzip", label: "标准模式" },
+              { value: "plain", label: "兼容模式" },
+            ]}
+          />
         </div>
         <div className="control-field">
           <span className="control-field-label">网络路径</span>
-          <fieldset className="segmented-control" aria-label="网络路径">
-            <label>
-              <input
-                type="radio"
-                name="connectionRouteMode"
-                checked={connectionRouteMode === "auto"}
-                onChange={() => onConnectionRouteModeChange("auto")}
-              />
-              <span>自动路径</span>
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="connectionRouteMode"
-                checked={connectionRouteMode === "relay"}
-                onChange={() => onConnectionRouteModeChange("relay")}
-              />
-              <span>强制 UU 中转</span>
-            </label>
-          </fieldset>
+          <SegmentedControl
+            name="connectionRouteMode"
+            ariaLabel="网络路径"
+            value={connectionRouteMode}
+            onChange={onConnectionRouteModeChange}
+            options={[
+              { value: "auto", label: "自动路径" },
+              { value: "relay", label: "强制 UU 中转" },
+            ]}
+          />
         </div>
       </details>
-    </details>
+    </div>
   );
 }

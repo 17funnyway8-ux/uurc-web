@@ -1,8 +1,10 @@
 import { Github, TerminalSquare } from "lucide-react";
+import { useState } from "react";
 
 import { LoginForm } from "./LoginForm.js";
 import { LoginImportPanel } from "./LoginImportPanel.js";
 import { StatusPill } from "./StatusPill.js";
+import { Tabs } from "./ui/Tabs.js";
 
 export function LoginPage({
   authJson,
@@ -43,6 +45,7 @@ export function LoginPage({
   onMobileLogin: () => void;
   onImport: () => void;
 }) {
+  const [tab, setTab] = useState("sms");
   const codeRequested = codeSent || Boolean(smsCode.trim());
 
   return (
@@ -64,23 +67,52 @@ export function LoginPage({
               <span>{error}</span>
             </section>
           ) : null}
-          <LoginForm
-            busy={busy}
-            canLogin={canLogin}
-            canSubmitMobile={canSubmitMobile}
-            codeRequested={codeRequested}
-            loginNotice={loginNotice}
-            smsCountdown={smsCountdown}
-            mobile={mobile}
-            regionCode={regionCode}
-            smsCode={smsCode}
-            onMobileChange={onMobileChange}
-            onMobileLogin={onMobileLogin}
-            onRegionCodeChange={onRegionCodeChange}
-            onSendMobileCode={onSendMobileCode}
-            onSmsCodeChange={onSmsCodeChange}
-          />
-          <LoginImportPanel authJson={authJson} busy={busy} onAuthJsonChange={onAuthJsonChange} onImport={onImport} />
+          <div className="auth-card">
+            <h2>登录 UU Remote</h2>
+            <p className="auth-card-desc">使用手机号验证码登录，或导入已有账号凭证。</p>
+            <Tabs
+              ariaLabel="登录方式"
+              variant="segmented"
+              value={tab}
+              onChange={setTab}
+              items={[
+                {
+                  value: "sms",
+                  label: "短信登录",
+                  content: (
+                    <LoginForm
+                      busy={busy}
+                      canLogin={canLogin}
+                      canSubmitMobile={canSubmitMobile}
+                      codeRequested={codeRequested}
+                      loginNotice={loginNotice}
+                      smsCountdown={smsCountdown}
+                      mobile={mobile}
+                      regionCode={regionCode}
+                      smsCode={smsCode}
+                      onMobileChange={onMobileChange}
+                      onMobileLogin={onMobileLogin}
+                      onRegionCodeChange={onRegionCodeChange}
+                      onSendMobileCode={onSendMobileCode}
+                      onSmsCodeChange={onSmsCodeChange}
+                    />
+                  ),
+                },
+                {
+                  value: "import",
+                  label: "导入凭证",
+                  content: (
+                    <LoginImportPanel
+                      authJson={authJson}
+                      busy={busy}
+                      onAuthJsonChange={onAuthJsonChange}
+                      onImport={onImport}
+                    />
+                  ),
+                },
+              ]}
+            />
+          </div>
         </div>
       </section>
 

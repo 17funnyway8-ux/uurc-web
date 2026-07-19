@@ -80,6 +80,71 @@ describe("useRemoteClipboardController", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("remote clipboard"));
   });
 
+  it("polls the remote clipboard only while sync and both data channels are open", async () => {
+    vi.useFakeTimers();
+    try {
+      const session = createSession();
+      const view = render(<Harness session={session} onController={() => undefined} />);
+      await act(async () => Promise.resolve());
+
+      await act(async () => vi.advanceTimersByTimeAsync(1199));
+      expect(session.requestRemoteClipboardText).not.toHaveBeenCalled();
+      await act(async () => vi.advanceTimersByTimeAsync(1));
+      expect(session.requestRemoteClipboardText).toHaveBeenCalledOnce();
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      expect(session.requestRemoteClipboardText).toHaveBeenCalledTimes(2);
+
+      view.rerender(<Harness session={session} fileChannelState="closed" onController={() => undefined} />);
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      expect(session.requestRemoteClipboardText).toHaveBeenCalledTimes(2);
+      expect(session.cancelRemoteClipboardRead).toHaveBeenCalled();
+
+      view.rerender(<Harness session={session} remoteClipboardReadEnabled={false} onController={() => undefined} />);
+      await act(async () => vi.advanceTimersByTimeAsync(4000));
+      expect(session.requestRemoteClipboardText).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for the initial local clipboard read before polling the remote", async () => {
+    vi.useFakeTimers();
+    try {
+      const pendingRead = deferred<string>();
+      readText.mockReturnValue(pendingRead.promise);
+      const session = createSession();
+      render(<Harness session={session} onController={() => undefined} />);
+
+      await act(async () => vi.advanceTimersByTimeAsync(5200));
+      expect(session.requestRemoteClipboardText).not.toHaveBeenCalled();
+      await act(async () => pendingRead.resolve("initial local"));
+      expect(session.sendClipboardText).toHaveBeenCalledWith("initial local");
+
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      expect(session.requestRemoteClipboardText).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("pauses remote clipboard polling while the page is hidden", async () => {
+    vi.useFakeTimers();
+    try {
+      const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+      const session = createSession();
+      render(<Harness session={session} onController={() => undefined} />);
+      await act(async () => Promise.resolve());
+
+      await act(async () => vi.advanceTimersByTimeAsync(5200));
+      expect(session.requestRemoteClipboardText).not.toHaveBeenCalled();
+      visibility.mockReturnValue("visible");
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      expect(session.requestRemoteClipboardText).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("ignores late remote clipboard callbacks after unmount", async () => {
     const session = createSession();
     let controller: ClipboardController | undefined;
@@ -395,11 +460,15 @@ type ClipboardController = ReturnType<typeof useRemoteClipboardController>;
 function Harness({
   session,
   sessionKey = "device-a:1",
+  fileChannelState = "open",
+  remoteClipboardReadEnabled = true,
   textChannelState = "open",
   onController,
 }: {
   session: BrowserRemoteSession;
   sessionKey?: string;
+  fileChannelState?: RTCDataChannelState;
+  remoteClipboardReadEnabled?: boolean;
   textChannelState?: RTCDataChannelState;
   onController(controller: ClipboardController): void;
 }) {
@@ -408,6 +477,8 @@ function Harness({
   const controller = useRemoteClipboardController({
     browserSessionRef: sessionRef,
     sessionKey,
+    fileChannelState,
+    remoteClipboardReadEnabled,
     textChannelState,
     onError: () => undefined,
     onSessionStateChange: () => undefined,
@@ -419,7 +490,9 @@ function Harness({
 
 function createSession(): BrowserRemoteSession {
   return {
+    cancelRemoteClipboardRead: vi.fn(),
     sendClipboardText: vi.fn(async () => undefined),
+    requestRemoteClipboardText: vi.fn(),
     getState: vi.fn(() => ({})),
   } as unknown as BrowserRemoteSession;
 }

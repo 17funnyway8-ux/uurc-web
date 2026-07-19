@@ -1,16 +1,40 @@
 import { MonitorX, TerminalSquare } from "lucide-react";
+import { useState } from "react";
 
 import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
 import { RemoteCommandBar } from "./RemoteCommandBar.js";
-import { RemoteControlDiagnosticsDrawer } from "./RemoteControlDiagnosticsDrawer.js";
-import { RemoteControlInsights } from "./RemoteControlInsights.js";
-import { RemoteControlSettingsDrawer } from "./RemoteControlSettingsDrawer.js";
+import { RemoteControlSidePanel } from "./RemoteControlSidePanel.js";
 import { RemoteControlStage } from "./RemoteControlStage.js";
 import { RemoteControlTopbar } from "./RemoteControlTopbar.js";
 import { RemoteControlWarnings } from "./RemoteControlWarnings.js";
+import { RemoteOccupiedDialog } from "./RemoteOccupiedDialog.js";
+import { RemoteReconnectBanner } from "./RemoteReconnectBanner.js";
 
 export function RemoteControlPage(props: RemoteControlPageProps) {
   const { shell } = props;
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [sidePanelTab, setSidePanelTab] = useState("status");
+  const [occupiedDialogOpen, setOccupiedDialogOpen] = useState(false);
+  const [occupancyAcknowledged, setOccupancyAcknowledged] = useState(false);
+
+  const { occupiedBySelfClient, selectedDeviceOccupied } = props.warnings;
+  const showOccupiedGate = selectedDeviceOccupied && !occupiedBySelfClient && !occupancyAcknowledged;
+
+  function handlePrimaryAction() {
+    if (showOccupiedGate) {
+      setOccupiedDialogOpen(true);
+      return;
+    }
+    props.commandBar.onNextAction();
+  }
+
+  function resolveOccupiedDialog(force: boolean) {
+    setOccupiedDialogOpen(false);
+    setOccupancyAcknowledged(true);
+    if (force) props.settings.onForceJoinChange(true);
+    props.commandBar.onNextAction();
+  }
+
   if (shell.deviceNotFound) {
     return (
       <main className="control-shell">
@@ -37,7 +61,12 @@ export function RemoteControlPage(props: RemoteControlPageProps) {
 
   return (
     <main className="control-shell">
-      <RemoteControlTopbar {...props.topbar} />
+      <RemoteControlTopbar
+        {...props.topbar}
+        screenPicker={props.insights.videoSources}
+        panelOpen={panelOpen}
+        onTogglePanel={() => setPanelOpen((open) => !open)}
+      />
 
       {shell.error ? (
         <section className="error-strip" role="alert" aria-live="assertive">
@@ -46,21 +75,39 @@ export function RemoteControlPage(props: RemoteControlPageProps) {
         </section>
       ) : null}
 
+      <RemoteControlWarnings {...props.warnings} />
+
       <section className="control-stage-layout">
         <div
           className={`control-stage-frame${shell.isFullscreen ? " control-stage-frame--fullscreen" : ""}`}
           ref={shell.remoteStageFrameRef}
         >
-          <RemoteCommandBar {...props.commandBar} />
           <RemoteControlStage {...props.stage} />
+          <RemoteReconnectBanner {...props.commandBar} />
+          <RemoteCommandBar {...props.commandBar} onNextAction={handlePrimaryAction} />
+          {shell.isFullscreen ? (
+            <div className="fullscreen-hint">工具栏可拖到任意位置 · 无操作 2 秒后自动隐藏 · Esc 退出全屏</div>
+          ) : null}
         </div>
-        <RemoteControlWarnings {...props.warnings} />
-        <RemoteControlInsights {...props.insights} />
-        <div className="control-drawer-row">
-          <RemoteControlSettingsDrawer {...props.settings} />
-          <RemoteControlDiagnosticsDrawer {...props.diagnostics} />
-        </div>
+        {panelOpen ? (
+          <RemoteControlSidePanel
+            tab={sidePanelTab}
+            onTabChange={setSidePanelTab}
+            insights={props.insights}
+            settings={props.settings}
+            diagnostics={props.diagnostics}
+          />
+        ) : null}
       </section>
+
+      <RemoteOccupiedDialog
+        open={occupiedDialogOpen}
+        deviceLabel={props.topbar.selectedDevice?.alias ?? props.topbar.selectedTargetLabel}
+        participants={props.settings.selectedParticipants}
+        onCancel={() => setOccupiedDialogOpen(false)}
+        onJoinNormal={() => resolveOccupiedDialog(false)}
+        onTakeover={() => resolveOccupiedDialog(true)}
+      />
     </main>
   );
 }

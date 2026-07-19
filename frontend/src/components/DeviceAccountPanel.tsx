@@ -1,9 +1,8 @@
-import { Copy, Download, KeyRound, LoaderCircle, LogOut } from "lucide-react";
+import { Copy, Download, LoaderCircle, LogOut } from "lucide-react";
 
 import type { AuthStatus } from "@uurc/shared/types";
 
-import { Panel, StatusRow } from "./Panel.js";
-import { StatusPill } from "./StatusPill.js";
+import { StatusRow } from "./Panel.js";
 
 // Token 到期：JWT 无 exp 声明时显示“长期有效”，有则本地化为可读时间并标注是否过期。
 function formatTokenExpiry(authStatus: AuthStatus | null): string {
@@ -34,32 +33,36 @@ export function DeviceAccountPanel({
   onLogout: () => void;
 }) {
   return (
-    <Panel
-      className="account-panel"
-      title="账号管理"
-      titleAccessory={<StatusPill state="ready">已登录</StatusPill>}
-      icon={<KeyRound size={18} />}
-    >
-      <section className="identity-summary" aria-label="账号状态">
+    <section aria-label="账号与凭证">
+      <div className="identity-summary">
         <div>
           <span>身份</span>
           <strong>{identitySourceLabel}</strong>
         </div>
         <div>
-          <span>状态</span>
-          <strong>已登录</strong>
-        </div>
-        <div>
           <span>本机控制端</span>
           <strong>{identityDeviceLabel}</strong>
         </div>
-      </section>
+        <div>
+          <span>渠道</span>
+          <strong>{authStatus?.channel ?? "-"}</strong>
+        </div>
+        <div>
+          <span>Token 到期</span>
+          <strong>{formatTokenExpiry(authStatus)}</strong>
+        </div>
+      </div>
 
       <div className="button-row account-actions">
         <button className="primary-action-button" onClick={onExport} disabled={busy !== null}>
           {busy === "export" ? <LoaderCircle className="spin" size={17} /> : <Download size={17} />}
           导出账号凭证
         </button>
+        <button className="secondary-button" onClick={onCopyAuthJson} disabled={busy !== null}>
+          <Copy size={17} />
+          复制凭证 JSON
+        </button>
+        <span className="account-actions-spacer" />
         <button className="danger-button" onClick={onLogout} disabled={busy !== null}>
           {busy === "logout" ? <LoaderCircle className="spin" size={17} /> : <LogOut size={17} />}
           退出登录
@@ -67,8 +70,8 @@ export function DeviceAccountPanel({
       </div>
 
       {authJson.trim() ? (
-        <details className="identity-details export-details" open>
-          <summary>账号凭证备份</summary>
+        <details className="identity-details export-details">
+          <summary>账号凭证备份（JSON）</summary>
           <div className="export-details-head">
             <label className="field-label" htmlFor="auth-json-export">
               账号凭证 JSON
@@ -79,9 +82,6 @@ export function DeviceAccountPanel({
             </button>
           </div>
           <textarea id="auth-json-export" name="auth-json-export" value={authJson} readOnly spellCheck={false} />
-          <p className="field-hint">
-            妥善保管：任何人拿到它即可登录你的账号。可在其他设备的「导入账号凭证」中粘贴恢复。
-          </p>
         </details>
       ) : null}
 
@@ -91,10 +91,10 @@ export function DeviceAccountPanel({
           <StatusRow label="用户" value={authStatus?.userId ?? "-"} />
           <StatusRow label="客户端" value={authStatus?.clientId ?? "-"} />
           <StatusRow label="网页设备" value={authStatus?.deviceId ?? "-"} />
-          <StatusRow label="渠道" value={authStatus?.channel ?? "-"} />
-          <StatusRow label="Token 到期" value={formatTokenExpiry(authStatus)} />
         </div>
       </details>
-    </Panel>
+
+      <p className="field-hint">妥善保管凭证：任何人拿到它即可登录你的账号。可在其他设备的「导入凭证」中粘贴恢复。</p>
+    </section>
   );
 }

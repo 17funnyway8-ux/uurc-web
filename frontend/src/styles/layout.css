@@ -1,9 +1,3 @@
-.app-shell {
-  width: min(1680px, calc(100vw - 32px));
-  margin: 0 auto;
-  padding: 24px 0 40px;
-}
-
 .product-shell {
   width: min(1180px, calc(100vw - 48px));
   margin: 0 auto;
@@ -11,9 +5,24 @@
 }
 
 .control-shell {
-  width: min(1440px, calc(100vw - 48px));
-  margin: 0 auto;
-  padding: 24px 0 40px;
+  /* 深色令牌覆盖：让复用的浅色组件（按钮、输入框、边框等）在会话页里整体转深色，
+     语义色（成功/警告/危险的浅底色）单独处理，不在这里覆盖。 */
+  --bg: var(--dark-bg);
+  --surface: var(--dark-panel);
+  --surface-2: var(--dark-surface-2);
+  --surface-hover: var(--dark-surface-2);
+  --border: var(--dark-border);
+  --border-soft: var(--dark-border);
+  --border-strong: var(--dark-border);
+  --text: var(--dark-text);
+  --text-muted: var(--dark-text-muted);
+  --text-dim: var(--dark-text-dim);
+
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--dark-bg);
+  color: var(--dark-text);
 }
 
 .auth-product-shell {
@@ -34,21 +43,31 @@
 }
 
 .control-topbar {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  flex: 0 0 auto;
+  min-height: 48px;
+  padding: 0 12px;
+  margin-bottom: 0;
+  gap: 10px;
+  border-bottom: 1px solid var(--dark-border);
 }
 
 .control-topbar > div:nth-child(2) {
+  flex: 1;
   min-width: 0;
 }
 
-.control-topbar h1 {
-  font-size: 20px;
+.control-topbar h1,
+.control-topbar-title {
+  font-size: 13.5px;
   font-weight: 600;
   letter-spacing: -0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.control-topbar-spacer {
+  flex: 1;
 }
 
 .brand-block {
@@ -121,7 +140,7 @@
 
 .login-actions {
   width: 100%;
-  max-width: 440px;
+  max-width: 400px;
   display: grid;
   gap: 16px;
 }
@@ -149,21 +168,27 @@
   min-width: 0;
 }
 
+/* 画面 + 右侧会话面板并排一行，取代旧版“画面在上、辅助信息在下”的堆叠布局。 */
 .control-stage-layout {
-  display: grid;
-  gap: 12px;
+  flex: 1;
+  display: flex;
+  min-height: 0;
 }
 
 .control-stage-frame {
   position: relative;
+  flex: 1;
   min-width: 0;
 }
 
 .control-remote-stage {
   width: 100%;
-  height: clamp(420px, calc(100vh - 178px), 760px);
-  min-height: 360px;
+  height: 100%;
+  min-height: 0;
   aspect-ratio: auto;
+  border: none;
+  border-radius: 0;
+  margin-bottom: 0;
 }
 
 /* 网页内全屏：只覆盖当前页面视口，不触发浏览器/桌面级 Fullscreen API。 */
@@ -173,25 +198,10 @@
   z-index: 40;
   width: 100vw;
   height: 100vh;
-  background: #000;
-}
-
-/* 全屏时命令栏悬浮在画面之上，不占布局、不挤压画面；拖动后由 inline 样式切到 fixed 定位。 */
-.control-stage-frame--fullscreen .control-command-bar {
-  position: absolute;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
-  margin: 0;
+  background: var(--dark-bg-pure);
 }
 
 .control-stage-frame--fullscreen .control-remote-stage {
   width: 100%;
   height: 100vh;
-  max-height: none;
-  min-height: 0;
-  aspect-ratio: auto;
-  border: none;
-  border-radius: 0;
 }

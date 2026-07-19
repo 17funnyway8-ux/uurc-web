@@ -6,8 +6,15 @@ import { useRemoteControlController } from "./controllers/useRemoteControlContro
 import "./styles/index.css";
 
 const LoginPage = lazy(() => import("./components/LoginPage.js").then((module) => ({ default: module.LoginPage })));
+const AppShell = lazy(() => import("./components/AppShell.js").then((module) => ({ default: module.AppShell })));
 const DeviceListPage = lazy(() =>
   import("./components/DeviceListPage.js").then((module) => ({ default: module.DeviceListPage })),
+);
+const RemoteAssistancePage = lazy(() =>
+  import("./components/RemoteAssistancePage.js").then((module) => ({ default: module.RemoteAssistancePage })),
+);
+const AccountCredentialsPage = lazy(() =>
+  import("./components/AccountCredentialsPage.js").then((module) => ({ default: module.AccountCredentialsPage })),
 );
 const RemoteControlPage = lazy(() =>
   import("./components/RemoteControlPage.js").then((module) => ({ default: module.RemoteControlPage })),
@@ -38,13 +45,50 @@ function AppRoutes() {
       </Routes>
     );
   } else {
-    const deviceListPage = <DeviceListPage {...controller.deviceListPageProps} />;
+    const d = controller.deviceListPageProps;
+    const deviceListPage = <DeviceListPage {...d} />;
+    const partnerPage = (
+      <RemoteAssistancePage
+        busy={d.busy}
+        connectCode={d.assistanceConnectCode}
+        connectId={d.assistanceConnectId}
+        notice={d.assistanceNotice}
+        onConnectCodeChange={d.onAssistanceConnectCodeChange}
+        onConnectIdChange={d.onAssistanceConnectIdChange}
+        onStart={d.onStartRemoteAssistance}
+      />
+    );
+    const accountPage = (
+      <AccountCredentialsPage
+        authJson={d.authJson}
+        authStatus={d.authStatus}
+        busy={d.busy}
+        identityDeviceLabel={d.identityDeviceLabel}
+        identitySourceLabel={d.identitySourceLabel}
+        onExport={d.onExport}
+        onCopyAuthJson={d.onCopyAuthJson}
+        onLogout={d.onLogout}
+      />
+    );
     const controlPage = <RemoteControlPage {...controller.controlPageProps} />;
     content = (
       <Routes>
         <Route path="/" element={<Navigate to="/devices" replace />} />
         <Route path="/login" element={<Navigate to="/devices" replace />} />
-        <Route path="/devices" element={deviceListPage} />
+        <Route
+          element={
+            <AppShell
+              identityDeviceLabel={d.identityDeviceLabel}
+              devices={d.devices}
+              onOpenDevice={d.onOpenDevice}
+              onLoadDevices={d.onLoadDevices}
+            />
+          }
+        >
+          <Route path="/devices" element={deviceListPage} />
+          <Route path="/partner" element={partnerPage} />
+          <Route path="/account" element={accountPage} />
+        </Route>
         <Route path="/devices/:deviceId/control" element={controlPage} />
         <Route path="*" element={<Navigate to="/devices" replace />} />
       </Routes>

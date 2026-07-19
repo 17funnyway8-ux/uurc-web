@@ -1,4 +1,6 @@
 @import "./base.css";
+@import "./dark-theme.css";
+@import "./shell.css";
 @import "./layout.css";
 @import "./status.css";
 @import "./panel.css";

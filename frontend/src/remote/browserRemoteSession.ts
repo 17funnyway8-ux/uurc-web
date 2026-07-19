@@ -9,10 +9,17 @@ import {
   type DecodedStreamerCursorShape,
 } from "@uurc/shared/streamer/controlChannel";
 import {
+  STREAMER_CLIPBOARD_DECODE_LIMITS,
+  STREAMER_CLIPBOARD_FORMAT_NAMES,
   STREAMER_CLIPBOARD_FORMATS,
   STREAMER_CLIPBOARD_RESULTS,
   decodeStreamerClipboardMessage,
+  decodeStreamerClipboardV4Message,
+  encodeStreamerClipboardDataBlockConfirmResponse,
+  encodeStreamerClipboardFormatDataAskRequest,
   encodeStreamerClipboardTextChangeRequest,
+  type DecodedStreamerClipboardDataBlockRequest,
+  type DecodedStreamerClipboardFormatDataConfirm,
 } from "@uurc/shared/streamer/clipboard";
 import {
   buildStreamerKeyboardInputMessage,
@@ -288,13 +295,16 @@ export interface BrowserRemoteSessionState {
   videoFlow?: BrowserRemoteVideoFlowDiagnostics;
 }
 
-interface PendingClipboardRequest {
+interface PendingRemoteClipboardRead {
   generation: number;
-  text: string;
+  requestId: bigint;
+  blockKey: string;
+  blocks: Map<number, Uint8Array>;
+  receivedBytes: number;
+  expectedBlockCount?: number;
   startedAtMs: number;
-  timeout: ReturnType<typeof setTimeout>;
-  resolve: () => void;
-  reject: (error: Error) => void;
+  expiryTimer?: ReturnType<typeof setTimeout>;
+  completionTimer?: ReturnType<typeof setTimeout>;
 }
 
 type SwitchNetworkNotify = {
@@ -308,6 +318,9 @@ export class BrowserRemoteSession {
   private static readonly echoHeartbeatDebugIntervalMs = 30000;
   private static readonly dataReceiveDebugIntervalMs = 30000;
   private static readonly clipboardRpcTimeoutMs = 5000;
+  private static readonly clipboardBlockBytes = 0x20000;
+  private static readonly clipboardFullBlockSettleMs = 2000;
+  private static readonly maxClipboardBlockCount = 1024;
   private static readonly mouseMoveBufferedAmountLowThreshold = Math.floor(STREAMER_MAX_DATA_BUFFER_BYTES / 4);
 
   private readonly createPeerConnection: (configuration: RTCConfiguration) => BrowserRemotePeerConnection;
@@ -338,7 +351,7 @@ export class BrowserRemoteSession {
   private sequence = 1;
   private nextClipboardRequestId = 1n;
   private clipboardSendTail: Promise<void> = Promise.resolve();
-  private readonly pendingClipboardRequests = new Map<bigint, PendingClipboardRequest>();
+  private pendingRemoteClipboardRead: PendingRemoteClipboardRead | undefined;
   private lastSynchronizedClipboardText: string | undefined;
   private readonly heldKeyboardValues = new Set<string | number>();
   private readonly heldMouseButtons = new Set<StreamerMouseButtonKind | number>();
@@ -572,6 +585,59 @@ export class BrowserRemoteSession {
       .then(() => this.sendClipboardTextNow(text, lifecycleGeneration));
     this.clipboardSendTail = send.catch(() => undefined);
     return send;
+  }
+
+  requestRemoteClipboardText(): void {
+    if (this.pendingRemoteClipboardRead) return;
+
+    const lifecycleGeneration = this.lifecycleGeneration;
+    this.assertLifecycleGeneration(lifecycleGeneration);
+    const requestId = this.nextClipboardRequestId;
+    this.nextClipboardRequestId += 1n;
+    const sequence = this.sequence;
+    const timestampSeconds = this.streamerTimestampSeconds();
+    const blockKey = `uurc-web-${lifecycleGeneration}-${requestId}`;
+    const payload = encodeStreamerClipboardFormatDataAskRequest({
+      sequence,
+      timestampMs: timestampSeconds,
+      requestId,
+      blockKey,
+      formatId: 0,
+      formatName: STREAMER_CLIPBOARD_FORMAT_NAMES.macUtf8Text,
+    });
+    this.sequence += 1;
+
+    const startedAtMs = this.now();
+    const pending: PendingRemoteClipboardRead = {
+      generation: lifecycleGeneration,
+      requestId,
+      blockKey,
+      blocks: new Map(),
+      receivedBytes: 0,
+      startedAtMs,
+    };
+    this.pendingRemoteClipboardRead = pending;
+    this.refreshRemoteClipboardReadExpiry(pending);
+
+    try {
+      this.sendDataChannel(STREAMER_DATA_CHANNEL_LABELS.text, payload, {
+        summary: "请求远端剪贴板内容",
+        details: {
+          requestId: requestId.toString(),
+          sequence,
+          timestampSeconds,
+          formatId: 0,
+          formatName: STREAMER_CLIPBOARD_FORMAT_NAMES.macUtf8Text,
+        },
+      });
+    } catch (error) {
+      this.clearPendingRemoteClipboardRead();
+      throw error;
+    }
+  }
+
+  cancelRemoteClipboardRead(): void {
+    this.clearPendingRemoteClipboardRead();
   }
 
   sendMouseClick(input: BrowserRemoteMouseClickInput): void {
@@ -847,7 +913,7 @@ export class BrowserRemoteSession {
           this.pendingMouseMove = undefined;
           this.pendingCriticalMouseMove = undefined;
           this.stopEchoHeartbeat();
-        } else if (label === STREAMER_DATA_CHANNEL_LABELS.text) {
+        } else if (label === STREAMER_DATA_CHANNEL_LABELS.text || label === STREAMER_DATA_CHANNEL_LABELS.file) {
           this.resetClipboardState("剪贴板数据通道已关闭");
         }
         this.updateDataChannelState(label);
@@ -858,7 +924,10 @@ export class BrowserRemoteSession {
         if (label === STREAMER_DATA_CHANNEL_LABELS.control && channel.readyState !== "open") {
           console.warn(`[uurc] 控制数据通道错误（${label}），readyState=${channel.readyState}`);
           this.stopEchoHeartbeat();
-        } else if (label === STREAMER_DATA_CHANNEL_LABELS.text && channel.readyState !== "open") {
+        } else if (
+          (label === STREAMER_DATA_CHANNEL_LABELS.text || label === STREAMER_DATA_CHANNEL_LABELS.file) &&
+          channel.readyState !== "open"
+        ) {
           this.resetClipboardState("剪贴板数据通道发生错误");
         }
         this.updateDataChannelState(label);
@@ -1234,6 +1303,22 @@ export class BrowserRemoteSession {
     const bytes = dataChannelPayloadBytes(data);
     if (!bytes) return false;
 
+    let v4Message: ReturnType<typeof decodeStreamerClipboardV4Message>;
+    try {
+      v4Message = decodeStreamerClipboardV4Message(bytes);
+    } catch (error) {
+      this.recordDebugEvent("data_recv", "v4 剪贴板消息解码失败", {
+        label,
+        error: getErrorMessage(error),
+        ...summarizeDataChannelPayload(data, { includeHexPrefix: false }),
+      });
+      return true;
+    }
+    if (v4Message) {
+      this.handleClipboardV4Message(label, bytes.byteLength, v4Message);
+      return true;
+    }
+
     let message: ReturnType<typeof decodeStreamerClipboardMessage>;
     try {
       message = decodeStreamerClipboardMessage(bytes);
@@ -1248,7 +1333,7 @@ export class BrowserRemoteSession {
     if (!message) return false;
 
     if (message.type === "text-change-response") {
-      this.recordDebugEvent("data_recv", "收到剪贴板同步响应", {
+      this.recordDebugEvent("data_recv", "收到旧版剪贴板同步响应", {
         label,
         byteLength: bytes.byteLength,
         messageType: message.type,
@@ -1257,7 +1342,6 @@ export class BrowserRemoteSession {
         requestId: message.requestId.toString(),
         result: message.result,
       });
-      this.settleClipboardResponse(message.requestId, message.result);
       return true;
     }
 
@@ -1273,6 +1357,37 @@ export class BrowserRemoteSession {
     });
     this.applyRemoteClipboardNotification(message.requestId, message.formatId, message.text);
     return true;
+  }
+
+  private handleClipboardV4Message(
+    label: StreamerDataChannelLabel,
+    byteLength: number,
+    message: NonNullable<ReturnType<typeof decodeStreamerClipboardV4Message>>,
+  ): void {
+    if (message.type === "format-data-confirm") {
+      this.recordDebugEvent("data_recv", "收到远端剪贴板格式响应", {
+        label,
+        byteLength,
+        requestId: message.requestId.toString(),
+        result: message.result,
+        blockCount: message.blockCount,
+      });
+      this.applyRemoteClipboardFormatConfirm(message);
+      return;
+    }
+
+    if (message.type === "data-block-request") {
+      this.receiveRemoteClipboardDataBlock(label, byteLength, message);
+      return;
+    }
+
+    this.recordDebugEvent("data_recv", "收到远端剪贴板数据块响应", {
+      label,
+      byteLength,
+      requestId: message.requestId.toString(),
+      blockId: message.blockId,
+      result: message.result,
+    });
   }
 
   private decodeControlDataChannelMessage(data: unknown): DecodedStreamerControlMessage | undefined {
@@ -1344,9 +1459,8 @@ export class BrowserRemoteSession {
     });
   }
 
-  private sendClipboardTextNow(text: string, lifecycleGeneration: number): Promise<void> {
+  private sendClipboardTextNow(text: string, lifecycleGeneration: number): void {
     this.assertLifecycleGeneration(lifecycleGeneration);
-    if (this.lastSynchronizedClipboardText === text) return Promise.resolve();
 
     const requestId = this.nextClipboardRequestId;
     this.nextClipboardRequestId += 1n;
@@ -1359,90 +1473,235 @@ export class BrowserRemoteSession {
       text,
     });
     this.sequence += 1;
-
-    return new Promise<void>((resolve, reject) => {
-      const startedAtMs = this.now();
-      const timeout = setTimeout(() => {
-        const pending = this.pendingClipboardRequests.get(requestId);
-        if (!pending) return;
-        this.pendingClipboardRequests.delete(requestId);
-        const error = new Error("等待远端确认剪贴板更新超时");
-        this.recordDebugEvent("data_recv", "剪贴板同步确认超时", {
-          requestId: requestId.toString(),
-          textLength: text.length,
-          durationMs: Math.max(0, this.now() - startedAtMs),
-        });
-        pending.reject(error);
-      }, BrowserRemoteSession.clipboardRpcTimeoutMs);
-
-      this.pendingClipboardRequests.set(requestId, {
-        generation: lifecycleGeneration,
-        text,
-        startedAtMs,
-        timeout,
-        resolve,
-        reject,
-      });
-
-      try {
-        this.sendDataChannel(STREAMER_DATA_CHANNEL_LABELS.text, payload, {
-          summary: "发送剪贴板同步请求",
-          details: {
-            requestId: requestId.toString(),
-            sequence,
-            timestampSeconds,
-            textLength: text.length,
-          },
-        });
-      } catch (error) {
-        clearTimeout(timeout);
-        this.pendingClipboardRequests.delete(requestId);
-        reject(error instanceof Error ? error : new Error(String(error)));
-      }
+    this.sendDataChannel(STREAMER_DATA_CHANNEL_LABELS.text, payload, {
+      summary: "发送剪贴板同步请求",
+      details: {
+        requestId: requestId.toString(),
+        sequence,
+        timestampSeconds,
+        textLength: text.length,
+      },
     });
+    this.assertLifecycleGeneration(lifecycleGeneration);
+    this.lastSynchronizedClipboardText = text;
   }
 
-  private settleClipboardResponse(requestId: bigint, result: number): void {
-    const pending = this.pendingClipboardRequests.get(requestId);
-    if (!pending) {
-      this.recordDebugEvent("data_recv", "忽略未知或已过期的剪贴板响应", {
-        requestId: requestId.toString(),
-        result,
+  private applyRemoteClipboardFormatConfirm(message: DecodedStreamerClipboardFormatDataConfirm): void {
+    const pending = this.pendingRemoteClipboardRead;
+    if (!pending || pending.blockKey !== message.blockKey || pending.requestId !== message.requestId) {
+      this.recordDebugEvent("data_recv", "忽略未知或已过期的远端剪贴板格式响应", {
+        requestId: message.requestId.toString(),
+        result: message.result,
+        blockCount: message.blockCount,
       });
       return;
     }
 
-    clearTimeout(pending.timeout);
-    this.pendingClipboardRequests.delete(requestId);
+    if (message.result !== STREAMER_CLIPBOARD_RESULTS.succeeded) {
+      this.recordDebugEvent("data_recv", "远端剪贴板格式请求失败", {
+        requestId: message.requestId.toString(),
+        result: message.result,
+        durationMs: Math.max(0, this.now() - pending.startedAtMs),
+      });
+      this.clearPendingRemoteClipboardRead();
+      return;
+    }
+    if (message.blockCount > BrowserRemoteSession.maxClipboardBlockCount) {
+      this.recordDebugEvent("data_recv", "远端剪贴板数据块数量超限", {
+        requestId: message.requestId.toString(),
+        blockCount: message.blockCount,
+      });
+      this.clearPendingRemoteClipboardRead();
+      return;
+    }
+
+    pending.expectedBlockCount = message.blockCount;
+    this.refreshRemoteClipboardReadExpiry(pending);
+    if (message.blockCount === 0) {
+      this.finishRemoteClipboardRead(pending);
+      return;
+    }
+    this.tryFinishRemoteClipboardRead(pending, true);
+  }
+
+  private receiveRemoteClipboardDataBlock(
+    label: StreamerDataChannelLabel,
+    byteLength: number,
+    message: DecodedStreamerClipboardDataBlockRequest,
+  ): void {
+    const pending = this.pendingRemoteClipboardRead;
+    const validBlockId = message.blockId > 0 && message.blockId <= BrowserRemoteSession.maxClipboardBlockCount;
+    const matchesPending =
+      pending !== undefined && pending.blockKey === message.blockKey && pending.generation === this.lifecycleGeneration;
+    const existingBlock = matchesPending ? pending.blocks.get(message.blockId) : undefined;
+    const nextByteLength = matchesPending
+      ? pending.receivedBytes - (existingBlock?.byteLength ?? 0) + message.data.byteLength
+      : message.data.byteLength;
+    const accepted =
+      matchesPending &&
+      validBlockId &&
+      message.data.byteLength <= BrowserRemoteSession.clipboardBlockBytes &&
+      nextByteLength <= STREAMER_CLIPBOARD_DECODE_LIMITS.maxTextBytes;
+
+    this.sendRemoteClipboardDataBlockConfirm(message, accepted);
+    if (!accepted || !pending) {
+      this.recordDebugEvent("data_recv", "忽略未知或无效的远端剪贴板数据块", {
+        label,
+        byteLength,
+        requestId: message.requestId.toString(),
+        blockId: message.blockId,
+        dataByteLength: message.data.byteLength,
+        matchesPending,
+        validBlockId,
+      });
+      if (matchesPending && pending) this.clearPendingRemoteClipboardRead();
+      return;
+    }
+
+    pending.blocks.set(message.blockId, message.data.slice());
+    pending.receivedBytes = nextByteLength;
+    this.refreshRemoteClipboardReadExpiry(pending);
+    if (pending.completionTimer !== undefined) {
+      clearTimeout(pending.completionTimer);
+      pending.completionTimer = undefined;
+    }
+    this.recordDebugEvent("data_recv", "收到远端剪贴板数据块", {
+      label,
+      byteLength,
+      requestId: message.requestId.toString(),
+      blockId: message.blockId,
+      dataByteLength: message.data.byteLength,
+      receivedBlockCount: pending.blocks.size,
+      expectedBlockCount: pending.expectedBlockCount,
+      receivedBytes: pending.receivedBytes,
+    });
+
+    this.tryFinishRemoteClipboardRead(pending, true);
+    if (this.pendingRemoteClipboardRead !== pending) return;
+    if (message.data.byteLength < BrowserRemoteSession.clipboardBlockBytes) {
+      this.tryFinishRemoteClipboardRead(pending, false);
+      return;
+    }
+
+    // FormatDataConfirm is lost on Chromium's TEXT frame path. A full final block is ambiguous,
+    // so leave enough time for the peer to receive our ACK and send the next FILE block.
+    pending.completionTimer = setTimeout(() => {
+      if (this.pendingRemoteClipboardRead !== pending) return;
+      pending.completionTimer = undefined;
+      this.tryFinishRemoteClipboardRead(pending, false);
+    }, BrowserRemoteSession.clipboardFullBlockSettleMs);
+  }
+
+  private sendRemoteClipboardDataBlockConfirm(
+    message: DecodedStreamerClipboardDataBlockRequest,
+    accepted: boolean,
+  ): void {
+    const sequence = this.sequence;
+    const timestampSeconds = this.streamerTimestampSeconds();
+    const payload = encodeStreamerClipboardDataBlockConfirmResponse({
+      sequence,
+      timestampMs: timestampSeconds,
+      requestId: message.requestId,
+      blockKey: message.blockKey,
+      blockId: message.blockId,
+      result: accepted ? STREAMER_CLIPBOARD_RESULTS.succeeded : STREAMER_CLIPBOARD_RESULTS.failed,
+    });
+    this.sequence += 1;
+    try {
+      this.sendDataChannel(STREAMER_DATA_CHANNEL_LABELS.file, payload, {
+        summary: "确认远端剪贴板数据块",
+        details: {
+          requestId: message.requestId.toString(),
+          sequence,
+          timestampSeconds,
+          blockId: message.blockId,
+          accepted,
+        },
+      });
+    } catch (error) {
+      this.recordDebugEvent("data_send", "确认远端剪贴板数据块失败", {
+        requestId: message.requestId.toString(),
+        blockId: message.blockId,
+        error: getErrorMessage(error),
+      });
+    }
+  }
+
+  private tryFinishRemoteClipboardRead(pending: PendingRemoteClipboardRead, requireKnownBlockCount: boolean): void {
+    if (this.pendingRemoteClipboardRead !== pending) return;
+    const expectedBlockCount = pending.expectedBlockCount;
+    if (requireKnownBlockCount && expectedBlockCount === undefined) return;
+    const blockCount = expectedBlockCount ?? pending.blocks.size;
+    if (pending.blocks.size !== blockCount) return;
+    for (let blockId = 1; blockId <= blockCount; blockId += 1) {
+      if (!pending.blocks.has(blockId)) return;
+    }
+    this.finishRemoteClipboardRead(pending);
+  }
+
+  private finishRemoteClipboardRead(pending: PendingRemoteClipboardRead): void {
+    if (this.pendingRemoteClipboardRead !== pending) return;
+    const blockCount = pending.expectedBlockCount ?? pending.blocks.size;
+    const bytes = new Uint8Array(pending.receivedBytes);
+    let offset = 0;
+    for (let blockId = 1; blockId <= blockCount; blockId += 1) {
+      const block = pending.blocks.get(blockId);
+      if (!block) return;
+      bytes.set(block, offset);
+      offset += block.byteLength;
+    }
+
+    let text: string;
+    try {
+      text = decodeClipboardUtf8Text(bytes);
+    } catch (error) {
+      this.recordDebugEvent("data_recv", "远端剪贴板文本解码失败", {
+        requestId: pending.requestId.toString(),
+        blockCount,
+        byteLength: bytes.byteLength,
+        error: getErrorMessage(error),
+      });
+      this.clearPendingRemoteClipboardRead();
+      return;
+    }
+
     const durationMs = Math.max(0, this.now() - pending.startedAtMs);
-    if (result === STREAMER_CLIPBOARD_RESULTS.succeeded) {
-      if (this.isLifecycleGenerationCurrent(pending.generation)) {
-        this.lastSynchronizedClipboardText = pending.text;
-      }
-      this.recordDebugEvent("data_recv", "剪贴板同步成功", {
-        requestId: requestId.toString(),
-        result,
-        textLength: pending.text.length,
-        durationMs,
-      });
-      pending.resolve();
-      return;
-    }
-
-    const error = new Error(
-      result === STREAMER_CLIPBOARD_RESULTS.failed ? "远端拒绝更新剪贴板" : "远端未确认剪贴板更新",
-    );
-    this.recordDebugEvent("data_recv", "剪贴板同步失败", {
-      requestId: requestId.toString(),
-      result,
-      textLength: pending.text.length,
+    this.clearPendingRemoteClipboardRead();
+    this.recordDebugEvent("data_recv", "远端剪贴板读取完成", {
+      requestId: pending.requestId.toString(),
+      blockCount,
+      byteLength: bytes.byteLength,
+      textLength: text.length,
       durationMs,
     });
-    pending.reject(error);
+    this.applyRemoteClipboardNotification(pending.requestId, STREAMER_CLIPBOARD_FORMATS.text, text);
+  }
+
+  private clearPendingRemoteClipboardRead(): void {
+    const pending = this.pendingRemoteClipboardRead;
+    if (!pending) return;
+    if (pending.expiryTimer !== undefined) clearTimeout(pending.expiryTimer);
+    if (pending.completionTimer !== undefined) clearTimeout(pending.completionTimer);
+    this.pendingRemoteClipboardRead = undefined;
+  }
+
+  private refreshRemoteClipboardReadExpiry(pending: PendingRemoteClipboardRead): void {
+    if (pending.expiryTimer !== undefined) clearTimeout(pending.expiryTimer);
+    pending.expiryTimer = setTimeout(() => {
+      if (this.pendingRemoteClipboardRead !== pending) return;
+      this.pendingRemoteClipboardRead = undefined;
+      if (pending.completionTimer !== undefined) clearTimeout(pending.completionTimer);
+      this.recordDebugEvent("data_recv", "读取远端剪贴板超时", {
+        requestId: pending.requestId.toString(),
+        blockCount: pending.blocks.size,
+        receivedBytes: pending.receivedBytes,
+        durationMs: Math.max(0, this.now() - pending.startedAtMs),
+      });
+    }, BrowserRemoteSession.clipboardRpcTimeoutMs);
   }
 
   private applyRemoteClipboardNotification(requestId: bigint, formatId: number, text: string): void {
-    if (formatId !== STREAMER_CLIPBOARD_FORMATS.text) {
+    if (formatId !== STREAMER_CLIPBOARD_FORMATS.text && formatId !== STREAMER_CLIPBOARD_FORMATS.unicodeText) {
       this.recordDebugEvent("data_recv", "忽略不支持的远端剪贴板格式", {
         requestId: requestId.toString(),
         formatId,
@@ -1451,12 +1710,10 @@ export class BrowserRemoteSession {
     }
 
     const duplicate = this.lastSynchronizedClipboardText === text;
-    const pendingEcho = [...this.pendingClipboardRequests.values()].some((pending) => pending.text === text);
-    if (duplicate || pendingEcho) {
+    if (duplicate) {
       this.recordDebugEvent("data_recv", "忽略重复的远端剪贴板", {
         requestId: requestId.toString(),
         textLength: text.length,
-        pendingEcho,
       });
       return;
     }
@@ -1478,18 +1735,10 @@ export class BrowserRemoteSession {
   }
 
   private resetClipboardState(reason: string): void {
-    const pendingCount = this.pendingClipboardRequests.size;
-    if (pendingCount > 0) {
-      const error = createBrowserRemoteAbortError(reason);
-      for (const pending of this.pendingClipboardRequests.values()) {
-        clearTimeout(pending.timeout);
-        pending.reject(error);
-      }
-      this.pendingClipboardRequests.clear();
-      this.recordDebugEvent("data_channel", "取消未完成的剪贴板同步", {
-        pendingCount,
-        reason,
-      });
+    const hadPendingRead = this.pendingRemoteClipboardRead !== undefined;
+    this.clearPendingRemoteClipboardRead();
+    if (hadPendingRead) {
+      this.recordDebugEvent("data_channel", "取消未完成的远端剪贴板读取", { reason });
     }
     this.nextClipboardRequestId = 1n;
     this.lastSynchronizedClipboardText = undefined;
@@ -2295,6 +2544,12 @@ function dataChannelPayloadBytes(data: unknown): Uint8Array | undefined {
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
   if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
   return undefined;
+}
+
+function decodeClipboardUtf8Text(bytes: Uint8Array): string {
+  let text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  while (text.endsWith("\0")) text = text.slice(0, -1);
+  return text;
 }
 
 function bytesToHexPrefix(bytes: Uint8Array | undefined): string | undefined {

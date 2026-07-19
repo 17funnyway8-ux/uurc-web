@@ -19,6 +19,7 @@ export function useDraggableFloatingPanel<T extends HTMLElement>(enabled = true)
   const panelRef = useRef<T | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   const [position, setPosition] = useState<FloatingPanelPosition | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   // 关闭拖拽（如退出全屏）时清掉自定义坐标，让工具栏回到 CSS 中定义的固定原位。
   useEffect(() => {
@@ -63,6 +64,7 @@ export function useDraggableFloatingPanel<T extends HTMLElement>(enabled = true)
       offsetX: event.clientX - panelRect.left,
       offsetY: event.clientY - panelRect.top,
     };
+    setIsDragging(true);
     try {
       event.currentTarget.setPointerCapture?.(event.pointerId);
     } catch {
@@ -83,6 +85,7 @@ export function useDraggableFloatingPanel<T extends HTMLElement>(enabled = true)
   const finishDrag = useCallback((event: PointerEvent<HTMLElement>) => {
     if (dragStateRef.current?.pointerId !== event.pointerId) return;
     dragStateRef.current = null;
+    setIsDragging(false);
     try {
       event.currentTarget.releasePointerCapture?.(event.pointerId);
     } catch {
@@ -94,6 +97,7 @@ export function useDraggableFloatingPanel<T extends HTMLElement>(enabled = true)
   return {
     panelRef,
     panelStyle,
+    isDragging,
     dragHandleProps: {
       onPointerCancel: finishDrag,
       onPointerDown,

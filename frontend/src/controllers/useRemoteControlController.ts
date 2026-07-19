@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMatch, useNavigate } from "react-router";
 
 import {
+  STREAMER_CLIENT_TYPES,
   STREAMER_CONTROL_CONNECT_TYPES,
   buildDefaultStreamerConnectOptionsBase64,
 } from "@uurc/shared/streamer/connectOptions";
@@ -261,7 +262,11 @@ export function useRemoteControlController() {
       : formatParticipantMeta(occupyingParticipant) || "其他控制端"
     : "其他控制端";
   const textChannelState = browserRemoteState.dataChannels[STREAMER_DATA_CHANNEL_LABELS.text] ?? "closed";
+  const fileChannelState = browserRemoteState.dataChannels[STREAMER_DATA_CHANNEL_LABELS.file] ?? "closed";
   const controlChannelState = browserRemoteState.dataChannels[STREAMER_DATA_CHANNEL_LABELS.control] ?? "closed";
+  const remoteClipboardReadEnabled =
+    (roomJoinContext?.kind === "remote_assistance" ? roomJoinContext.targetPlatform : selectedDevice?.platform) ===
+    STREAMER_CLIENT_TYPES.Client_MAC;
   const {
     clipboardSyncEnabled,
     clipboardSyncAvailable,
@@ -281,6 +286,8 @@ export function useRemoteControlController() {
   } = useRemoteClipboardController({
     browserSessionRef: browserRemoteSession,
     sessionKey: controlRouteMatch ? selectedDeviceId : "",
+    fileChannelState,
+    remoteClipboardReadEnabled,
     textChannelState,
     onError: setError,
     onSessionStateChange: setBrowserRemoteState,
@@ -679,17 +686,22 @@ export function useRemoteControlController() {
       roomJoinContext?.kind === "remote_assistance"
         ? STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_Assistance
         : STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_Normal;
+    const targetPlatform = resolveTargetPlatform();
     const state = await session.start({
       appControlId,
       appDataBase64: buildDefaultStreamerConnectOptionsBase64({
         deviceId: authStatus.deviceId,
+        clientType:
+          targetPlatform === STREAMER_CLIENT_TYPES.Client_MAC
+            ? STREAMER_CLIENT_TYPES.Client_MAC
+            : STREAMER_CLIENT_TYPES.Client_ANDROID,
         controlConnectType,
         cursorCapture: !REMOTE_CURSOR_LOCAL_RENDERING_ENABLED,
       }),
       streamerData: buildStreamerControlStreamerDataJson({ controlId: appControlId }),
       forceRelay: options.forceRelay ?? (connectionRouteMode === "relay" ? true : undefined),
       gzipSdp: sdpTransportMode === "gzip",
-      targetPlatform: resolveTargetPlatform(),
+      targetPlatform,
     });
     setBrowserRemoteState(state);
     await refreshSignalEvents(session);
@@ -1097,6 +1109,7 @@ export function useRemoteControlController() {
     audioPlaybackLabel,
     autoSwitchThresholdLabel,
     autoConnect,
+    autoReconnectAttemptCount,
     autoReconnectEnabled,
     autoReconnectLabel,
     browserIceServers,

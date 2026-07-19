@@ -15,13 +15,11 @@ export function DeviceCatalogPanel({
   assistanceConnectId,
   assistanceConnectCode,
   assistanceNotice,
-  assistanceTargetPlatform,
   onLoadDevices,
   onOpenDevice,
   onSelectDevice,
   onAssistanceConnectIdChange,
   onAssistanceConnectCodeChange,
-  onAssistanceTargetPlatformChange,
   onStartRemoteAssistance,
 }: {
   authStatus: AuthStatus | null;
@@ -32,13 +30,11 @@ export function DeviceCatalogPanel({
   assistanceConnectId: string;
   assistanceConnectCode: string;
   assistanceNotice: string;
-  assistanceTargetPlatform: number;
   onLoadDevices: () => void;
   onOpenDevice: (deviceId: string) => void;
   onSelectDevice: (deviceId: string) => void;
   onAssistanceConnectIdChange: (value: string) => void;
   onAssistanceConnectCodeChange: (value: string) => void;
-  onAssistanceTargetPlatformChange: (value: number) => void;
   onStartRemoteAssistance: () => void;
 }) {
   const devicesLoading = busy === "devices" || !devicesLoaded;
@@ -86,10 +82,8 @@ export function DeviceCatalogPanel({
         connectCode={assistanceConnectCode}
         connectId={assistanceConnectId}
         notice={assistanceNotice}
-        platform={assistanceTargetPlatform}
         onConnectCodeChange={onAssistanceConnectCodeChange}
         onConnectIdChange={onAssistanceConnectIdChange}
-        onPlatformChange={onAssistanceTargetPlatformChange}
         onStart={onStartRemoteAssistance}
       />
     </Panel>

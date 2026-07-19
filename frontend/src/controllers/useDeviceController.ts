@@ -2,8 +2,6 @@ import { useCallback, useState } from "react";
 
 import type { UuDeviceGroups } from "@uurc/shared/types";
 
-export const REMOTE_ASSISTANCE_DEFAULT_TARGET_PLATFORM = 1;
-
 export function useDeviceController() {
   const [devices, setDevices] = useState<UuDeviceGroups>(createEmptyDeviceGroups);
   const [devicesLoaded, setDevicesLoaded] = useState(false);
@@ -12,9 +10,6 @@ export function useDeviceController() {
   const [assistanceConnectId, setAssistanceConnectId] = useState("");
   const [assistanceConnectCode, setAssistanceConnectCode] = useState("");
   const [assistanceNotice, setAssistanceNotice] = useState("");
-  const [assistanceTargetPlatform, setAssistanceTargetPlatform] = useState<number>(
-    REMOTE_ASSISTANCE_DEFAULT_TARGET_PLATFORM,
-  );
 
   const resetDevices = useCallback(() => {
     setDevices(createEmptyDeviceGroups());
@@ -24,7 +19,6 @@ export function useDeviceController() {
     setAssistanceConnectId("");
     setAssistanceConnectCode("");
     setAssistanceNotice("");
-    setAssistanceTargetPlatform(REMOTE_ASSISTANCE_DEFAULT_TARGET_PLATFORM);
   }, []);
 
   return {
@@ -42,8 +36,6 @@ export function useDeviceController() {
     setAssistanceConnectCode,
     assistanceNotice,
     setAssistanceNotice,
-    assistanceTargetPlatform,
-    setAssistanceTargetPlatform,
     resetDevices,
   };
 }

@@ -239,7 +239,7 @@
 
 .remote-assistance-form {
   display: grid;
-  grid-template-columns: minmax(170px, 1fr) minmax(170px, 1fr) minmax(140px, 0.7fr) auto;
+  grid-template-columns: minmax(170px, 1fr) minmax(170px, 1fr) auto;
   gap: 10px;
   align-items: end;
 }
@@ -254,10 +254,6 @@
   color: var(--text);
   font-size: 12.5px;
   font-weight: 600;
-}
-
-.remote-assistance-form select {
-  width: 100%;
 }
 
 .remote-assistance-submit {

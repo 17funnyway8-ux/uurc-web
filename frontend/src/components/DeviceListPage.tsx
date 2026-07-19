@@ -14,7 +14,6 @@ export function DeviceListPage({
   assistanceConnectId,
   assistanceConnectCode,
   assistanceNotice,
-  assistanceTargetPlatform,
   identitySourceLabel,
   identityDeviceLabel,
   error,
@@ -24,7 +23,6 @@ export function DeviceListPage({
   onOpenDevice,
   onAssistanceConnectIdChange,
   onAssistanceConnectCodeChange,
-  onAssistanceTargetPlatformChange,
   onStartRemoteAssistance,
   onExport,
   onCopyAuthJson,
@@ -38,7 +36,6 @@ export function DeviceListPage({
   assistanceConnectId: string;
   assistanceConnectCode: string;
   assistanceNotice: string;
-  assistanceTargetPlatform: number;
   identitySourceLabel: string;
   identityDeviceLabel: string;
   error: string;
@@ -48,7 +45,6 @@ export function DeviceListPage({
   onOpenDevice: (deviceId: string) => void;
   onAssistanceConnectIdChange: (value: string) => void;
   onAssistanceConnectCodeChange: (value: string) => void;
-  onAssistanceTargetPlatformChange: (value: number) => void;
   onStartRemoteAssistance: () => void;
   onExport: () => void;
   onCopyAuthJson: () => void;
@@ -92,13 +88,11 @@ export function DeviceListPage({
           assistanceConnectId={assistanceConnectId}
           assistanceConnectCode={assistanceConnectCode}
           assistanceNotice={assistanceNotice}
-          assistanceTargetPlatform={assistanceTargetPlatform}
           onSelectDevice={onSelectDevice}
           onOpenDevice={onOpenDevice}
           onLoadDevices={onLoadDevices}
           onAssistanceConnectIdChange={onAssistanceConnectIdChange}
           onAssistanceConnectCodeChange={onAssistanceConnectCodeChange}
-          onAssistanceTargetPlatformChange={onAssistanceTargetPlatformChange}
           onStartRemoteAssistance={onStartRemoteAssistance}
         />
 

@@ -186,7 +186,6 @@ export interface RemoteAssistanceJoinInput {
   connectCode?: string;
   controlId?: string;
   controlMode?: RemoteAssistanceControlMode | null;
-  targetPlatform?: number;
 }
 
 export interface RemoteAssistanceJoinResult extends RoomJoinResult {

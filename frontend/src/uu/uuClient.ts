@@ -272,7 +272,6 @@ export async function joinRemoteAssistanceByCode(
     connectCodeProvided: true,
     controlId: input.controlId,
     controlMode: input.controlMode,
-    targetPlatform: input.targetPlatform,
     upstream,
     usedConfirmation: false,
   });
@@ -296,7 +295,6 @@ export async function joinRemoteAssistanceByConfirmation(
     connectCodeProvided: Boolean(input.connectCode?.trim()),
     controlId,
     controlMode: input.controlMode,
-    targetPlatform: input.targetPlatform,
     upstream,
     usedConfirmation: true,
   });
@@ -399,21 +397,16 @@ function normalizeOptionalString(value: string | undefined): string | undefined 
   return normalized || undefined;
 }
 
-function buildRemoteAssistanceJoinResult(input: {
+async function buildRemoteAssistanceJoinResult(input: {
   connectId: string;
   connectCodeProvided: boolean;
   controlId?: string;
   controlMode?: RemoteAssistanceControlMode | null;
-  targetPlatform?: number;
   upstream: UuResponse;
   usedConfirmation: boolean;
-}): RemoteAssistanceJoinResult {
+}): Promise<RemoteAssistanceJoinResult> {
   const deviceName = readNestedString(input.upstream.body, "device_name");
-  const targetPlatform =
-    input.targetPlatform ??
-    readNestedNumber(input.upstream.body, "platform") ??
-    readNestedNumber(input.upstream.body, "device_platform") ??
-    readNestedNumber(input.upstream.body, "publisher_platform");
+  const targetPlatform = readRemoteAssistanceTargetPlatform(input.upstream.body);
   const controlId = input.controlId ?? readNestedString(input.upstream.body, "control_id");
   const result = saveRemoteAssistanceRoomJoinResult({
     connectId: input.connectId,
@@ -425,6 +418,24 @@ function buildRemoteAssistanceJoinResult(input: {
     upstream: input.upstream,
   });
   const responseCode = result.upstream.body.code;
+
+  const joinedSuccessfully = responseCode === 0 || result.roomConfigSummary !== null;
+  if (joinedSuccessfully && targetPlatform === undefined) {
+    clearRoomSession();
+    try {
+      const cancelled = await cancelRemoteAssistance(input.connectId);
+      const cancellationFailed =
+        cancelled.status < 200 ||
+        cancelled.status >= 300 ||
+        (cancelled.body.code !== undefined && cancelled.body.code !== 0);
+      if (cancellationFailed) {
+        throw new Error(cancelled.body.msg ?? `取消远程协助返回 HTTP ${cancelled.status}`);
+      }
+    } catch {
+      throw new Error("伙伴设备未返回设备系统，自动取消协助失败，请让伙伴端结束本次协助后重试");
+    }
+    throw new Error("伙伴设备未返回设备系统，已取消本次远程协助");
+  }
 
   return {
     ...result,
@@ -467,27 +478,33 @@ function readNestedString(value: unknown, key: string): string | undefined {
   return undefined;
 }
 
-function readNestedNumber(value: unknown, key: string): number | undefined {
-  const record = asRecord(value);
-  if (!record) return undefined;
-  const direct = record[key];
-  if (typeof direct === "number" && Number.isFinite(direct)) return direct;
-  if (typeof direct === "string" && direct.trim()) {
-    const parsed = Number(direct);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  for (const child of Object.values(record)) {
-    if (Array.isArray(child)) {
-      for (const item of child) {
-        const found = readNestedNumber(item, key);
-        if (found !== undefined) return found;
-      }
-      continue;
+function readRemoteAssistanceTargetPlatform(value: unknown): number | undefined {
+  const body = asRecord(value);
+  if (!body) return undefined;
+  const data = asRecord(body.data);
+  const containers = [data, ...readRoomConfigContainers(data), body, ...readRoomConfigContainers(body)].filter(
+    (item): item is Record<string, unknown> => item !== null,
+  );
+
+  for (const key of ["publisher_platform", "device_platform", "platform"]) {
+    for (const container of containers) {
+      const platform = positiveInteger(container[key]);
+      if (platform !== undefined) return platform;
     }
-    const found = readNestedNumber(child, key);
-    if (found !== undefined) return found;
   }
   return undefined;
+}
+
+function readRoomConfigContainers(record: Record<string, unknown> | null): Array<Record<string, unknown>> {
+  if (!record) return [];
+  return ["room_config", "roomConfig", "room_info", "roomInfo", "streamer_room_config", "streamerRoomConfig"]
+    .map((key) => asRecord(record[key]))
+    .filter((item): item is Record<string, unknown> => item !== null);
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

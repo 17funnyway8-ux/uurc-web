@@ -33,6 +33,8 @@ let lastControlIceId: string;
 let currentControlForceRelay: boolean;
 let currentParticipants: Array<Record<string, unknown>>;
 let currentAssistControlMode: string;
+let currentAssistPlatformFields: Record<string, number>;
+let assistCodeRequiresConfirmation: boolean;
 let currentSignalServers: string[];
 let signalStartError: boolean;
 let remoteTrackPlan: Array<{ id: string; kind: "audio" | "video" }>;
@@ -44,6 +46,8 @@ describe("App console", () => {
     lastControlIceId = "";
     currentControlForceRelay = false;
     currentAssistControlMode = "by_password";
+    currentAssistPlatformFields = { publisher_platform: 4, device_platform: 2, platform: 1 };
+    assistCodeRequiresConfirmation = false;
     currentSignalServers = ["wss://signal.example"];
     signalStartError = false;
     remoteTrackPlan = [];
@@ -206,7 +210,9 @@ describe("App console", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "我的设备" });
-    expect(screen.getByLabelText("伙伴设备系统")).toHaveValue("1");
+    expect(
+      within(screen.getByRole("region", { name: "远控伙伴设备" })).queryByRole("combobox"),
+    ).not.toBeInTheDocument();
     await user.type(screen.getByLabelText("伙伴的设备 ID"), "982123456");
     await user.type(screen.getByLabelText("伙伴的设备验证码"), "L6026CCD");
     await user.click(screen.getByRole("button", { name: /^连接$/ }));
@@ -226,7 +232,7 @@ describe("App console", () => {
     expect(startCall?.body).toHaveProperty("roomConfig.token", "assist-room-token");
     expect(startCall?.body).toHaveProperty("joinContext.kind", "remote_assistance");
     expect(startCall?.body).toHaveProperty("joinContext.connectId", "982123456");
-    expect(startCall?.body).toHaveProperty("joinContext.targetPlatform", 1);
+    expect(startCall?.body).toHaveProperty("joinContext.targetPlatform", 4);
 
     await waitFor(() => {
       expect(requestLog.filter((call) => call.path === "/api/remote/signal/control")).toHaveLength(1);
@@ -267,6 +273,57 @@ describe("App console", () => {
     expect(uuCalls("/api/v2/room/join/share/by_code")).toHaveLength(0);
     expect(uuCalls("/api/v2/room/join/share/by_confirmation")).toHaveLength(1);
     expect(screen.getAllByText("远程协助 · 验证码或确认").length).toBeGreaterThan(0);
+  });
+
+  it("continues by code through partner confirmation with the detected platform", async () => {
+    vi.stubGlobal("RTCPeerConnection", TestPeerConnection);
+    currentParticipants = [];
+    currentAssistControlMode = "password_confirmation";
+    assistCodeRequiresConfirmation = true;
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "我的设备" });
+    await user.type(screen.getByLabelText("伙伴的设备 ID"), "982123456");
+    await user.type(screen.getByLabelText("伙伴的设备验证码"), "L6026CCD");
+    await user.click(screen.getByRole("button", { name: /^连接$/ }));
+
+    await screen.findByRole("heading", { name: "Partner PC" });
+    expect(uuCalls("/api/v2/room/join/share/by_code")).toHaveLength(1);
+    expect(uuCalls("/api/v2/room/join/share/by_confirmation")).toHaveLength(1);
+    expect(uuCalls("/api/v2/room/join/share/by_confirmation")[0]?.body).toEqual({
+      connect_id: "982123456",
+      control_id: "assist-control-1",
+    });
+    expect(uuCalls("/api/v2/room/share/cancel_remote_assist")).toHaveLength(0);
+
+    await startCompatibleConnection(user);
+    await waitFor(() => {
+      expect(requestLog.filter((call) => call.path === "/api/remote/signal/start")).toHaveLength(1);
+    });
+    expect(requestLog.find((call) => call.path === "/api/remote/signal/start")?.body).toHaveProperty(
+      "joinContext.targetPlatform",
+      4,
+    );
+  });
+
+  it("cancels remote assistance before signaling when the joined device platform is missing", async () => {
+    vi.stubGlobal("RTCPeerConnection", TestPeerConnection);
+    currentParticipants = [];
+    currentAssistPlatformFields = {};
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "我的设备" });
+    await user.type(screen.getByLabelText("伙伴的设备 ID"), "982123456");
+    await user.type(screen.getByLabelText("伙伴的设备验证码"), "L6026CCD");
+    await user.click(screen.getByRole("button", { name: /^连接$/ }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("伙伴设备未返回设备系统，已取消本次远程协助");
+    expect(window.location.pathname).toBe("/devices");
+    expect(uuCalls("/api/v2/room/share/cancel_remote_assist")).toHaveLength(1);
+    expect(requestLog.filter((call) => call.path === "/api/remote/signal/start")).toHaveLength(0);
+    expect(window.sessionStorage.getItem("uurc.latestRoomSession")).toBeNull();
   });
 
   it("preserves a control page deep link while restoring login state on refresh", async () => {
@@ -1676,13 +1733,22 @@ async function handleUuProxyFetch(body: unknown): Promise<Response> {
 
   if (request.path === "/api/v2/room/join/share/by_code" && request.method === "POST") {
     expect(request.body).toEqual({ connect_id: "982123456", connect_code: "L6026CCD" });
+    if (assistCodeRequiresConfirmation) {
+      return jsonResponse(
+        uuResponse({
+          code: 0x470,
+          msg: "confirmation required",
+          data: { control_id: "assist-control-1" },
+        }),
+      );
+    }
     return jsonResponse(
       uuResponse({
         code: 0,
         data: {
           control_id: "assist-control-1",
           device_name: "Partner PC",
-          platform: 1,
+          ...currentAssistPlatformFields,
           room_config: {
             token: "assist-room-token",
             signaling_server: "wss://assist-primary.example",
@@ -1705,7 +1771,7 @@ async function handleUuProxyFetch(body: unknown): Promise<Response> {
         data: {
           control_id: "assist-control-1",
           device_name: "Partner PC",
-          platform: 1,
+          ...currentAssistPlatformFields,
           room_config: {
             token: "assist-room-token",
             signaling_server: "wss://assist-primary.example",

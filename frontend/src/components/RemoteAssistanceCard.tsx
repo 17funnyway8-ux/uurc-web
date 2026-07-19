@@ -5,20 +5,16 @@ export function RemoteAssistanceCard({
   connectCode,
   connectId,
   notice,
-  platform,
   onConnectCodeChange,
   onConnectIdChange,
-  onPlatformChange,
   onStart,
 }: {
   busy: string | null;
   connectCode: string;
   connectId: string;
   notice: string;
-  platform: number;
   onConnectCodeChange: (value: string) => void;
   onConnectIdChange: (value: string) => void;
-  onPlatformChange: (value: number) => void;
   onStart: () => void;
 }) {
   const submitting = busy === "assistance";
@@ -65,15 +61,6 @@ export function RemoteAssistanceCard({
             spellCheck={false}
             value={connectCode}
           />
-        </label>
-
-        <label>
-          <span>伙伴设备系统</span>
-          <select onChange={(event) => onPlatformChange(Number(event.target.value))} value={platform}>
-            <option value={1}>Windows</option>
-            <option value={4}>macOS</option>
-            <option value={2}>Android</option>
-          </select>
         </label>
 
         <button className="primary-action-button remote-assistance-submit" disabled={disabled} type="submit">

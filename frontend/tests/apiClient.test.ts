@@ -217,7 +217,6 @@ describe("frontend API client remote signal helpers", () => {
         connectId: "982123456",
         connectCode: "L6026CCD",
         controlMode: "by_password",
-        targetPlatform: 1,
       }),
     ).resolves.toMatchObject({
       assistance: {
@@ -225,7 +224,7 @@ describe("frontend API client remote signal helpers", () => {
         connectCodeProvided: true,
         controlMode: "by_password",
         deviceName: "Partner PC",
-        targetPlatform: 1,
+        targetPlatform: 4,
       },
       roomConfigSummary: {
         signalServers: ["wss://assist.example"],
@@ -236,14 +235,13 @@ describe("frontend API client remote signal helpers", () => {
         connectId: "982123456",
         controlId: "control-1",
         controlMode: "by_confirmation",
-        targetPlatform: 1,
       }),
     ).resolves.toMatchObject({
       assistance: {
         connectId: "982123456",
         controlId: "control-1",
         usedConfirmation: true,
-        targetPlatform: 1,
+        targetPlatform: 4,
       },
     });
     await expect(cancelRemoteAssistance("982123456")).resolves.toMatchObject({
@@ -319,6 +317,129 @@ describe("frontend API client remote signal helpers", () => {
       ],
     ]);
   });
+
+  it.each([
+    ["device_platform", { device_platform: 2, platform: 1 }, 2],
+    ["platform", { platform: 1 }, 1],
+  ])("falls back to %s when joining remote assistance", async (_field, platformFields, expectedPlatform) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const request = init?.body ? JSON.parse(String(init.body)) : null;
+        if (String(input) !== "/api/proxy/uu" || request.path !== "/api/v2/room/join/share/by_code") {
+          return jsonResponse({});
+        }
+        return jsonResponse(proxyResponse(remoteAssistanceRoomBody("assist-room-token", platformFields)));
+      }),
+    );
+
+    await expect(
+      joinRemoteAssistanceByCode({ connectId: "982123456", connectCode: "L6026CCD" }),
+    ).resolves.toMatchObject({
+      assistance: { targetPlatform: expectedPlatform },
+    });
+  });
+
+  it("cancels a joined assistance room and clears the local session when the platform is missing", async () => {
+    const requestedPaths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const request = init?.body ? JSON.parse(String(init.body)) : null;
+        if (String(input) !== "/api/proxy/uu") return jsonResponse({});
+        requestedPaths.push(request.path);
+        if (request.path === "/api/v2/room/join/share/by_code") {
+          return jsonResponse(proxyResponse(remoteAssistanceRoomBody("assist-room-token", {})));
+        }
+        if (request.path === "/api/v2/room/share/cancel_remote_assist") {
+          return jsonResponse(proxyResponse({ code: 0, msg: "ok" }));
+        }
+        return jsonResponse({});
+      }),
+    );
+
+    await expect(joinRemoteAssistanceByCode({ connectId: "982123456", connectCode: "L6026CCD" })).rejects.toThrow(
+      "伙伴设备未返回设备系统，已取消本次远程协助",
+    );
+    expect(requestedPaths).toEqual(["/api/v2/room/join/share/by_code", "/api/v2/room/share/cancel_remote_assist"]);
+    expect(window.sessionStorage.getItem("uurc.latestRoomSession")).toBeNull();
+  });
+
+  it("reports when automatic assistance cancellation fails at the HTTP layer", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const request = init?.body ? JSON.parse(String(init.body)) : null;
+        if (String(input) !== "/api/proxy/uu") return jsonResponse({});
+        if (request.path === "/api/v2/room/join/share/by_code") {
+          return jsonResponse(proxyResponse(remoteAssistanceRoomBody("assist-room-token", {})));
+        }
+        return jsonResponse({
+          status: 500,
+          statusText: "Internal Server Error",
+          headers: { "content-type": "application/json" },
+          body: { msg: "cancel failed" },
+        });
+      }),
+    );
+
+    await expect(joinRemoteAssistanceByCode({ connectId: "982123456", connectCode: "L6026CCD" })).rejects.toThrow(
+      "伙伴设备未返回设备系统，自动取消协助失败，请让伙伴端结束本次协助后重试",
+    );
+    expect(window.sessionStorage.getItem("uurc.latestRoomSession")).toBeNull();
+  });
+
+  it("ignores invalid and unrelated nested platform values", async () => {
+    const requestedPaths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const request = init?.body ? JSON.parse(String(init.body)) : null;
+        if (String(input) !== "/api/proxy/uu") return jsonResponse({});
+        requestedPaths.push(request.path);
+        if (request.path === "/api/v2/room/join/share/by_code") {
+          return jsonResponse(
+            proxyResponse({
+              code: 0,
+              data: {
+                publisher_platform: 0,
+                metadata: { platform: 4 },
+                room_config: { token: "malformed-room-without-signal-server" },
+              },
+            }),
+          );
+        }
+        return jsonResponse(proxyResponse({ code: 0, msg: "ok" }));
+      }),
+    );
+
+    await expect(joinRemoteAssistanceByCode({ connectId: "982123456", connectCode: "L6026CCD" })).rejects.toThrow(
+      "伙伴设备未返回设备系统，已取消本次远程协助",
+    );
+    expect(requestedPaths).toEqual(["/api/v2/room/join/share/by_code", "/api/v2/room/share/cancel_remote_assist"]);
+    expect(window.sessionStorage.getItem("uurc.latestRoomSession")).toBeNull();
+  });
+
+  it("keeps waiting for confirmation when an intermediate response has no room or platform", async () => {
+    const requestedPaths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const request = init?.body ? JSON.parse(String(init.body)) : null;
+        if (String(input) !== "/api/proxy/uu") return jsonResponse({});
+        requestedPaths.push(request.path);
+        return jsonResponse(proxyResponse({ code: 0x470, msg: "confirmation required" }));
+      }),
+    );
+
+    await expect(
+      joinRemoteAssistanceByCode({ connectId: "982123456", connectCode: "L6026CCD" }),
+    ).resolves.toMatchObject({
+      roomConfigSummary: null,
+      assistance: { confirmationRequired: true, targetPlatform: undefined },
+    });
+    expect(requestedPaths).toEqual(["/api/v2/room/join/share/by_code"]);
+  });
 });
 
 function jsonResponse(body: unknown): Response {
@@ -337,13 +458,16 @@ function proxyResponse(body: unknown) {
   };
 }
 
-function remoteAssistanceRoomBody(token: string) {
+function remoteAssistanceRoomBody(
+  token: string,
+  platformFields: Record<string, number> = { publisher_platform: 4, device_platform: 2, platform: 1 },
+) {
   return {
     code: 0,
     data: {
       control_id: "control-1",
       device_name: "Partner PC",
-      platform: 1,
+      ...platformFields,
       room_config: {
         token,
         signaling_server: "wss://assist.example",

@@ -132,8 +132,6 @@ export function useRemoteControlController() {
     setAssistanceConnectCode,
     assistanceNotice,
     setAssistanceNotice,
-    assistanceTargetPlatform,
-    setAssistanceTargetPlatform,
     resetDevices,
   } = useDeviceController();
   const {
@@ -454,7 +452,6 @@ export function useRemoteControlController() {
           connectId,
           connectCode,
           controlMode: modeResult.controlMode,
-          targetPlatform: assistanceTargetPlatform,
         });
         if (!joined.roomConfigSummary && joined.assistance.confirmationRequired) {
           setAssistanceNotice("伙伴设备要求二次确认，正在等待对方确认...");
@@ -463,7 +460,6 @@ export function useRemoteControlController() {
             connectCode,
             controlId: joined.assistance.controlId,
             controlMode: modeResult.controlMode,
-            targetPlatform: assistanceTargetPlatform,
           });
         }
       } else if (modeResult.controlMode === "by_confirmation" || modeResult.controlMode === "password_confirmation") {
@@ -471,7 +467,6 @@ export function useRemoteControlController() {
         joined = await joinRemoteAssistanceByConfirmation({
           connectId,
           controlMode: modeResult.controlMode,
-          targetPlatform: assistanceTargetPlatform,
         });
       } else {
         throw new Error("伙伴设备当前要求输入设备验证码");
@@ -479,6 +474,10 @@ export function useRemoteControlController() {
 
       if (!joined.roomConfigSummary) {
         throw new Error(joined.upstream.body.msg ?? "远程协助未返回可用房间配置");
+      }
+      const targetPlatform = joined.assistance.targetPlatform;
+      if (targetPlatform === undefined) {
+        throw new Error("伙伴设备未返回设备系统，已取消本次远程协助");
       }
 
       const context: RoomJoinContext = {
@@ -491,7 +490,7 @@ export function useRemoteControlController() {
         controlId: joined.assistance.controlId,
         controlMode: joined.assistance.controlMode,
         deviceName: joined.assistance.deviceName,
-        targetPlatform: joined.assistance.targetPlatform ?? assistanceTargetPlatform,
+        targetPlatform,
       };
       setSelectedDeviceId(joined.assistance.connectId);
       setRoomResponse(joined);
@@ -1037,7 +1036,6 @@ export function useRemoteControlController() {
     assistanceConnectId,
     assistanceConnectCode,
     assistanceNotice,
-    assistanceTargetPlatform,
     identitySourceLabel,
     identityDeviceLabel,
     error,
@@ -1048,7 +1046,6 @@ export function useRemoteControlController() {
     onOpenDevice: (deviceId: string) => void handleOpenDevice(deviceId),
     onAssistanceConnectIdChange: setAssistanceConnectId,
     onAssistanceConnectCodeChange: setAssistanceConnectCode,
-    onAssistanceTargetPlatformChange: setAssistanceTargetPlatform,
     onStartRemoteAssistance: () => void handleStartRemoteAssistance(),
     onExport: () => void handleExport(),
     onCopyAuthJson: () => void handleCopyAuthJson(),

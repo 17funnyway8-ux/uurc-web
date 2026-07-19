@@ -4,17 +4,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   STREAMER_CONTROL_CONNECT_TYPES,
-  analyzeRemoteSignalReadiness,
   buildDefaultStreamerConnectOptionsBase64,
-} from "@uurc/shared/streamerProtocol";
+} from "@uurc/shared/streamer/connectOptions";
+import { analyzeRemoteSignalReadiness } from "@uurc/shared/streamer/readiness";
 import App from "../src/App.js";
 import type { BrowserRemoteSessionState } from "../src/remote/browserRemoteSession.js";
 import { getRemoteConnectionQuality } from "../src/remote/remoteControlUiModel.js";
 
 const readLocalClipboardTextMock = vi.hoisted(() => vi.fn(async () => ""));
+const writeLocalClipboardTextMock = vi.hoisted(() => vi.fn(async (_text: string) => undefined));
 
 vi.mock("../src/browser/clipboard.js", () => ({
+  getLocalClipboardAccessIssue: () => null,
   readLocalClipboardText: readLocalClipboardTextMock,
+  writeLocalClipboardText: writeLocalClipboardTextMock,
 }));
 
 const authReady = {
@@ -95,6 +98,8 @@ describe("App console", () => {
     TestPeerConnection.statsReports = [];
     readLocalClipboardTextMock.mockReset();
     readLocalClipboardTextMock.mockResolvedValue("");
+    writeLocalClipboardTextMock.mockReset();
+    writeLocalClipboardTextMock.mockResolvedValue(undefined);
     window.localStorage.clear();
     // 默认关闭“自动连接”，让现有用例显式走手动连接流程；单独的用例会显式打开它。
     window.localStorage.setItem("uurc.autoConnect", "false");
@@ -1030,15 +1035,16 @@ describe("App console", () => {
     await user.click(screen.getByRole("button", { name: /^画面 2/ }));
     expect(screen.getByRole("button", { name: /^画面 2/ })).toHaveAttribute("aria-pressed", "true");
 
-    await user.click(screen.getByRole("button", { name: "读取剪贴板" }));
+    expect(screen.getByRole("checkbox", { name: "同步剪贴板" })).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "同步一次" }));
     await waitFor(() => {
       expect(readLocalClipboardTextMock).toHaveBeenCalledTimes(1);
     });
-    await screen.findByText("已读取 14 字符");
-    const textBytesBefore = TestPeerConnection.sentByLabel.TEXT_DATA_CHANNEL?.length ?? 0;
-    await user.click(screen.getByRole("button", { name: "发送到远端" }));
-    expect(TestPeerConnection.sentByLabel.TEXT_DATA_CHANNEL?.length).toBeGreaterThan(textBytesBefore);
-    expect(screen.getByText("已发送 14 字符到远端")).toBeInTheDocument();
+    await waitFor(() => expect(TestPeerConnection.sentByLabel.TEXT_DATA_CHANNEL?.length).toBeGreaterThan(0));
+    TestPeerConnection.channels.TEXT_DATA_CHANNEL?.onmessage?.(
+      new MessageEvent("message", { data: clipboardTextChangeResponse(1n, 1).buffer }),
+    );
+    await screen.findByText("已同步到远端（14 字符）");
   });
 
   it("shows useful connection quality metrics when WebRTC stats provide them", async () => {
@@ -1900,6 +1906,29 @@ function buildStatsReport(input: {
         timestamp: input.timestamp,
       },
     ],
+  ]);
+}
+
+function clipboardTextChangeResponse(requestId: bigint, result: number): Uint8Array {
+  if (requestId < 0n || requestId > 0x7fn || result < 0 || result > 0x7f) {
+    throw new RangeError("test Clipboard response fixture only supports one-byte varints");
+  }
+  return new Uint8Array([
+    0x08,
+    0x5b,
+    0x10,
+    0x5c,
+    0xb2,
+    0x01,
+    0x08,
+    0x0a,
+    0x02,
+    0x08,
+    Number(requestId),
+    0x32,
+    0x02,
+    0x08,
+    result,
   ]);
 }
 

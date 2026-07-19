@@ -10,8 +10,7 @@ import {
   type WheelEvent,
 } from "react";
 
-import type { BusyAction, RemoteStageViewMode } from "../app/remoteControlTypes.js";
-import { readLocalClipboardText } from "../browser/clipboard.js";
+import type { RemoteStageViewMode } from "../app/remoteControlTypes.js";
 import type { BrowserRemoteSession, BrowserRemoteSessionState } from "../remote/browserRemoteSession.js";
 import { sendRemoteShortcut, type RemoteShortcut } from "../remote/remoteShortcuts.js";
 import { toRemoteKeyValue, toRemoteMouseButton } from "../remote/remoteControlUiModel.js";
@@ -24,33 +23,23 @@ const HOLD_MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta", "AltGraph
 
 interface UseRemoteInputControllerOptions {
   browserSessionRef: RefObject<BrowserRemoteSession | null>;
-  busy: BusyAction;
   controlChannelState: RTCDataChannelState;
-  textChannelState: RTCDataChannelState;
   targetPlatform?: number;
   primaryRemoteVideoId: string;
   remoteStageViewMode: RemoteStageViewMode;
-  run(action: BusyAction, task: () => Promise<void>): Promise<void>;
   onError(message: string): void;
   onSessionStateChange(state: BrowserRemoteSessionState): void;
-  showToast(message: string): void;
 }
 
 export function useRemoteInputController({
   browserSessionRef,
-  busy,
   controlChannelState,
-  textChannelState,
   targetPlatform,
   primaryRemoteVideoId,
   remoteStageViewMode,
-  run,
   onError,
   onSessionStateChange,
-  showToast,
 }: UseRemoteInputControllerOptions) {
-  const [clipboardText, setClipboardText] = useState("");
-  const [clipboardStatus, setClipboardStatus] = useState("尚未读取本机剪贴板");
   const [inputControlEnabled, setInputControlEnabled] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const remoteStageRef = useRef<HTMLDivElement | null>(null);
@@ -67,9 +56,6 @@ export function useRemoteInputController({
   }, []);
 
   const inputControlActive = inputControlEnabled && controlChannelState === "open";
-  const canReadLocalClipboard = busy === null;
-  const canSendClipboardText = inputControlActive && textChannelState === "open" && clipboardText.trim().length > 0;
-  const clipboardPreviewLabel = clipboardText.trim() ? `${clipboardText.length} 字符待发送` : "剪贴板内容未读取";
   const { geometryRef, refreshGeometry, subscribeGeometryChange } = useRemoteMediaGeometry({
     stageRef: remoteStageRef,
     viewMode: remoteStageViewMode,
@@ -142,57 +128,6 @@ export function useRemoteInputController({
     if (controlChannelState !== "open") return;
     setInputControlEnabled(true);
     remoteStageRef.current?.focus();
-  }
-
-  function handleRemoteClipboard(text: string): void {
-    if (!text) return;
-    setClipboardText(text);
-    void writeRemoteClipboardToLocal(text);
-  }
-
-  async function writeRemoteClipboardToLocal(text: string): Promise<void> {
-    const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
-    if (!clipboard?.writeText) {
-      setClipboardStatus(`已收到远端剪贴板（${text.length} 字符），当前环境不支持写入本机剪贴板`);
-      return;
-    }
-    try {
-      await clipboard.writeText(text);
-      setClipboardStatus(`已同步远端剪贴板到本机（${text.length} 字符）`);
-    } catch {
-      setClipboardStatus(`已收到远端剪贴板（${text.length} 字符），写入本机被拒绝，可在剪贴板面板手动处理`);
-    }
-  }
-
-  async function handleReadLocalClipboard(): Promise<void> {
-    await run("clipboard-read", async () => {
-      try {
-        const text = await readLocalClipboardText();
-        if (typeof text !== "string") {
-          setClipboardStatus("当前浏览器未返回剪贴板文本");
-          return;
-        }
-        setClipboardText(text);
-        setClipboardStatus(text.trim() ? `已读取 ${text.length} 字符` : "剪贴板为空");
-      } catch (caught) {
-        setClipboardStatus(
-          `无法读取本机剪贴板（需在 HTTPS 或 localhost 下访问并授予剪贴板权限）：${caught instanceof Error ? caught.message : String(caught)}`,
-        );
-      }
-    });
-  }
-
-  function handleSendClipboardText(): void {
-    const session = browserSessionRef.current;
-    if (!clipboardText.trim() || !session) return;
-    try {
-      session.sendTextData(clipboardText);
-      setClipboardStatus(`已发送 ${clipboardText.length} 字符到远端`);
-      showToast("已发送剪贴板到远端");
-      onSessionStateChange(session.getState());
-    } catch (caught) {
-      onError(errorMessage(caught));
-    }
   }
 
   function handleRemoteShortcut(shortcut: RemoteShortcut): void {
@@ -380,10 +315,6 @@ export function useRemoteInputController({
   }
 
   return {
-    clipboardStatus,
-    clipboardPreviewLabel,
-    canReadLocalClipboard,
-    canSendClipboardText,
     inputControlActive,
     isFullscreen,
     remoteStageRef,
@@ -391,9 +322,6 @@ export function useRemoteInputController({
     resetRemoteCursor,
     enableInputControl,
     resetInputControl,
-    handleRemoteClipboard,
-    handleReadLocalClipboard,
-    handleSendClipboardText,
     handleRemoteShortcut,
     handleToggleFullscreen: () => setIsFullscreen((current) => !current),
     handleToggleInputControl,

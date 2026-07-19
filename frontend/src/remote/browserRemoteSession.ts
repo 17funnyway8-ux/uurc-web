@@ -1,35 +1,46 @@
 import {
-  STREAMER_DATA_CHANNEL_LABELS,
-  STREAMER_ICE_NETWORK_TYPES,
-  STREAMER_MAX_DATA_BUFFER_BYTES,
-  buildStreamerMouseButtonInputMessage,
-  buildStreamerKeyboardInputMessage,
-  buildStreamerMacKeyboardInputMessage,
-  buildStreamerWindowsKeyboardInputMessage,
-  buildStreamerTextInputMessage,
-  buildStreamerMacMouseMoveAbsoluteInputMessage,
-  buildStreamerMacMouseScrollInputMessage,
-  buildStreamerMouseMoveAbsoluteInputMessage,
-  buildStreamerMouseScrollInputMessage,
-  buildStreamerRtcConfiguration,
-  classifyStreamerConnectionPath,
   decodeStreamerControlMessage,
   encodeStreamerEchoResponseMessage,
   encodeStreamerEchoRequestMessage,
   encodeStreamerInputMessage,
   encodeStreamerTextMessage,
-  formatStreamerSignalControlFailure,
-  getStreamerSignalControlFailure,
-  STREAMER_ROM_MESSAGE_TYPES,
   STREAMER_SIMPLE_ACTION_TYPES,
   type DecodedStreamerControlMessage,
   type DecodedStreamerCursorShape,
+} from "@uurc/shared/streamer/controlChannel";
+import {
+  STREAMER_CLIPBOARD_FORMATS,
+  STREAMER_CLIPBOARD_RESULTS,
+  decodeStreamerClipboardMessage,
+  encodeStreamerClipboardTextChangeRequest,
+} from "@uurc/shared/streamer/clipboard";
+import {
+  buildStreamerKeyboardInputMessage,
+  buildStreamerMacKeyboardInputMessage,
+  buildStreamerMacMouseMoveAbsoluteInputMessage,
+  buildStreamerMacMouseScrollInputMessage,
+  buildStreamerMouseButtonInputMessage,
+  buildStreamerMouseMoveAbsoluteInputMessage,
+  buildStreamerMouseScrollInputMessage,
+  buildStreamerTextInputMessage,
+  buildStreamerWindowsKeyboardInputMessage,
+  type StreamerMouseButtonKind,
+} from "@uurc/shared/streamer/input";
+import {
+  STREAMER_ICE_NETWORK_TYPES,
+  buildStreamerRtcConfiguration,
+  formatStreamerSignalControlFailure,
+  getStreamerSignalControlFailure,
+  type StreamerIceNetworkType,
+  type StreamerSignalControlResult,
+} from "@uurc/shared/streamer/signal";
+import {
+  STREAMER_DATA_CHANNEL_LABELS,
+  STREAMER_MAX_DATA_BUFFER_BYTES,
+  classifyStreamerConnectionPath,
   type StreamerConnectionPath,
   type StreamerDataChannelLabel,
-  type StreamerIceNetworkType,
-  type StreamerMouseButtonKind,
-  type StreamerSignalControlResult,
-} from "@uurc/shared/streamerProtocol";
+} from "@uurc/shared/streamer/transport";
 import type {
   RemoteSignalControlRequest,
   RemoteSignalControlResult,
@@ -275,6 +286,15 @@ export interface BrowserRemoteSessionState {
   videoFlow?: BrowserRemoteVideoFlowDiagnostics;
 }
 
+interface PendingClipboardRequest {
+  generation: number;
+  text: string;
+  startedAtMs: number;
+  timeout: ReturnType<typeof setTimeout>;
+  resolve: () => void;
+  reject: (error: Error) => void;
+}
+
 type SwitchNetworkNotify = {
   transportType?: StreamerIceNetworkType;
   iceId?: string;
@@ -285,6 +305,7 @@ export class BrowserRemoteSession {
   private static readonly echoHeartbeatIntervalMs = 100;
   private static readonly echoHeartbeatDebugIntervalMs = 30000;
   private static readonly dataReceiveDebugIntervalMs = 30000;
+  private static readonly clipboardRpcTimeoutMs = 5000;
   private static readonly mouseMoveBufferedAmountLowThreshold = Math.floor(STREAMER_MAX_DATA_BUFFER_BYTES / 4);
 
   private readonly createPeerConnection: (configuration: RTCConfiguration) => BrowserRemotePeerConnection;
@@ -312,6 +333,10 @@ export class BrowserRemoteSession {
   private remoteDisplayId: number | undefined;
   private remoteInputDisplayId: number | undefined;
   private sequence = 1;
+  private nextClipboardRequestId = 1n;
+  private clipboardSendTail: Promise<void> = Promise.resolve();
+  private readonly pendingClipboardRequests = new Map<bigint, PendingClipboardRequest>();
+  private lastSynchronizedClipboardText: string | undefined;
   private readonly heldKeyboardValues = new Set<string | number>();
   private readonly heldMouseButtons = new Set<StreamerMouseButtonKind | number>();
   private previousStatsSample:
@@ -370,6 +395,7 @@ export class BrowserRemoteSession {
       appControlId: this.appControlId || undefined,
       iceId: this.iceId,
     });
+    this.resetClipboardState("浏览器远控会话已关闭");
     this.stopEchoHeartbeat();
     for (const channel of this.dataChannels.values()) {
       channel.onopen = null;
@@ -420,6 +446,7 @@ export class BrowserRemoteSession {
   async start(input: BrowserRemoteSessionStartInput): Promise<BrowserRemoteSessionState> {
     const lifecycleGeneration = this.lifecycleGeneration + 1;
     this.lifecycleGeneration = lifecycleGeneration;
+    this.resetClipboardState("新的浏览器远控会话已开始");
     this.recordDebugEvent("session", "启动 signal control", {
       appControlId: input.appControlId,
       gzipSdp: input.gzipSdp ?? true,
@@ -517,6 +544,15 @@ export class BrowserRemoteSession {
         targetPlatform: this.targetPlatform,
       },
     });
+  }
+
+  sendClipboardText(text: string): Promise<void> {
+    const lifecycleGeneration = this.lifecycleGeneration;
+    const send = this.clipboardSendTail
+      .catch(() => undefined)
+      .then(() => this.sendClipboardTextNow(text, lifecycleGeneration));
+    this.clipboardSendTail = send.catch(() => undefined);
+    return send;
   }
 
   sendMouseClick(input: BrowserRemoteMouseClickInput): void {
@@ -792,6 +828,8 @@ export class BrowserRemoteSession {
           this.pendingMouseMove = undefined;
           this.pendingCriticalMouseMove = undefined;
           this.stopEchoHeartbeat();
+        } else if (label === STREAMER_DATA_CHANNEL_LABELS.text) {
+          this.resetClipboardState("剪贴板数据通道已关闭");
         }
         this.updateDataChannelState(label);
       };
@@ -801,6 +839,8 @@ export class BrowserRemoteSession {
         if (label === STREAMER_DATA_CHANNEL_LABELS.control && channel.readyState !== "open") {
           console.warn(`[uurc] 控制数据通道错误（${label}），readyState=${channel.readyState}`);
           this.stopEchoHeartbeat();
+        } else if (label === STREAMER_DATA_CHANNEL_LABELS.text && channel.readyState !== "open") {
+          this.resetClipboardState("剪贴板数据通道发生错误");
         }
         this.updateDataChannelState(label);
       };
@@ -1093,6 +1133,8 @@ export class BrowserRemoteSession {
   }
 
   private recordDataChannelMessage(label: StreamerDataChannelLabel, data: unknown): void {
+    if (label === STREAMER_DATA_CHANNEL_LABELS.text && this.handleTextDataMessage(data)) return;
+
     const decodedControlMessage =
       label === STREAMER_DATA_CHANNEL_LABELS.control ? this.decodeControlDataChannelMessage(data) : undefined;
     if (decodedControlMessage) this.handleControlDataMessage(decodedControlMessage);
@@ -1104,9 +1146,34 @@ export class BrowserRemoteSession {
     this.lastDataReceiveDebugAtMs.set(label, now || 1);
     this.recordDebugEvent("data_recv", `收到 ${label} 数据`, {
       label,
-      ...summarizeDataChannelPayload(data),
+      ...summarizeDataChannelPayload(data, { includeHexPrefix: label !== STREAMER_DATA_CHANNEL_LABELS.text }),
       decoded: decodedControlMessage ? summarizeDecodedControlMessage(decodedControlMessage) : undefined,
     });
+  }
+
+  private handleTextDataMessage(data: unknown): boolean {
+    const bytes = dataChannelPayloadBytes(data);
+    if (!bytes) return false;
+
+    let message: ReturnType<typeof decodeStreamerClipboardMessage>;
+    try {
+      message = decodeStreamerClipboardMessage(bytes);
+    } catch (error) {
+      this.recordDebugEvent("data_recv", "剪贴板消息解码失败", {
+        error: getErrorMessage(error),
+        ...summarizeDataChannelPayload(data, { includeHexPrefix: false }),
+      });
+      return true;
+    }
+    if (!message) return false;
+
+    if (message.type === "text-change-response") {
+      this.settleClipboardResponse(message.requestId, message.result);
+      return true;
+    }
+
+    this.applyRemoteClipboardNotification(message.requestId, message.formatId, message.text);
+    return true;
   }
 
   private decodeControlDataChannelMessage(data: unknown): DecodedStreamerControlMessage | undefined {
@@ -1125,7 +1192,6 @@ export class BrowserRemoteSession {
 
   private handleControlDataMessage(message: DecodedStreamerControlMessage): void {
     this.applyCaptureChangeInputIndex(message);
-    this.applyRemoteClipboard(message);
     this.applyRemoteCursorShape(message);
 
     const simpleAction = message.simpleAction;
@@ -1137,14 +1203,6 @@ export class BrowserRemoteSession {
     }
 
     this.sendEchoResponse(responseSequence);
-  }
-
-  private applyRemoteClipboard(message: DecodedStreamerControlMessage): void {
-    // 被控端的剪贴板（autoClipboard）以 sendToRom + RomMsg_Text 文本回传，与我们发送文本的结构对称。
-    const rom = message.sendToRom;
-    if (!rom || rom.inputType !== STREAMER_ROM_MESSAGE_TYPES.RomMsg_Text || !rom.inputMessage) return;
-    this.recordDebugEvent("data_recv", "收到远端剪贴板", { length: rom.inputMessage.length });
-    this.options.onRemoteClipboard?.(rom.inputMessage);
   }
 
   private applyRemoteCursorShape(message: DecodedStreamerControlMessage): void {
@@ -1185,6 +1243,158 @@ export class BrowserRemoteSession {
       inputDisplayId: nextInputDisplayId,
       captureChange,
     });
+  }
+
+  private sendClipboardTextNow(text: string, lifecycleGeneration: number): Promise<void> {
+    this.assertLifecycleGeneration(lifecycleGeneration);
+    if (this.lastSynchronizedClipboardText === text) return Promise.resolve();
+
+    const requestId = this.nextClipboardRequestId;
+    this.nextClipboardRequestId += 1n;
+    const sequence = this.sequence;
+    const timestampSeconds = this.streamerTimestampSeconds();
+    const payload = encodeStreamerClipboardTextChangeRequest({
+      sequence,
+      timestampMs: timestampSeconds,
+      requestId,
+      text,
+    });
+    this.sequence += 1;
+
+    return new Promise<void>((resolve, reject) => {
+      const startedAtMs = this.now();
+      const timeout = setTimeout(() => {
+        const pending = this.pendingClipboardRequests.get(requestId);
+        if (!pending) return;
+        this.pendingClipboardRequests.delete(requestId);
+        const error = new Error("等待远端确认剪贴板更新超时");
+        this.recordDebugEvent("data_recv", "剪贴板同步确认超时", {
+          requestId: requestId.toString(),
+          textLength: text.length,
+          durationMs: Math.max(0, this.now() - startedAtMs),
+        });
+        pending.reject(error);
+      }, BrowserRemoteSession.clipboardRpcTimeoutMs);
+
+      this.pendingClipboardRequests.set(requestId, {
+        generation: lifecycleGeneration,
+        text,
+        startedAtMs,
+        timeout,
+        resolve,
+        reject,
+      });
+
+      try {
+        this.sendDataChannel(STREAMER_DATA_CHANNEL_LABELS.text, payload, {
+          summary: "发送剪贴板同步请求",
+          details: {
+            requestId: requestId.toString(),
+            sequence,
+            timestampSeconds,
+            textLength: text.length,
+          },
+        });
+      } catch (error) {
+        clearTimeout(timeout);
+        this.pendingClipboardRequests.delete(requestId);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  private settleClipboardResponse(requestId: bigint, result: number): void {
+    const pending = this.pendingClipboardRequests.get(requestId);
+    if (!pending) {
+      this.recordDebugEvent("data_recv", "忽略未知或已过期的剪贴板响应", {
+        requestId: requestId.toString(),
+        result,
+      });
+      return;
+    }
+
+    clearTimeout(pending.timeout);
+    this.pendingClipboardRequests.delete(requestId);
+    const durationMs = Math.max(0, this.now() - pending.startedAtMs);
+    if (result === STREAMER_CLIPBOARD_RESULTS.succeeded) {
+      if (this.isLifecycleGenerationCurrent(pending.generation)) {
+        this.lastSynchronizedClipboardText = pending.text;
+      }
+      this.recordDebugEvent("data_recv", "剪贴板同步成功", {
+        requestId: requestId.toString(),
+        result,
+        textLength: pending.text.length,
+        durationMs,
+      });
+      pending.resolve();
+      return;
+    }
+
+    const error = new Error(
+      result === STREAMER_CLIPBOARD_RESULTS.failed ? "远端拒绝更新剪贴板" : "远端未确认剪贴板更新",
+    );
+    this.recordDebugEvent("data_recv", "剪贴板同步失败", {
+      requestId: requestId.toString(),
+      result,
+      textLength: pending.text.length,
+      durationMs,
+    });
+    pending.reject(error);
+  }
+
+  private applyRemoteClipboardNotification(requestId: bigint, formatId: number, text: string): void {
+    if (formatId !== STREAMER_CLIPBOARD_FORMATS.text) {
+      this.recordDebugEvent("data_recv", "忽略不支持的远端剪贴板格式", {
+        requestId: requestId.toString(),
+        formatId,
+      });
+      return;
+    }
+
+    const duplicate = this.lastSynchronizedClipboardText === text;
+    const pendingEcho = [...this.pendingClipboardRequests.values()].some((pending) => pending.text === text);
+    if (duplicate || pendingEcho) {
+      this.recordDebugEvent("data_recv", "忽略重复的远端剪贴板", {
+        requestId: requestId.toString(),
+        textLength: text.length,
+        pendingEcho,
+      });
+      return;
+    }
+
+    this.lastSynchronizedClipboardText = text;
+    this.recordDebugEvent("data_recv", "收到远端剪贴板更新", {
+      requestId: requestId.toString(),
+      textLength: text.length,
+    });
+    try {
+      this.options.onRemoteClipboard?.(text);
+    } catch (error) {
+      this.recordDebugEvent("data_recv", "处理远端剪贴板更新失败", {
+        requestId: requestId.toString(),
+        textLength: text.length,
+        error: getErrorMessage(error),
+      });
+    }
+  }
+
+  private resetClipboardState(reason: string): void {
+    const pendingCount = this.pendingClipboardRequests.size;
+    if (pendingCount > 0) {
+      const error = createBrowserRemoteAbortError(reason);
+      for (const pending of this.pendingClipboardRequests.values()) {
+        clearTimeout(pending.timeout);
+        pending.reject(error);
+      }
+      this.pendingClipboardRequests.clear();
+      this.recordDebugEvent("data_channel", "取消未完成的剪贴板同步", {
+        pendingCount,
+        reason,
+      });
+    }
+    this.nextClipboardRequestId = 1n;
+    this.lastSynchronizedClipboardText = undefined;
+    this.clipboardSendTail = Promise.resolve();
   }
 
   private flushPendingMouseMove(): void {
@@ -1356,9 +1566,7 @@ export class BrowserRemoteSession {
 
   private assertLifecycleGeneration(generation: number): void {
     if (this.isLifecycleGenerationCurrent(generation)) return;
-    const error = new Error("browser remote session start was superseded or closed");
-    error.name = "AbortError";
-    throw error;
+    throw createBrowserRemoteAbortError("browser remote session start was superseded or closed");
   }
 
   private updateDataChannelState(label: StreamerDataChannelLabel): void {
@@ -1904,8 +2112,12 @@ function dataChannelPayloadByteLength(data: string | ArrayBufferView | ArrayBuff
   return data.byteLength;
 }
 
-function summarizeDataChannelPayload(data: unknown): Record<string, unknown> {
+function summarizeDataChannelPayload(
+  data: unknown,
+  options: { includeHexPrefix?: boolean } = {},
+): Record<string, unknown> {
   const bytes = dataChannelPayloadBytes(data);
+  const includeHexPrefix = options.includeHexPrefix ?? true;
   if (typeof data === "string") {
     return {
       payloadType: "string",
@@ -1916,14 +2128,14 @@ function summarizeDataChannelPayload(data: unknown): Record<string, unknown> {
     return {
       payloadType: "arraybuffer",
       byteLength: data.byteLength,
-      hexPrefix: bytesToHexPrefix(bytes),
+      hexPrefix: includeHexPrefix ? bytesToHexPrefix(bytes) : undefined,
     };
   }
   if (ArrayBuffer.isView(data)) {
     return {
       payloadType: data.constructor.name,
       byteLength: data.byteLength,
-      hexPrefix: bytesToHexPrefix(bytes),
+      hexPrefix: includeHexPrefix ? bytesToHexPrefix(bytes) : undefined,
     };
   }
   if (typeof Blob !== "undefined" && data instanceof Blob) {
@@ -1991,6 +2203,12 @@ function bytesToHexPrefix(bytes: Uint8Array | undefined): string | undefined {
   return Array.from(bytes.slice(0, 32))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join(" ");
+}
+
+function createBrowserRemoteAbortError(message: string): Error {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
 }
 
 function isMacPlatform(platform: number | undefined): boolean {

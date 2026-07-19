@@ -8,6 +8,6 @@ export * from "./roomConfig.js";
 export * from "./runtimeProfile.js";
 export * from "./signing.js";
 export * from "./signalGatewayProtocol.js";
-export * from "./streamerProtocol.js";
+export * from "./streamer/clipboard.js";
 export * from "./types.js";
 export * from "./uuProxy.js";

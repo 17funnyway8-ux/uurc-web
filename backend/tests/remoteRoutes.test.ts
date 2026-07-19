@@ -1,6 +1,7 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
-import { REMOTE_SESSION_HEADER, STREAMER_ICE_NETWORK_TYPES } from "@uurc/shared";
+import { REMOTE_SESSION_HEADER } from "@uurc/shared";
+import { STREAMER_ICE_NETWORK_TYPES } from "@uurc/shared/streamer/signal";
 
 import { createApp } from "../src/app.js";
 import type { SignalGatewayConnectOptions, SignalGatewayConnector } from "../src/services/remoteControlService.js";

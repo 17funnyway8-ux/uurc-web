@@ -1,16 +1,18 @@
 import { Router } from "express";
 import {
   REMOTE_SESSION_HEADER,
-  STREAMER_ICE_NETWORK_TYPES,
-  STREAMER_SOAC_TYPES,
   isRemoteSessionId,
   type RemoteSignalGatewayStartRequest,
   type RemoteSignalSoacCandidate,
   type RemoteRoomJoinContext,
-  type StreamerRoomConfig,
+} from "@uurc/shared";
+import {
+  STREAMER_ICE_NETWORK_TYPES,
+  STREAMER_SOAC_TYPES,
   type StreamerIceNetworkType,
   type StreamerSoacType,
-} from "@uurc/shared";
+} from "@uurc/shared/streamer/signal";
+import type { StreamerRoomConfig } from "@uurc/shared/types";
 
 import type { RemoteControlService } from "../services/remoteControlService.js";
 import type { RemoteControlSessionRegistry } from "../services/remoteControlSessionRegistry.js";

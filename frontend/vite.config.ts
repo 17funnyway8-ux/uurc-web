@@ -16,7 +16,17 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@uurc/shared/streamerProtocol": new URL("../shared/src/streamerProtocol.ts", import.meta.url).pathname,
+      "@uurc/shared/streamer/clipboard": new URL("../shared/src/streamer/clipboard.ts", import.meta.url).pathname,
+      "@uurc/shared/streamer/connectOptions": new URL("../shared/src/streamer/connectOptions.ts", import.meta.url)
+        .pathname,
+      "@uurc/shared/streamer/controlConfig": new URL("../shared/src/streamer/controlConfig.ts", import.meta.url)
+        .pathname,
+      "@uurc/shared/streamer/controlChannel": new URL("../shared/src/streamer/controlChannel.ts", import.meta.url)
+        .pathname,
+      "@uurc/shared/streamer/input": new URL("../shared/src/streamer/input.ts", import.meta.url).pathname,
+      "@uurc/shared/streamer/readiness": new URL("../shared/src/streamer/readiness.ts", import.meta.url).pathname,
+      "@uurc/shared/streamer/signal": new URL("../shared/src/streamer/signal.ts", import.meta.url).pathname,
+      "@uurc/shared/streamer/transport": new URL("../shared/src/streamer/transport.ts", import.meta.url).pathname,
       "@uurc/shared/authState": new URL("../shared/src/authState.ts", import.meta.url).pathname,
       "@uurc/shared/constants": new URL("../shared/src/constants.ts", import.meta.url).pathname,
       "@uurc/shared/loginFlow": new URL("../shared/src/loginFlow.ts", import.meta.url).pathname,

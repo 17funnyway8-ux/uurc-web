@@ -47,13 +47,18 @@ export interface RemoteControlViewProps {
   autoReconnectEnabled: boolean;
   autoReconnectLabel: string;
   canDisconnectRemote: boolean;
+  canCopyRemoteClipboard: boolean;
   canReadLocalClipboard: boolean;
   canReconnectRemote: boolean;
   canSendClipboardText: boolean;
   browserWebRtcUnavailableReason: string;
   candidatePairSummary: string;
+  clipboardSyncAvailable: boolean;
+  clipboardSyncEnabled: boolean;
   clipboardPreviewLabel: string;
-  clipboardStatusLabel: string;
+  localClipboardStatusLabel: string;
+  remoteClipboardPendingText: string | null;
+  remoteClipboardStatusLabel: string;
   connectionQuality: RemoteConnectionQuality;
   connectionPathLabel: string;
   autoConnect: boolean;
@@ -122,7 +127,9 @@ export interface RemoteControlViewProps {
   videoElementLabel: string;
   videoFlowLabel: string;
   onAutoConnectChange: (enabled: boolean) => void;
+  onClipboardSyncEnabledChange: (enabled: boolean) => void;
   onConnectionRouteModeChange: (mode: ConnectionRouteMode) => void;
+  onCopyRemoteClipboard: () => void;
   onAutoReconnectEnabledChange: (enabled: boolean) => void;
   onForceJoinChange: (forceJoin: boolean) => void;
   onNextAction: () => void;
@@ -236,11 +243,17 @@ export type RemoteConnectionQualityPanelProps = Pick<
 
 export type RemoteClipboardPanelProps = Pick<
   RemoteControlViewProps,
-  | "busy"
+  | "canCopyRemoteClipboard"
   | "canReadLocalClipboard"
   | "canSendClipboardText"
+  | "clipboardSyncAvailable"
+  | "clipboardSyncEnabled"
   | "clipboardPreviewLabel"
-  | "clipboardStatusLabel"
+  | "localClipboardStatusLabel"
+  | "remoteClipboardPendingText"
+  | "remoteClipboardStatusLabel"
+  | "onClipboardSyncEnabledChange"
+  | "onCopyRemoteClipboard"
   | "onReadLocalClipboard"
   | "onSendClipboardText"
 >;
@@ -403,11 +416,17 @@ export function createRemoteControlPageProps(props: RemoteControlViewProps): Rem
         "onAutoReconnectEnabledChange",
       ]),
       clipboard: pick(props, [
-        "busy",
+        "canCopyRemoteClipboard",
         "canReadLocalClipboard",
         "canSendClipboardText",
+        "clipboardSyncAvailable",
+        "clipboardSyncEnabled",
         "clipboardPreviewLabel",
-        "clipboardStatusLabel",
+        "localClipboardStatusLabel",
+        "remoteClipboardPendingText",
+        "remoteClipboardStatusLabel",
+        "onClipboardSyncEnabledChange",
+        "onCopyRemoteClipboard",
         "onReadLocalClipboard",
         "onSendClipboardText",
       ]),

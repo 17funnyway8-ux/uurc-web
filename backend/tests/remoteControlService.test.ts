@@ -1,12 +1,9 @@
 import { gzipSync, gunzipSync } from "node:zlib";
 
 import { describe, expect, it, vi } from "vitest";
-import {
-  STREAMER_ICE_NETWORK_TYPES,
-  type RemoteRoomJoinContext,
-  type RoomJoinUpstreamSummary,
-  type StreamerRoomConfig,
-} from "@uurc/shared";
+import { type RemoteRoomJoinContext, type RoomJoinUpstreamSummary } from "@uurc/shared";
+import { STREAMER_ICE_NETWORK_TYPES } from "@uurc/shared/streamer/signal";
+import type { StreamerRoomConfig } from "@uurc/shared/types";
 
 import {
   RemoteControlService,

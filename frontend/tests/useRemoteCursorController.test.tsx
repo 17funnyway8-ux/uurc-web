@@ -3,7 +3,7 @@ import { useCallback, useRef } from "react";
 import { act, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { DecodedStreamerCursorShape } from "@uurc/shared/streamerProtocol";
+import type { DecodedStreamerCursorShape } from "@uurc/shared/streamer/controlChannel";
 
 import { useRemoteCursorController } from "../src/controllers/useRemoteCursorController.js";
 import type { RemoteMediaGeometry } from "../src/remote/remoteMediaGeometry.js";

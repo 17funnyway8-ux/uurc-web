@@ -1,4 +1,4 @@
-import type { StreamerIceNetworkType, StreamerSignalControlAck } from "./streamerProtocol.js";
+import type { StreamerIceNetworkType, StreamerSignalControlAck } from "./streamer/signal.js";
 
 export interface LoginState {
   token?: string;

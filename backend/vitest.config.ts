@@ -12,6 +12,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@uurc/shared/streamer/readiness": new URL("../shared/src/streamer/readiness.ts", import.meta.url).pathname,
+      "@uurc/shared/streamer/signal": new URL("../shared/src/streamer/signal.ts", import.meta.url).pathname,
+      "@uurc/shared/types": new URL("../shared/src/types.ts", import.meta.url).pathname,
       "@uurc/shared": new URL("../shared/src/index.ts", import.meta.url).pathname,
     },
   },

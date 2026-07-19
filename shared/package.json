@@ -8,9 +8,37 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./streamerProtocol": {
-      "types": "./dist/streamerProtocol.d.ts",
-      "default": "./dist/streamerProtocol.js"
+    "./streamer/transport": {
+      "types": "./dist/streamer/transport.d.ts",
+      "default": "./dist/streamer/transport.js"
+    },
+    "./streamer/clipboard": {
+      "types": "./dist/streamer/clipboard.d.ts",
+      "default": "./dist/streamer/clipboard.js"
+    },
+    "./streamer/signal": {
+      "types": "./dist/streamer/signal.d.ts",
+      "default": "./dist/streamer/signal.js"
+    },
+    "./streamer/connectOptions": {
+      "types": "./dist/streamer/connectOptions.d.ts",
+      "default": "./dist/streamer/connectOptions.js"
+    },
+    "./streamer/controlConfig": {
+      "types": "./dist/streamer/controlConfig.d.ts",
+      "default": "./dist/streamer/controlConfig.js"
+    },
+    "./streamer/controlChannel": {
+      "types": "./dist/streamer/controlChannel.d.ts",
+      "default": "./dist/streamer/controlChannel.js"
+    },
+    "./streamer/input": {
+      "types": "./dist/streamer/input.d.ts",
+      "default": "./dist/streamer/input.js"
+    },
+    "./streamer/readiness": {
+      "types": "./dist/streamer/readiness.d.ts",
+      "default": "./dist/streamer/readiness.js"
     },
     "./authState": {
       "types": "./dist/authState.d.ts",

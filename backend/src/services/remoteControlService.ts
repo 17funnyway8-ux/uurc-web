@@ -1,23 +1,14 @@
 import { gzipSync, gunzipSync } from "node:zlib";
 
 import {
-  STREAMER_CONTROLLER_INBOUND_SOAC_TYPES,
-  STREAMER_CONTROLLER_SIGNAL_EVENTS,
-  STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS,
-  STREAMER_CONTROL_EVENT_NAME,
-  STREAMER_SIGNAL_SOCKET_EVENTS,
-  STREAMER_SOAC_EVENT,
-  buildStreamerSignalHeaders,
   buildSignalGatewayControlPayload,
   buildSignalGatewaySoacPayload,
   createIdleSignalGatewayStatus,
   createSignalGatewayStatus,
   createRemoteControlBootstrap,
   redact,
-  analyzeRemoteSignalReadiness,
   normalizeSignalGatewayInboundEvents,
   normalizeSignalGatewayPayload,
-  normalizeStreamerSignalControlAck,
   orderSignalGatewayServers,
   redactSignalGatewayToken,
   SIGNAL_GATEWAY_EVENT_RETENTION_MS,
@@ -35,8 +26,19 @@ import {
   type RemoteSignalReadinessDiagnostics,
   type RemoteSignalSoacRequest,
   type RemoteSignalSoacResult,
-  type StreamerRoomConfig,
 } from "@uurc/shared";
+import { analyzeRemoteSignalReadiness } from "@uurc/shared/streamer/readiness";
+import {
+  STREAMER_CONTROLLER_INBOUND_SOAC_TYPES,
+  STREAMER_CONTROLLER_SIGNAL_EVENTS,
+  STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS,
+  STREAMER_CONTROL_EVENT_NAME,
+  STREAMER_SIGNAL_SOCKET_EVENTS,
+  STREAMER_SOAC_EVENT,
+  buildStreamerSignalHeaders,
+  normalizeStreamerSignalControlAck,
+} from "@uurc/shared/streamer/signal";
+import type { StreamerRoomConfig } from "@uurc/shared/types";
 import { io, type Socket } from "socket.io-client";
 
 type RoomConfigSource = {

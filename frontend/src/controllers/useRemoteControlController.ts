@@ -3,11 +3,11 @@ import { useMatch, useNavigate } from "react-router";
 
 import {
   STREAMER_CONTROL_CONNECT_TYPES,
-  STREAMER_DATA_CHANNEL_LABELS,
-  analyzeRemoteSignalReadiness,
   buildDefaultStreamerConnectOptionsBase64,
-  buildStreamerControlStreamerDataJson,
-} from "@uurc/shared/streamerProtocol";
+} from "@uurc/shared/streamer/connectOptions";
+import { buildStreamerControlStreamerDataJson } from "@uurc/shared/streamer/controlConfig";
+import { analyzeRemoteSignalReadiness } from "@uurc/shared/streamer/readiness";
+import { STREAMER_DATA_CHANNEL_LABELS } from "@uurc/shared/streamer/transport";
 import type { RemoteSignalGatewayStatus, RuntimeProfile, RemoteAssistanceJoinResult } from "@uurc/shared/types";
 
 import type { BusyAction, RoomJoinContext } from "../app/remoteControlTypes.js";
@@ -73,6 +73,7 @@ import { useDeviceController } from "./useDeviceController.js";
 import { useRemoteAudioController } from "./useRemoteAudioController.js";
 import { useRemoteVideoController } from "./useRemoteVideoController.js";
 import { useRemoteControlPreferences } from "./useRemoteControlPreferences.js";
+import { useRemoteClipboardController } from "./useRemoteClipboardController.js";
 import { useRemoteInputController } from "./useRemoteInputController.js";
 import { useRoomController } from "./useRoomController.js";
 import { useSignalGatewayController } from "./useSignalGatewayController.js";
@@ -262,10 +263,30 @@ export function useRemoteControlController() {
   const textChannelState = browserRemoteState.dataChannels[STREAMER_DATA_CHANNEL_LABELS.text] ?? "closed";
   const controlChannelState = browserRemoteState.dataChannels[STREAMER_DATA_CHANNEL_LABELS.control] ?? "closed";
   const {
-    clipboardStatus,
+    clipboardSyncEnabled,
+    clipboardSyncAvailable,
     clipboardPreviewLabel,
+    localClipboardStatusLabel,
+    remoteClipboardStatusLabel,
+    remoteClipboardPendingText,
     canReadLocalClipboard,
     canSendClipboardText,
+    canCopyRemoteClipboard,
+    resetClipboardSession,
+    handleClipboardSyncEnabledChange,
+    handleRemoteClipboard,
+    handleReadLocalClipboard,
+    handleSendClipboardText,
+    handleCopyRemoteClipboard,
+  } = useRemoteClipboardController({
+    browserSessionRef: browserRemoteSession,
+    sessionKey: controlRouteMatch ? selectedDeviceId : "",
+    textChannelState,
+    onError: setError,
+    onSessionStateChange: setBrowserRemoteState,
+    showToast,
+  });
+  const {
     inputControlActive,
     isFullscreen,
     remoteStageRef,
@@ -273,9 +294,6 @@ export function useRemoteControlController() {
     resetRemoteCursor,
     enableInputControl,
     resetInputControl,
-    handleRemoteClipboard,
-    handleReadLocalClipboard,
-    handleSendClipboardText,
     handleRemoteShortcut,
     handleToggleFullscreen,
     handleToggleInputControl,
@@ -290,16 +308,12 @@ export function useRemoteControlController() {
     handleRemoteStagePaste,
   } = useRemoteInputController({
     browserSessionRef: browserRemoteSession,
-    busy,
     controlChannelState,
-    textChannelState,
     targetPlatform: resolveTargetPlatform(),
     primaryRemoteVideoId,
     remoteStageViewMode,
-    run,
     onError: setError,
     onSessionStateChange: setBrowserRemoteState,
-    showToast,
   });
   useEffect(() => {
     void loadStatus();
@@ -634,6 +648,7 @@ export function useRemoteControlController() {
   function resetBrowserRemoteSession() {
     const closedState = browserRemoteSession.current?.close();
     browserRemoteSession.current = null;
+    resetClipboardSession();
     resetRemoteCursor();
     resetInputControl();
     resetRemoteVideos();
@@ -647,6 +662,7 @@ export function useRemoteControlController() {
     if (!selectedDeviceId) throw new Error("请选择设备");
     if (!options.skipReadinessCheck && !roomReadyForBrowserRtc) throw new Error(browserRtcBlockedReason);
     resetInputControl();
+    resetClipboardSession();
     const appControlId = createAppControlId();
     const session = new BrowserRemoteSession({
       api: {
@@ -1091,12 +1107,17 @@ export function useRemoteControlController() {
     browserStageLabel,
     busy,
     canDisconnectRemote,
+    canCopyRemoteClipboard,
     canReadLocalClipboard,
     canReconnectRemote: browserConnectionRecoverable,
     canSendClipboardText,
     candidatePairSummary,
+    clipboardSyncAvailable,
+    clipboardSyncEnabled,
     clipboardPreviewLabel,
-    clipboardStatusLabel: clipboardStatus,
+    localClipboardStatusLabel,
+    remoteClipboardPendingText,
+    remoteClipboardStatusLabel,
     connectionQuality,
     connectionPathLabel,
     connectionRouteMode,
@@ -1165,7 +1186,9 @@ export function useRemoteControlController() {
     videoFlowLabel,
     onAutoReconnectEnabledChange: setAutoReconnectEnabled,
     onAutoConnectChange: setAutoConnect,
+    onClipboardSyncEnabledChange: handleClipboardSyncEnabledChange,
     onConnectionRouteModeChange: setConnectionRouteMode,
+    onCopyRemoteClipboard: handleCopyRemoteClipboard,
     onForceJoinChange: setForceJoin,
     onNextAction: () => void handleNextAction(),
     onReconnectRemote: () => void handleReconnectRemote(),

@@ -1,4 +1,4 @@
-import type { DecodedStreamerCursorShape } from "@uurc/shared/streamerProtocol";
+import type { DecodedStreamerCursorShape } from "@uurc/shared/streamer/controlChannel";
 
 export const REMOTE_CURSOR_LOCAL_RENDERING_ENABLED = import.meta.env.VITE_REMOTE_CURSOR_LOCAL_RENDERING !== "false";
 

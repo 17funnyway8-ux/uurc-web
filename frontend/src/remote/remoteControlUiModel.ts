@@ -1,6 +1,7 @@
 import type { KeyboardEvent } from "react";
 
-import type { StreamerMouseButtonKind, StreamerSignalControlResult } from "@uurc/shared/streamerProtocol";
+import type { StreamerMouseButtonKind } from "@uurc/shared/streamer/input";
+import type { StreamerSignalControlResult } from "@uurc/shared/streamer/signal";
 import type {
   RemoteControlBootstrap,
   RemoteSignalGatewayEvent,

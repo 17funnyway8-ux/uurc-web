@@ -1,12 +1,12 @@
 import { DurableObject } from "cloudflare:workers";
+import { analyzeRemoteSignalReadiness } from "@uurc/shared/streamer/readiness";
 import {
   STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS,
   STREAMER_CONTROL_EVENT_NAME,
   STREAMER_SOAC_EVENT,
-  analyzeRemoteSignalReadiness,
   buildStreamerSignalHeaders,
   normalizeStreamerSignalControlAck,
-} from "@uurc/shared/streamerProtocol";
+} from "@uurc/shared/streamer/signal";
 import {
   buildSignalGatewayControlPayload,
   buildSignalGatewaySoacPayloadAsync,

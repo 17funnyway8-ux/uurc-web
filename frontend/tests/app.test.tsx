@@ -550,6 +550,7 @@ describe("App console", () => {
     render(<App />);
 
     await openOfficeMacControl(user);
+    await openAdvancedSettings(user);
     await user.click(screen.getByRole("radio", { name: "兼容模式" }));
     await user.click(screen.getByRole("radio", { name: "接管控制" }));
     await waitFor(() => {
@@ -608,6 +609,7 @@ describe("App console", () => {
     render(<App />);
 
     await openOfficeMacControl(user);
+    await openAdvancedSettings(user);
     await user.click(screen.getByRole("radio", { name: "兼容模式" }));
     await user.click(screen.getByRole("radio", { name: "接管控制" }));
     await waitFor(() => {
@@ -722,6 +724,7 @@ describe("App console", () => {
     render(<App />);
 
     await openOfficeMacControl(user);
+    await openAdvancedSettings(user);
     await user.click(screen.getByRole("radio", { name: "兼容模式" }));
     await user.click(screen.getByRole("radio", { name: "接管控制" }));
     await waitFor(() => {
@@ -770,6 +773,7 @@ describe("App console", () => {
     render(<App />);
 
     await openOfficeMacControl(user);
+    await openAdvancedSettings(user);
     await user.click(screen.getByRole("radio", { name: "兼容模式" }));
     await user.click(screen.getByRole("radio", { name: "接管控制" }));
     await waitFor(() => {
@@ -804,6 +808,7 @@ describe("App console", () => {
     render(<App />);
 
     await openOfficeMacControl(user);
+    await openAdvancedSettings(user);
     await user.click(screen.getByRole("radio", { name: "兼容模式" }));
     expect(screen.getByRole("radio", { name: "自动路径" })).toBeChecked();
     await user.click(screen.getByRole("radio", { name: "接管控制" }));

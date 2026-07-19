@@ -5,6 +5,7 @@ const WHEEL_PIXELS_PER_LINE = 18;
 const WHEEL_LINES_PER_PAGE = 16;
 const DEFAULT_WHEEL_PAGE_PIXELS = WHEEL_PIXELS_PER_LINE * WHEEL_LINES_PER_PAGE;
 const DOMINANT_AXIS_RATIO = 1.6;
+const DESKTOP_SCROLL_GAIN = 0.5;
 const WINDOWS_PLATFORM = 1;
 const MACOS_PLATFORM = 4;
 
@@ -27,8 +28,9 @@ export class RemoteScrollDeltaAccumulator {
 
   push(input: BrowserWheelDeltaInput): RemoteScrollDelta | undefined {
     const scale = wheelDeltaScale(input.deltaMode, input.pageHeight);
-    let scaledDeltaX = finiteDelta(input.deltaX) * scale;
-    let scaledDeltaY = finiteDelta(input.deltaY) * scale;
+    const gain = input.desktopTarget ? DESKTOP_SCROLL_GAIN : 1;
+    let scaledDeltaX = finiteDelta(input.deltaX) * scale * gain;
+    let scaledDeltaY = finiteDelta(input.deltaY) * scale * gain;
 
     if (input.desktopTarget) {
       // Preserve intentional diagonals while suppressing clear cross-axis trackpad noise.

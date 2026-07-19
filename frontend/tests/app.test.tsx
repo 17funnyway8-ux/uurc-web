@@ -269,7 +269,7 @@ describe("App console", () => {
       }),
     });
 
-    await user.click(screen.getByRole("button", { name: "断开连接" }));
+    await user.click(screen.getByRole("button", { name: "断开" }));
 
     await waitFor(() => {
       expect(requestLog.some((call) => call.method === "DELETE" && call.path === "/api/remote/signal")).toBe(true);
@@ -395,7 +395,8 @@ describe("App console", () => {
     render(<App />);
 
     await openOfficeMacControl(user);
-    await openSettingsTab(user);
+    await openAdvancedSettings(user);
+    await user.click(screen.getByRole("radio", { name: "兼容模式" }));
     await user.click(screen.getByRole("radio", { name: "接管控制" }));
     await waitFor(() => {
       expect(screen.getByRole("radio", { name: "接管控制" })).toBeChecked();
@@ -1228,9 +1229,9 @@ describe("App console", () => {
     await waitFor(() => {
       expectSignalState("已连接");
     });
-    await screen.findByRole("button", { name: "断开连接" });
+    await screen.findByRole("button", { name: "断开" });
 
-    await user.click(screen.getByRole("button", { name: "断开连接" }));
+    await user.click(screen.getByRole("button", { name: "断开" }));
 
     await waitFor(() => {
       expect(requestLog.some((call) => call.method === "DELETE" && call.path === "/api/remote/signal")).toBe(true);

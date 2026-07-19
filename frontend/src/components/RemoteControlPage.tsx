@@ -18,7 +18,9 @@ export function RemoteControlPage(props: RemoteControlPageProps) {
   const [occupancyAcknowledged, setOccupancyAcknowledged] = useState(false);
 
   const { occupiedBySelfClient, selectedDeviceOccupied } = props.warnings;
-  const showOccupiedGate = selectedDeviceOccupied && !occupiedBySelfClient && !occupancyAcknowledged;
+  // 若用户已在“设置”里显式选择了“接管控制”，无需再弹一次确认对话框。
+  const showOccupiedGate =
+    selectedDeviceOccupied && !occupiedBySelfClient && !occupancyAcknowledged && !props.settings.forceJoin;
 
   function handlePrimaryAction() {
     if (showOccupiedGate) {

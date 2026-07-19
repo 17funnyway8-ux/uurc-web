@@ -1,41 +1,47 @@
 import {
   buildSignalGatewayControlPayload,
   buildSignalGatewaySoacPayload,
+  normalizeSignalGatewayPayload,
+} from "@uurc/shared/signalGateway/payload";
+import {
   createIdleSignalGatewayStatus,
   createSignalGatewayStatus,
-  createRemoteControlBootstrap,
-  redact,
-  normalizeSignalGatewayInboundEvents,
-  normalizeSignalGatewayPayload,
   orderSignalGatewayServers,
   redactSignalGatewayToken,
   SIGNAL_GATEWAY_EVENT_RETENTION_MS,
   SIGNAL_GATEWAY_MAX_EVENTS,
-  type RoomJoinUpstreamSummary,
-  type RemoteControlBootstrap,
-  type RemoteSignalControlRequest,
-  type RemoteSignalControlResult,
-  type RemoteSignalGatewayEvent,
-  type RemoteSignalGatewayEventDirection,
-  type RemoteSignalGatewayStartRequest,
-  type RemoteSignalGatewayStatus,
-  type RemoteRoomJoinContext,
-  type RemoteSignalReadinessDiagnostics,
-  type RemoteSignalSoacRequest,
-  type RemoteSignalSoacResult,
-} from "@uurc/shared";
-import { analyzeRemoteSignalReadiness } from "@uurc/shared/streamer/readiness";
+} from "@uurc/shared/signalGateway/status";
+import { normalizeSignalGatewayInboundEvents } from "@uurc/shared/signalGateway/events";
+import type {
+  RemoteSignalControlRequest,
+  RemoteSignalControlResult,
+  RemoteSignalGatewayEvent,
+  RemoteSignalGatewayEventDirection,
+  RemoteSignalGatewayStartRequest,
+  RemoteSignalGatewayStatus,
+  RemoteSignalSoacRequest,
+  RemoteSignalSoacResult,
+} from "@uurc/shared/signalGateway/model";
+import { createRemoteControlBootstrap, type RemoteControlBootstrap } from "@uurc/shared/remoteBootstrap";
+import { redact } from "@uurc/shared/redact";
+import type { RemoteRoomJoinContext, RoomJoinUpstreamSummary } from "@uurc/shared/roomSession";
 import {
-  STREAMER_CONTROLLER_INBOUND_SOAC_TYPES,
-  STREAMER_CONTROLLER_SIGNAL_EVENTS,
+  analyzeRemoteSignalReadiness,
+  type RemoteSignalReadinessDiagnostics,
+} from "@uurc/shared/streamer/readiness";
+import {
   STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS,
   STREAMER_CONTROL_EVENT_NAME,
+  STREAMER_CONTROLLER_SIGNAL_EVENTS,
   STREAMER_SIGNAL_SOCKET_EVENTS,
-  STREAMER_SOAC_EVENT,
   buildStreamerSignalHeaders,
-  normalizeStreamerSignalControlAck,
-} from "@uurc/shared/streamer/signal";
-import type { StreamerRoomConfig } from "@uurc/shared/types";
+} from "@uurc/shared/streamer/signalSession";
+import { normalizeStreamerSignalControlAck } from "@uurc/shared/streamer/signalControl";
+import {
+  STREAMER_CONTROLLER_INBOUND_SOAC_TYPES,
+  STREAMER_SOAC_EVENT,
+} from "@uurc/shared/streamer/signalSoac";
+import type { StreamerRoomConfig } from "@uurc/shared/roomConfig";
 
 import { nodeSignalGatewayBinary } from "./nodeSignalGatewayBinaryCodec.js";
 import { summarizeSignalEventForLog } from "./signalEventLog.js";

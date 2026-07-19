@@ -58,22 +58,31 @@ export interface ProtobufField {
   byteLength?: number;
 }
 
-export function readProtobufFields(bytes: Uint8Array): ProtobufField[] | undefined {
+export interface ProtobufReadOptions {
+  maxFields?: number;
+  maxLengthDelimitedBytes?: number;
+  rejectMalformed?: boolean;
+}
+
+export function readProtobufFields(bytes: Uint8Array, options: ProtobufReadOptions = {}): ProtobufField[] | undefined {
   const fields: ProtobufField[] = [];
+  const maxFields = options.maxFields ?? STREAMER_CONTROL_DECODE_LIMITS.maxFieldsPerMessage;
+  const maxLengthDelimitedBytes =
+    options.maxLengthDelimitedBytes ?? STREAMER_CONTROL_DECODE_LIMITS.maxLengthDelimitedBytes;
   let offset = 0;
 
   while (offset < bytes.byteLength) {
-    if (fields.length >= STREAMER_CONTROL_DECODE_LIMITS.maxFieldsPerMessage) return undefined;
+    if (fields.length >= maxFields) return undefined;
     const key = readProtobufVarint(bytes, offset);
-    if (!key) break;
+    if (!key) return malformed(fields, options);
     offset = key.nextOffset;
     const tag = Number(key.value >> 3n);
     const wireType = Number(key.value & 0x07n);
-    if (!Number.isSafeInteger(tag) || tag <= 0 || tag > 0x1fffffff) break;
+    if (!Number.isSafeInteger(tag) || tag <= 0 || tag > 0x1fffffff) return malformed(fields, options);
 
     if (wireType === protobufWireType.varint) {
       const value = readProtobufVarint(bytes, offset);
-      if (!value) break;
+      if (!value) return malformed(fields, options);
       offset = value.nextOffset;
       fields.push({ tag, wireType, varint: value.value });
       continue;
@@ -81,7 +90,7 @@ export function readProtobufFields(bytes: Uint8Array): ProtobufField[] | undefin
 
     if (wireType === protobufWireType.fixed64) {
       const nextOffset = offset + 8;
-      if (nextOffset > bytes.byteLength) break;
+      if (nextOffset > bytes.byteLength) return malformed(fields, options);
       fields.push({ tag, wireType, dataOffset: offset, byteLength: 8 });
       offset = nextOffset;
       continue;
@@ -89,11 +98,13 @@ export function readProtobufFields(bytes: Uint8Array): ProtobufField[] | undefin
 
     if (wireType === protobufWireType.lengthDelimited) {
       const length = readProtobufVarint(bytes, offset);
-      if (!length) break;
+      if (!length) return malformed(fields, options);
       offset = length.nextOffset;
       const byteLength = Number(length.value);
-      if (!Number.isSafeInteger(byteLength) || byteLength < 0 || byteLength > bytes.byteLength - offset) break;
-      if (byteLength > STREAMER_CONTROL_DECODE_LIMITS.maxLengthDelimitedBytes) return undefined;
+      if (!Number.isSafeInteger(byteLength) || byteLength < 0 || byteLength > bytes.byteLength - offset) {
+        return malformed(fields, options);
+      }
+      if (byteLength > maxLengthDelimitedBytes) return undefined;
       fields.push({ tag, wireType, dataOffset: offset, byteLength });
       offset += byteLength;
       continue;
@@ -101,16 +112,20 @@ export function readProtobufFields(bytes: Uint8Array): ProtobufField[] | undefin
 
     if (wireType === protobufWireType.fixed32) {
       const nextOffset = offset + 4;
-      if (nextOffset > bytes.byteLength) break;
-      fields.push({ tag, wireType });
+      if (nextOffset > bytes.byteLength) return malformed(fields, options);
+      fields.push({ tag, wireType, dataOffset: offset, byteLength: 4 });
       offset = nextOffset;
       continue;
     }
 
-    break;
+    return malformed(fields, options);
   }
 
   return fields;
+}
+
+function malformed(fields: ProtobufField[], options: ProtobufReadOptions): ProtobufField[] | undefined {
+  return options.rejectMalformed ? undefined : fields;
 }
 
 export function protobufLengthDelimitedFieldBytes(bytes: Uint8Array, field: ProtobufField): Uint8Array | undefined {

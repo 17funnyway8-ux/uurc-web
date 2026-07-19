@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -9,12 +10,15 @@ import {
   type WheelEvent,
 } from "react";
 
-import type { BusyAction } from "../app/remoteControlTypes.js";
+import type { BusyAction, RemoteStageViewMode } from "../app/remoteControlTypes.js";
 import { readLocalClipboardText } from "../browser/clipboard.js";
 import type { BrowserRemoteSession, BrowserRemoteSessionState } from "../remote/browserRemoteSession.js";
 import { sendRemoteShortcut, type RemoteShortcut } from "../remote/remoteShortcuts.js";
-import { toRemoteKeyValue, toRemoteMouseButton, toRemoteMousePosition } from "../remote/remoteControlUiModel.js";
+import { toRemoteKeyValue, toRemoteMouseButton } from "../remote/remoteControlUiModel.js";
+import { clientPointToRemoteMedia } from "../remote/remoteMediaGeometry.js";
 import { isDesktopRemoteScrollTarget, RemoteScrollDeltaAccumulator } from "../remote/remoteScrollInput.js";
+import { useRemoteCursorController } from "./useRemoteCursorController.js";
+import { useRemoteMediaGeometry } from "./useRemoteMediaGeometry.js";
 
 const HOLD_MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta", "AltGraph"]);
 
@@ -24,6 +28,8 @@ interface UseRemoteInputControllerOptions {
   controlChannelState: RTCDataChannelState;
   textChannelState: RTCDataChannelState;
   targetPlatform?: number;
+  primaryRemoteVideoId: string;
+  remoteStageViewMode: RemoteStageViewMode;
   run(action: BusyAction, task: () => Promise<void>): Promise<void>;
   onError(message: string): void;
   onSessionStateChange(state: BrowserRemoteSessionState): void;
@@ -36,6 +42,8 @@ export function useRemoteInputController({
   controlChannelState,
   textChannelState,
   targetPlatform,
+  primaryRemoteVideoId,
+  remoteStageViewMode,
   run,
   onError,
   onSessionStateChange,
@@ -49,18 +57,40 @@ export function useRemoteInputController({
   const activePointerIdRef = useRef<number | null>(null);
   const controlChannelOpenedRef = useRef(false);
   const scrollDeltaAccumulatorRef = useRef(new RemoteScrollDeltaAccumulator());
+  const pendingPointerMoveRef = useRef<LocalPointerPosition | undefined>(undefined);
+  const pointerMoveFrameRef = useRef<number | undefined>(undefined);
+  const cancelPendingPointerMove = useCallback((): void => {
+    pendingPointerMoveRef.current = undefined;
+    if (pointerMoveFrameRef.current === undefined) return;
+    cancelPointerFrame(pointerMoveFrameRef.current);
+    pointerMoveFrameRef.current = undefined;
+  }, []);
 
   const inputControlActive = inputControlEnabled && controlChannelState === "open";
   const canReadLocalClipboard = busy === null;
   const canSendClipboardText = inputControlActive && textChannelState === "open" && clipboardText.trim().length > 0;
   const clipboardPreviewLabel = clipboardText.trim() ? `${clipboardText.length} 字符待发送` : "剪贴板内容未读取";
+  const { geometryRef, refreshGeometry } = useRemoteMediaGeometry({
+    stageRef: remoteStageRef,
+    viewMode: remoteStageViewMode,
+    primaryVideoId: primaryRemoteVideoId,
+  });
+  const { handleRemoteCursorShape, resetRemoteCursor } = useRemoteCursorController({
+    stageRef: remoteStageRef,
+    geometryRef,
+    active: inputControlActive,
+    primaryVideoId: primaryRemoteVideoId,
+  });
 
   useEffect(() => {
     if (controlChannelState !== "open" && inputControlEnabled) {
       setInputControlEnabled(false);
     }
-    if (controlChannelState !== "open") scrollDeltaAccumulatorRef.current.reset();
-  }, [controlChannelState, inputControlEnabled]);
+    if (controlChannelState !== "open") {
+      scrollDeltaAccumulatorRef.current.reset();
+      cancelPendingPointerMove();
+    }
+  }, [cancelPendingPointerMove, controlChannelState, inputControlEnabled]);
 
   useEffect(() => {
     scrollDeltaAccumulatorRef.current.reset();
@@ -98,9 +128,12 @@ export function useRemoteInputController({
     return () => stage.removeEventListener("wheel", lockPageScroll);
   }, [inputControlActive]);
 
+  useEffect(() => cancelPendingPointerMove, [cancelPendingPointerMove]);
+
   function resetInputControl(): void {
     activePointerIdRef.current = null;
     scrollDeltaAccumulatorRef.current.reset();
+    cancelPendingPointerMove();
     setInputControlEnabled(false);
   }
 
@@ -189,7 +222,7 @@ export function useRemoteInputController({
     activePointerIdRef.current = event.pointerId;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     try {
-      session.sendMouseMove(toRemoteMousePosition(event));
+      flushPointerPosition(pointerPositionFromEvent(event));
       session.sendMouseButton({ action: "mousePress", button: toRemoteMouseButton(event.button) });
     } catch (caught) {
       onError(errorMessage(caught));
@@ -197,15 +230,18 @@ export function useRemoteInputController({
   }
 
   function handleRemoteStagePointerMove(event: PointerEvent<HTMLDivElement>): void {
-    const session = browserSessionRef.current;
-    if (!inputControlActive || !session) return;
+    if (!inputControlActive || !browserSessionRef.current) return;
     if (activePointerIdRef.current !== null && activePointerIdRef.current !== event.pointerId) return;
     event.preventDefault();
-    try {
-      session.sendMouseMove(toRemoteMousePosition(event));
-    } catch (caught) {
-      onError(errorMessage(caught));
-    }
+    pendingPointerMoveRef.current = pointerPositionFromEvent(event);
+    if (pointerMoveFrameRef.current !== undefined) return;
+    pointerMoveFrameRef.current = requestPointerFrame(() => {
+      pointerMoveFrameRef.current = undefined;
+      const latest = pendingPointerMoveRef.current;
+      pendingPointerMoveRef.current = undefined;
+      if (!latest) return;
+      sendPointerPosition(latest, false, false);
+    });
   }
 
   function handleRemoteStagePointerUp(event: PointerEvent<HTMLDivElement>): void {
@@ -218,7 +254,7 @@ export function useRemoteInputController({
       event.currentTarget.releasePointerCapture?.(event.pointerId);
     }
     try {
-      session.sendMouseMove(toRemoteMousePosition(event));
+      flushPointerPosition(pointerPositionFromEvent(event));
       session.sendMouseButton({ action: "mouseRelease", button: toRemoteMouseButton(event.button) });
     } catch (caught) {
       onError(errorMessage(caught));
@@ -231,6 +267,7 @@ export function useRemoteInputController({
     const session = browserSessionRef.current;
     if (!inputControlActive || !session) return;
     try {
+      flushPointerPosition(pointerPositionFromEvent(event));
       session.sendMouseButton({ action: "mouseRelease", button: toRemoteMouseButton(event.button) });
     } catch (caught) {
       onError(errorMessage(caught));
@@ -251,6 +288,7 @@ export function useRemoteInputController({
     });
     if (!delta) return;
     try {
+      flushPointerPosition(pointerPositionFromEvent(event));
       session.sendMouseScroll(delta);
     } catch (caught) {
       onError(errorMessage(caught));
@@ -289,6 +327,7 @@ export function useRemoteInputController({
   function handleRemoteStageBlur(): void {
     activePointerIdRef.current = null;
     scrollDeltaAccumulatorRef.current.reset();
+    cancelPendingPointerMove();
     browserSessionRef.current?.releaseAllInputs();
   }
 
@@ -305,6 +344,32 @@ export function useRemoteInputController({
     }
   }
 
+  function flushPointerPosition(position: LocalPointerPosition): void {
+    cancelPendingPointerMove();
+    sendPointerPosition(position, true, true);
+  }
+
+  function sendPointerPosition(position: LocalPointerPosition, critical: boolean, refresh: boolean): void {
+    const session = browserSessionRef.current;
+    if (!inputControlActive || !session) return;
+    const geometry = refresh ? refreshGeometry() : (geometryRef.current ?? refreshGeometry());
+    if (!geometry) return;
+    const normalized = clientPointToRemoteMedia(geometry, { x: position.clientX, y: position.clientY });
+    try {
+      session.sendMouseMove(
+        {
+          absX: Math.round(normalized.x * geometry.mediaWidth),
+          absY: Math.round(normalized.y * geometry.mediaHeight),
+          surfaceWidth: geometry.mediaWidth,
+          surfaceHeight: geometry.mediaHeight,
+        },
+        { critical },
+      );
+    } catch (caught) {
+      onError(errorMessage(caught));
+    }
+  }
+
   return {
     clipboardStatus,
     clipboardPreviewLabel,
@@ -313,6 +378,8 @@ export function useRemoteInputController({
     inputControlActive,
     isFullscreen,
     remoteStageRef,
+    handleRemoteCursorShape,
+    resetRemoteCursor,
     enableInputControl,
     resetInputControl,
     handleRemoteClipboard,
@@ -331,6 +398,25 @@ export function useRemoteInputController({
     handleRemoteStageBlur,
     handleRemoteStagePaste,
   };
+}
+
+interface LocalPointerPosition {
+  clientX: number;
+  clientY: number;
+}
+
+function pointerPositionFromEvent(event: { clientX: number; clientY: number }): LocalPointerPosition {
+  return { clientX: event.clientX, clientY: event.clientY };
+}
+
+function requestPointerFrame(callback: FrameRequestCallback): number {
+  if (typeof window.requestAnimationFrame === "function") return window.requestAnimationFrame(callback);
+  return window.setTimeout(() => callback(performance.now()), 16);
+}
+
+function cancelPointerFrame(frame: number): void {
+  if (typeof window.cancelAnimationFrame === "function") window.cancelAnimationFrame(frame);
+  else window.clearTimeout(frame);
 }
 
 function errorMessage(error: unknown): string {

@@ -23,6 +23,7 @@ export type BusyAction =
 export type SdpTransportMode = "gzip" | "plain";
 export type ConnectionRouteMode = "auto" | "relay";
 export type RemoteStageViewMode = "fit" | "fill";
+export type RemoteAudioPlaybackState = "idle" | "waiting" | "playing" | "blocked" | "error";
 
 export type RoomJoinContext = {
   kind: RoomJoinKind;

@@ -74,6 +74,7 @@ export function RemoteControlStage({
           <div className="stage-badge">
             {browserStageLabel} · {remoteVideoCount} 路视频 · {videoFlowLabel} · 输入 {inputControlLabel}
           </div>
+          <div className="remote-cursor-overlay" data-remote-cursor-overlay data-visible="false" aria-hidden="true" />
         </>
       ) : (
         <>

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 import type { RemoteCommandBarProps } from "../app/remoteControlPageProps.js";
+import { RemoteAudioControl } from "./RemoteAudioControl.js";
 import { RemoteShortcutMenu } from "./RemoteShortcutMenu.js";
 import { useDraggableFloatingPanel } from "./useDraggableFloatingPanel.js";
 
@@ -27,6 +28,7 @@ export function RemoteCommandBar({
   onStageViewModeChange,
   onToggleInputControl,
   onToggleFullscreen,
+  remoteAudio,
   remoteRecoveryLabel,
   remoteShortcutPlatform,
   remoteStageViewMode,
@@ -88,6 +90,7 @@ export function RemoteCommandBar({
       </div>
       {!connected && nextAction.detail ? <p className="operation-note">{nextAction.detail}</p> : null}
       <div className="command-action-group command-action-tools" aria-label="远控工具栏">
+        <RemoteAudioControl {...remoteAudio} />
         <button onClick={() => onStageViewModeChange(nextStageMode)}>
           <Scan size={17} />
           {remoteStageViewMode === "fit" ? "填充画面" : "适应画面"}

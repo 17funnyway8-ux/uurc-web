@@ -5,6 +5,7 @@ import { StatusRow } from "./Panel.js";
 import { ReadinessStrip } from "./ReadinessStrip.js";
 
 export function RemoteControlDiagnosticsDrawer({
+  audioPlaybackLabel,
   autoSwitchThresholdLabel,
   browserIceServers,
   browserRemoteState,
@@ -16,6 +17,7 @@ export function RemoteControlDiagnosticsDrawer({
   debugEvents,
   effectiveConnectionRouteLabel,
   iceControlStatusLabel,
+  inboundAudioStatsLabel,
   inboundVideoStatsLabel,
   inputControlActive,
   joinModeLabel,
@@ -66,6 +68,8 @@ export function RemoteControlDiagnosticsDrawer({
         <StatusRow label="视频状态" value={videoFlowLabel} />
         <StatusRow label="视频接收" value={inboundVideoStatsLabel} />
         <StatusRow label="视频采样" value={videoElementLabel} />
+        <StatusRow label="音频接收" value={inboundAudioStatsLabel} />
+        <StatusRow label="音频播放" value={audioPlaybackLabel} />
         <StatusRow label="控制通道" value={controlChannelLabel} />
         <StatusRow label="文本通道" value={textChannelLabel} />
         <StatusRow label="输入控制" value={inputControlActive ? "控制中" : "仅查看"} />

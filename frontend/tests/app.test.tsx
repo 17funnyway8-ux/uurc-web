@@ -242,6 +242,7 @@ describe("App console", () => {
       appDataBase64: buildDefaultStreamerConnectOptionsBase64({
         deviceId: "web-device-1",
         controlConnectType: STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_Assistance,
+        cursorCapture: false,
       }),
     });
 

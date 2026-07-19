@@ -15,6 +15,7 @@ import type {
   BusyAction,
   ConnectionRouteMode,
   NextAction,
+  RemoteAudioPlaybackState,
   RemoteConnectionQuality,
   RemoteStageViewMode,
   RemoteVideoSourceInfo,
@@ -22,7 +23,20 @@ import type {
   SdpTransportMode,
 } from "./remoteControlTypes.js";
 
+export interface RemoteAudioControlProps {
+  elementRef: RefObject<HTMLAudioElement | null>;
+  available: boolean;
+  muted: boolean;
+  volume: number;
+  playbackState: RemoteAudioPlaybackState;
+  playbackErrorName: string;
+  onToggleMuted: () => void;
+  onVolumeChange: (volume: number) => void;
+  onResumePlayback: () => void;
+}
+
 export interface RemoteControlViewProps {
+  audioPlaybackLabel: string;
   autoSwitchThresholdLabel: string;
   browserIceServers: number;
   browserRemoteState: BrowserRemoteSessionState;
@@ -53,6 +67,7 @@ export interface RemoteControlViewProps {
   forceJoin: boolean;
   hasRemoteVideo: boolean;
   iceControlStatusLabel: string;
+  inboundAudioStatsLabel: string;
   inboundVideoStatsLabel: string;
   inputControlActive: boolean;
   inputControlLabel: string;
@@ -65,6 +80,7 @@ export interface RemoteControlViewProps {
   primaryRemoteVideoActive: boolean;
   primaryRemoteVideoId: string;
   remoteBootstrap: RemoteControlBootstrap | null;
+  remoteAudio: RemoteAudioControlProps;
   remoteRecoveryLabel: string;
   remoteShortcutPlatform: string;
   remoteStageRef: RefObject<HTMLDivElement | null>;
@@ -167,6 +183,7 @@ export type RemoteCommandBarProps = Pick<
   | "onStageViewModeChange"
   | "onToggleInputControl"
   | "onToggleFullscreen"
+  | "remoteAudio"
   | "remoteRecoveryLabel"
   | "remoteShortcutPlatform"
   | "remoteStageViewMode"
@@ -263,6 +280,7 @@ export type RemoteControlSettingsDrawerProps = Pick<
 
 export type RemoteControlDiagnosticsDrawerProps = Pick<
   RemoteControlViewProps,
+  | "audioPlaybackLabel"
   | "autoSwitchThresholdLabel"
   | "browserIceServers"
   | "browserRemoteState"
@@ -274,6 +292,7 @@ export type RemoteControlDiagnosticsDrawerProps = Pick<
   | "debugEvents"
   | "effectiveConnectionRouteLabel"
   | "iceControlStatusLabel"
+  | "inboundAudioStatsLabel"
   | "inboundVideoStatsLabel"
   | "inputControlActive"
   | "joinModeLabel"
@@ -335,6 +354,7 @@ export function createRemoteControlPageProps(props: RemoteControlViewProps): Rem
       "onStageViewModeChange",
       "onToggleInputControl",
       "onToggleFullscreen",
+      "remoteAudio",
       "remoteRecoveryLabel",
       "remoteShortcutPlatform",
       "remoteStageViewMode",
@@ -414,6 +434,7 @@ export function createRemoteControlPageProps(props: RemoteControlViewProps): Rem
       "signalServerOptions",
     ]),
     diagnostics: pick(props, [
+      "audioPlaybackLabel",
       "autoSwitchThresholdLabel",
       "browserIceServers",
       "browserRemoteState",
@@ -425,6 +446,7 @@ export function createRemoteControlPageProps(props: RemoteControlViewProps): Rem
       "debugEvents",
       "effectiveConnectionRouteLabel",
       "iceControlStatusLabel",
+      "inboundAudioStatsLabel",
       "inboundVideoStatsLabel",
       "inputControlActive",
       "joinModeLabel",

@@ -23,6 +23,7 @@ import {
   STREAMER_ROM_MESSAGE_TYPES,
   STREAMER_SIMPLE_ACTION_TYPES,
   type DecodedStreamerControlMessage,
+  type DecodedStreamerCursorShape,
   type StreamerConnectionPath,
   type StreamerDataChannelLabel,
   type StreamerIceNetworkType,
@@ -63,11 +64,13 @@ export interface BrowserRemoteDataChannel {
   label: string;
   readyState: RTCDataChannelState;
   bufferedAmount?: number;
+  bufferedAmountLowThreshold?: number;
   binaryType?: BinaryType;
   onopen: ((event: Event) => void) | null;
   onclose: ((event: Event) => void) | null;
   onerror: ((event: Event) => void) | null;
   onmessage?: ((event: MessageEvent) => void) | null;
+  onbufferedamountlow?: ((event: Event) => void) | null;
   close?: () => void;
   send(data: string | Blob | ArrayBuffer | ArrayBufferView): void;
 }
@@ -79,6 +82,7 @@ export interface BrowserRemoteSessionOptions {
   now?: () => number;
   onRemoteStream?: (stream: MediaStream) => void;
   onRemoteClipboard?: (text: string) => void;
+  onRemoteCursorShape?: (shape: DecodedStreamerCursorShape | null) => void;
   onStateChange?: (state: BrowserRemoteSessionState) => void;
 }
 
@@ -104,6 +108,10 @@ export interface BrowserRemoteMousePositionInput {
 
 export interface BrowserRemoteMouseClickInput extends BrowserRemoteMousePositionInput {
   button?: StreamerMouseButtonKind | number;
+}
+
+export interface BrowserRemoteMouseMoveOptions {
+  critical?: boolean;
 }
 
 export interface BrowserRemoteMouseButtonInput {
@@ -132,6 +140,26 @@ export interface BrowserRemoteSelectedCandidatePair {
   currentRoundTripTime?: number;
   availableIncomingBitrate?: number;
   availableOutgoingBitrate?: number;
+}
+
+export interface BrowserRemoteInboundAudioStats {
+  codecId?: string;
+  codecMimeType?: string;
+  codecPayloadType?: number;
+  codecClockRate?: number;
+  codecChannels?: number;
+  packetsReceived?: number;
+  packetsLost?: number;
+  bytesReceived?: number;
+  jitter?: number;
+  jitterBufferDelay?: number;
+  jitterBufferEmittedCount?: number;
+  totalSamplesReceived?: number;
+  concealedSamples?: number;
+  silentConcealedSamples?: number;
+  totalAudioEnergy?: number;
+  audioLevel?: number;
+  timestampMs?: number;
 }
 
 export interface BrowserRemoteInboundVideoStats {
@@ -176,6 +204,18 @@ export interface BrowserRemoteVideoElementSample {
   height?: number;
 }
 
+export interface BrowserRemoteAudioElementSample {
+  event: string;
+  currentTimeMs: number;
+  readyState?: number;
+  paused?: boolean;
+  ended?: boolean;
+  muted?: boolean;
+  volume?: number;
+  autoplayBlocked?: boolean;
+  errorName?: string;
+}
+
 export interface BrowserRemoteVideoFlowDelta {
   packetsReceived?: number;
   bytesReceived?: number;
@@ -203,7 +243,7 @@ export interface BrowserRemoteVideoFlowDiagnostics {
 }
 
 export type BrowserRemoteDebugEventKind =
-  "session" | "signal" | "data_channel" | "data_send" | "data_recv" | "stats" | "video_element";
+  "session" | "signal" | "data_channel" | "data_send" | "data_recv" | "stats" | "video_element" | "audio_element";
 
 export interface BrowserRemoteDebugEvent {
   id: number;
@@ -214,6 +254,7 @@ export interface BrowserRemoteDebugEvent {
 }
 
 export interface BrowserRemoteSessionState {
+  audioElement?: BrowserRemoteAudioElementSample;
   appControlId: string;
   clientId?: string;
   connectionPath: StreamerConnectionPath;
@@ -223,6 +264,7 @@ export interface BrowserRemoteSessionState {
   dataChannels: Partial<Record<StreamerDataChannelLabel, RTCDataChannelState>>;
   debugEvents: BrowserRemoteDebugEvent[];
   iceId?: string;
+  inboundAudio?: BrowserRemoteInboundAudioStats;
   inboundVideo?: BrowserRemoteInboundVideoStats;
   remoteTrackCount: number;
   remoteDisplayId?: number;
@@ -243,6 +285,7 @@ export class BrowserRemoteSession {
   private static readonly echoHeartbeatIntervalMs = 100;
   private static readonly echoHeartbeatDebugIntervalMs = 30000;
   private static readonly dataReceiveDebugIntervalMs = 30000;
+  private static readonly mouseMoveBufferedAmountLowThreshold = Math.floor(STREAMER_MAX_DATA_BUFFER_BYTES / 4);
 
   private readonly createPeerConnection: (configuration: RTCConfiguration) => BrowserRemotePeerConnection;
   private readonly getVideoCodecPreferences: () => RTCRtpCodec[];
@@ -252,6 +295,7 @@ export class BrowserRemoteSession {
   private echoHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
   private lastEchoHeartbeatDebugAtMs = 0;
   private lastMouseMoveBackpressureDebugAtMs = 0;
+  private pendingMouseMove: BrowserRemoteMousePositionInput | undefined;
   private readonly lastDataReceiveDebugAtMs = new Map<StreamerDataChannelLabel, number>();
   private debugEventId = 1;
   private debugEvents: BrowserRemoteDebugEvent[] = [];
@@ -301,8 +345,10 @@ export class BrowserRemoteSession {
   getState(): BrowserRemoteSessionState {
     return {
       ...this.state,
+      audioElement: this.state.audioElement ? { ...this.state.audioElement } : undefined,
       dataChannels: { ...this.state.dataChannels },
       debugEvents: [...this.debugEvents],
+      inboundAudio: this.state.inboundAudio ? { ...this.state.inboundAudio } : undefined,
       inboundVideo: this.state.inboundVideo ? { ...this.state.inboundVideo } : undefined,
       selectedCandidatePair: this.state.selectedCandidatePair ? { ...this.state.selectedCandidatePair } : undefined,
       videoElement: this.state.videoElement ? { ...this.state.videoElement } : undefined,
@@ -327,6 +373,7 @@ export class BrowserRemoteSession {
       channel.onclose = null;
       channel.onerror = null;
       channel.onmessage = null;
+      channel.onbufferedamountlow = null;
       if (channel.readyState !== "closed") {
         channel.close?.();
       }
@@ -344,11 +391,13 @@ export class BrowserRemoteSession {
     this.remoteStream = null;
     this.remoteDisplayId = undefined;
     this.remoteInputDisplayId = undefined;
+    this.pendingMouseMove = undefined;
     this.sequence = 1;
     this.heldKeyboardValues.clear();
     this.heldMouseButtons.clear();
     this.previousStatsSample = undefined;
     this.previousVideoElementSample = undefined;
+    this.options.onRemoteCursorShape?.(null);
     this.setState({
       appControlId: "",
       connectionPath: "unknown",
@@ -455,15 +504,16 @@ export class BrowserRemoteSession {
 
   sendMouseClick(input: BrowserRemoteMouseClickInput): void {
     const button = input.button ?? "primary";
-    this.sendMouseMove(input);
+    this.sendMouseMove(input, { critical: true });
     this.sendMouseButton({ action: "mousePress", button });
     this.sendMouseButton({ action: "mouseRelease", button });
   }
 
-  sendMouseMove(input: BrowserRemoteMousePositionInput): void {
+  sendMouseMove(input: BrowserRemoteMousePositionInput, options: BrowserRemoteMouseMoveOptions = {}): void {
     const channel = this.dataChannels.get(STREAMER_DATA_CHANNEL_LABELS.control);
     const bufferedAmount = channel?.bufferedAmount ?? 0;
-    if (bufferedAmount >= STREAMER_MAX_DATA_BUFFER_BYTES) {
+    if (!options.critical && bufferedAmount >= STREAMER_MAX_DATA_BUFFER_BYTES) {
+      this.pendingMouseMove = { ...input };
       const nowMs = this.now();
       if (this.lastMouseMoveBackpressureDebugAtMs === 0 || nowMs - this.lastMouseMoveBackpressureDebugAtMs >= 5000) {
         this.lastMouseMoveBackpressureDebugAtMs = nowMs;
@@ -474,10 +524,12 @@ export class BrowserRemoteSession {
       }
       return;
     }
-    this.sendInputData(this.buildMouseMoveAbsoluteInput(input));
+    this.pendingMouseMove = undefined;
+    this.sendInputData(this.buildMouseMoveAbsoluteInput(input), { recordDebugEvent: false });
   }
 
   sendMouseButton(input: BrowserRemoteMouseButtonInput): void {
+    this.pendingMouseMove = undefined;
     const button = input.button ?? "primary";
     if (input.action === "mousePress") this.heldMouseButtons.add(button);
     else if (input.action === "mouseRelease") this.heldMouseButtons.delete(button);
@@ -485,6 +537,7 @@ export class BrowserRemoteSession {
   }
 
   sendMouseScroll(input: BrowserRemoteMouseScrollInput): void {
+    this.pendingMouseMove = undefined;
     this.sendInputData(
       isDesktopPlatform(this.targetPlatform)
         ? buildStreamerMacMouseScrollInputMessage(input)
@@ -509,6 +562,7 @@ export class BrowserRemoteSession {
     // 兜底：把当前“按住”的鼠标键与键盘键全部抬起。避免失焦 / 右键菜单 / 系统快捷键吞掉
     // pointerup/keyup 后，在被控端留下卡住的按键（右键卡死、Alt 卡死等）。
     const buttons = [...this.heldMouseButtons];
+    this.pendingMouseMove = undefined;
     this.heldMouseButtons.clear();
     const keys = [...this.heldKeyboardValues];
     this.heldKeyboardValues.clear();
@@ -535,6 +589,7 @@ export class BrowserRemoteSession {
     const sampledAtMs = this.now();
     const previousFlowStatus = this.state.videoFlow?.status;
     const selectedCandidatePair = readSelectedCandidatePair(report);
+    const inboundAudio = readInboundAudioStats(report);
     const inboundVideo = readInboundVideoStats(report);
     const videoFlow = diagnoseVideoFlow({
       nowMs: sampledAtMs,
@@ -555,6 +610,7 @@ export class BrowserRemoteSession {
     this.setState({
       ...this.state,
       connectionPath: selectedCandidatePair.connectionPath,
+      inboundAudio,
       inboundVideo,
       selectedCandidatePair: selectedCandidatePair.pair,
       videoFlow,
@@ -562,6 +618,7 @@ export class BrowserRemoteSession {
     this.recordDebugEvent("stats", videoFlow.title, {
       status: videoFlow.status,
       delta: videoFlow.delta,
+      inboundAudio,
       inboundVideo,
       selectedCandidatePair: selectedCandidatePair.pair,
     });
@@ -631,6 +688,15 @@ export class BrowserRemoteSession {
     return this.getState();
   }
 
+  recordAudioElementSample(sample: BrowserRemoteAudioElementSample): BrowserRemoteSessionState {
+    this.setState({
+      ...this.state,
+      audioElement: sample,
+    });
+    this.recordDebugEvent("audio_element", `audio ${sample.event}`, { ...sample });
+    return this.getState();
+  }
+
   async applySignalEvents(events: RemoteSignalGatewayEvent[]): Promise<void> {
     for (const event of events) {
       if (this.processedSignalEventIds.has(event.id)) continue;
@@ -661,6 +727,10 @@ export class BrowserRemoteSession {
     for (const label of Object.values(STREAMER_DATA_CHANNEL_LABELS)) {
       const channel = peer.createDataChannel(label);
       channel.binaryType = "arraybuffer";
+      if (label === STREAMER_DATA_CHANNEL_LABELS.control) {
+        channel.bufferedAmountLowThreshold = BrowserRemoteSession.mouseMoveBufferedAmountLowThreshold;
+        channel.onbufferedamountlow = () => this.flushPendingMouseMove();
+      }
       channel.onopen = () => {
         this.recordDebugEvent("data_channel", `${label} open`, { label, readyState: channel.readyState });
         this.updateDataChannelState(label);
@@ -672,6 +742,7 @@ export class BrowserRemoteSession {
         this.recordDebugEvent("data_channel", `${label} close`, { label, readyState: channel.readyState });
         if (label === STREAMER_DATA_CHANNEL_LABELS.control) {
           console.warn(`[uurc] 控制数据通道关闭（${label}）→ 心跳停止，被控端可能停推画面`);
+          this.pendingMouseMove = undefined;
           this.stopEchoHeartbeat();
         }
         this.updateDataChannelState(label);
@@ -982,6 +1053,7 @@ export class BrowserRemoteSession {
   private handleControlDataMessage(message: DecodedStreamerControlMessage): void {
     this.applyCaptureChangeInputIndex(message);
     this.applyRemoteClipboard(message);
+    this.applyRemoteCursorShape(message);
 
     const simpleAction = message.simpleAction;
     if (!simpleAction || simpleAction.action !== STREAMER_SIMPLE_ACTION_TYPES.ACTION_TYPE_ECHO_REQUEST) return;
@@ -1002,6 +1074,24 @@ export class BrowserRemoteSession {
     this.options.onRemoteClipboard?.(rom.inputMessage);
   }
 
+  private applyRemoteCursorShape(message: DecodedStreamerControlMessage): void {
+    const cursorShape = message.systemStateChange?.cursorShape;
+    if (!cursorShape) return;
+    if (
+      cursorShape.screenId !== undefined &&
+      this.remoteInputDisplayId !== undefined &&
+      cursorShape.screenId !== this.remoteInputDisplayId
+    ) {
+      this.recordDebugEvent("data_recv", "忽略非当前画面的光标形状", {
+        cursorScreenId: cursorShape.screenId,
+        inputDisplayId: this.remoteInputDisplayId,
+      });
+      return;
+    }
+    this.recordDebugEvent("data_recv", "更新远端光标形状", summarizeCursorShape(cursorShape));
+    this.options.onRemoteCursorShape?.(cursorShape);
+  }
+
   private applyCaptureChangeInputIndex(message: DecodedStreamerControlMessage): void {
     const captureChange = message.captureChange;
     if (!captureChange) return;
@@ -1013,6 +1103,7 @@ export class BrowserRemoteSession {
     if (nextInputDisplayId === this.remoteInputDisplayId) return;
 
     this.remoteInputDisplayId = nextInputDisplayId;
+    this.options.onRemoteCursorShape?.(null);
     this.setState({
       ...this.state,
       remoteInputDisplayId: nextInputDisplayId,
@@ -1021,6 +1112,29 @@ export class BrowserRemoteSession {
       inputDisplayId: nextInputDisplayId,
       captureChange,
     });
+  }
+
+  private flushPendingMouseMove(): void {
+    const pending = this.pendingMouseMove;
+    const channel = this.dataChannels.get(STREAMER_DATA_CHANNEL_LABELS.control);
+    if (
+      !pending ||
+      !channel ||
+      channel.readyState !== "open" ||
+      (channel.bufferedAmount ?? 0) > BrowserRemoteSession.mouseMoveBufferedAmountLowThreshold
+    ) {
+      return;
+    }
+    this.pendingMouseMove = undefined;
+    try {
+      this.sendMouseMove(pending);
+    } catch (error) {
+      if (channel.readyState === "open") this.pendingMouseMove = pending;
+      this.recordDebugEvent("data_send", "补发鼠标移动失败", {
+        bufferedAmount: channel.bufferedAmount,
+        error: getErrorMessage(error),
+      });
+    }
   }
 
   private sendEchoResponse(responseSequence: number): void {
@@ -1055,22 +1169,25 @@ export class BrowserRemoteSession {
           summary: string;
           details?: Record<string, unknown>;
         }
+      | false
       | undefined = undefined,
   ): void {
     const channel = this.dataChannels.get(label);
     if (!channel) throw new Error(`${label} has not been created`);
     if (channel.readyState !== "open") throw new Error(`${label} is ${channel.readyState}, not open`);
     channel.send(payload);
-    this.recordDebugEvent("data_send", event?.summary ?? `发送 ${label}`, {
-      label,
-      byteLength: dataChannelPayloadByteLength(payload),
-      frameType: typeof payload === "string" ? "text" : "binary",
-      ...(event?.details ?? {}),
-    });
+    if (event !== false) {
+      this.recordDebugEvent("data_send", event?.summary ?? `发送 ${label}`, {
+        label,
+        byteLength: dataChannelPayloadByteLength(payload),
+        frameType: typeof payload === "string" ? "text" : "binary",
+        ...(event?.details ?? {}),
+      });
+    }
     this.updateDataChannelState(label);
   }
 
-  private sendInputData(inputMessage: string): void {
+  private sendInputData(inputMessage: string, options: { recordDebugEvent?: boolean } = {}): void {
     if (!inputMessage) {
       this.recordDebugEvent("data_send", "跳过空控制输入", {
         targetPlatform: this.targetPlatform,
@@ -1089,18 +1206,24 @@ export class BrowserRemoteSession {
           displayId: inputDisplayId,
         });
     this.sequence += 1;
-    this.sendDataChannel(STREAMER_DATA_CHANNEL_LABELS.control, payload, {
-      summary: "发送控制输入",
-      details: {
-        sequence,
-        timestampSeconds,
-        inputDisplayId,
-        remoteDisplayId: this.remoteDisplayId,
-        route: isDesktopPlatform(this.targetPlatform) ? "control_text" : "send_to_rom",
-        targetPlatform: this.targetPlatform,
-        input: summarizeInputMessage(inputMessage),
-      },
-    });
+    this.sendDataChannel(
+      STREAMER_DATA_CHANNEL_LABELS.control,
+      payload,
+      options.recordDebugEvent === false
+        ? false
+        : {
+            summary: "发送控制输入",
+            details: {
+              sequence,
+              timestampSeconds,
+              inputDisplayId,
+              remoteDisplayId: this.remoteDisplayId,
+              route: isDesktopPlatform(this.targetPlatform) ? "control_text" : "send_to_rom",
+              targetPlatform: this.targetPlatform,
+              input: summarizeInputMessage(inputMessage),
+            },
+          },
+    );
   }
 
   private resolveInputDisplayId(): number | undefined {
@@ -1586,6 +1709,44 @@ function readInboundVideoStats(report: BrowserRemoteStatsReport): BrowserRemoteI
   return Object.keys(stats).length > 0 ? stats : undefined;
 }
 
+function readInboundAudioStats(report: BrowserRemoteStatsReport): BrowserRemoteInboundAudioStats | undefined {
+  const entries = new Map<string, Record<string, unknown>>();
+  const records: Record<string, unknown>[] = [];
+  report.forEach((value, key) => {
+    const record = asRecord(value);
+    if (record) entries.set(key, record);
+    if (record && record.type === "inbound-rtp" && (record.kind === "audio" || record.mediaType === "audio")) {
+      records.push(record);
+    }
+  });
+  const record = records.sort((left, right) => numberValue(right.bytesReceived) - numberValue(left.bytesReceived))[0];
+  if (!record) return undefined;
+
+  const stats: BrowserRemoteInboundAudioStats = {};
+  assignString(stats, "codecId", record.codecId);
+  assignOptionalNumber(stats, "packetsReceived", record.packetsReceived);
+  assignOptionalNumber(stats, "packetsLost", record.packetsLost);
+  assignOptionalNumber(stats, "bytesReceived", record.bytesReceived);
+  assignOptionalNumber(stats, "jitter", record.jitter);
+  assignOptionalNumber(stats, "jitterBufferDelay", record.jitterBufferDelay);
+  assignOptionalNumber(stats, "jitterBufferEmittedCount", record.jitterBufferEmittedCount);
+  assignOptionalNumber(stats, "totalSamplesReceived", record.totalSamplesReceived);
+  assignOptionalNumber(stats, "concealedSamples", record.concealedSamples);
+  assignOptionalNumber(stats, "silentConcealedSamples", record.silentConcealedSamples);
+  assignOptionalNumber(stats, "totalAudioEnergy", record.totalAudioEnergy);
+  assignOptionalNumber(stats, "audioLevel", record.audioLevel);
+  assignOptionalNumber(stats, "timestampMs", record.timestamp);
+
+  const codec = entries.get(stringValue(record.codecId));
+  if (codec) {
+    assignString(stats, "codecMimeType", codec.mimeType);
+    assignOptionalNumber(stats, "codecPayloadType", codec.payloadType);
+    assignOptionalNumber(stats, "codecClockRate", codec.clockRate);
+    assignOptionalNumber(stats, "codecChannels", codec.channels);
+  }
+  return Object.keys(stats).length > 0 ? stats : undefined;
+}
+
 function isSelectedCandidatePair(record: Record<string, unknown>): boolean {
   if (record.type !== "candidate-pair") return false;
   if (record.selected === true) return true;
@@ -1683,6 +1844,9 @@ function summarizeDecodedControlMessage(message: DecodedStreamerControlMessage):
         })
       : undefined,
     captureChange: message.captureChange,
+    cursorShape: message.systemStateChange?.cursorShape
+      ? summarizeCursorShape(message.systemStateChange.cursorShape)
+      : undefined,
     sendToRom: message.sendToRom
       ? dropUndefinedFields({
           inputType: message.sendToRom.inputType,
@@ -1691,6 +1855,20 @@ function summarizeDecodedControlMessage(message: DecodedStreamerControlMessage):
           input: message.sendToRom.inputMessage ? summarizeInputMessage(message.sendToRom.inputMessage) : undefined,
         })
       : undefined,
+  });
+}
+
+function summarizeCursorShape(shape: DecodedStreamerCursorShape): Record<string, unknown> {
+  return dropUndefinedFields({
+    cursorType: shape.cursorType,
+    width: shape.width,
+    height: shape.height,
+    hotspotX: shape.posX,
+    hotspotY: shape.posY,
+    coordinateXScale: shape.coordinateXScale,
+    coordinateYScale: shape.coordinateYScale,
+    screenId: shape.screenId,
+    imageByteLength: shape.byteValue?.byteLength,
   });
 }
 

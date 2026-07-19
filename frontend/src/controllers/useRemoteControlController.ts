@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMatch, useNavigate } from "react-router";
 
 import {
@@ -39,15 +39,18 @@ import { createRemoteControlPageProps, type RemoteControlViewProps } from "../ap
 import { formatParticipantMeta } from "../devices/deviceLabels.js";
 import { pickControllableDesktop } from "../devices/deviceSummary.js";
 import { BrowserRemoteSession, type BrowserRemoteSessionState } from "../remote/browserRemoteSession.js";
+import { REMOTE_CURSOR_LOCAL_RENDERING_ENABLED } from "../remote/remoteCursor.js";
 import { remoteShortcutGroupTitleForPlatform } from "../remote/remoteShortcuts.js";
 import {
   createAppControlId,
   createIdleBrowserRemoteState,
   formatAutoSwitchThresholds,
+  formatAudioElement,
   formatBrowserRemoteStage,
   formatConnectionPath,
   formatDataChannelState,
   getRemoteConnectionQuality,
+  formatInboundAudioStats,
   formatInboundVideoStats,
   formatRemoteAssistanceMode,
   formatRoomJoinContext,
@@ -67,6 +70,7 @@ import {
 import { useAutoLoadDevices } from "./useAutoLoadDevices.js";
 import { useAccountController } from "./useAccountController.js";
 import { useDeviceController } from "./useDeviceController.js";
+import { useRemoteAudioController } from "./useRemoteAudioController.js";
 import { useRemoteVideoController } from "./useRemoteVideoController.js";
 import { useRemoteControlPreferences } from "./useRemoteControlPreferences.js";
 import { useRemoteInputController } from "./useRemoteInputController.js";
@@ -200,6 +204,17 @@ export function useRemoteControlController() {
     browserSessionRef: browserRemoteSession,
     onSessionStateChange: setBrowserRemoteState,
   });
+  const { remoteAudio, handleRemoteAudioStream, resetRemoteAudio } = useRemoteAudioController({
+    browserSessionRef: browserRemoteSession,
+    onSessionStateChange: setBrowserRemoteState,
+  });
+  const handleRemoteStream = useCallback(
+    (stream: MediaStream) => {
+      handleRemoteMediaStream(stream);
+      handleRemoteAudioStream(stream);
+    },
+    [handleRemoteAudioStream, handleRemoteMediaStream],
+  );
   const navigate = useNavigate();
   const controlRouteMatch = useMatch("/devices/:deviceId/control");
   const routeSelectedDeviceId = controlRouteMatch?.params.deviceId ?? "";
@@ -254,6 +269,8 @@ export function useRemoteControlController() {
     inputControlActive,
     isFullscreen,
     remoteStageRef,
+    handleRemoteCursorShape,
+    resetRemoteCursor,
     enableInputControl,
     resetInputControl,
     handleRemoteClipboard,
@@ -277,6 +294,8 @@ export function useRemoteControlController() {
     controlChannelState,
     textChannelState,
     targetPlatform: resolveTargetPlatform(),
+    primaryRemoteVideoId,
+    remoteStageViewMode,
     run,
     onError: setError,
     onSessionStateChange: setBrowserRemoteState,
@@ -615,8 +634,10 @@ export function useRemoteControlController() {
   function resetBrowserRemoteSession() {
     const closedState = browserRemoteSession.current?.close();
     browserRemoteSession.current = null;
+    resetRemoteCursor();
     resetInputControl();
     resetRemoteVideos();
+    resetRemoteAudio();
     setBrowserRemoteState(closedState ?? createIdleBrowserRemoteState());
   }
 
@@ -632,8 +653,9 @@ export function useRemoteControlController() {
         sendSignalControl: sendRemoteSignalControl,
         sendSignalSoac: sendRemoteSignalSoac,
       },
-      onRemoteStream: handleRemoteMediaStream,
+      onRemoteStream: handleRemoteStream,
       onRemoteClipboard: handleRemoteClipboard,
+      onRemoteCursorShape: handleRemoteCursorShape,
       onStateChange: setBrowserRemoteState,
     });
     browserRemoteSession.current = session;
@@ -646,6 +668,7 @@ export function useRemoteControlController() {
       appDataBase64: buildDefaultStreamerConnectOptionsBase64({
         deviceId: authStatus.deviceId,
         controlConnectType,
+        cursorCapture: !REMOTE_CURSOR_LOCAL_RENDERING_ENABLED,
       }),
       streamerData: buildStreamerControlStreamerDataJson({ controlId: appControlId }),
       forceRelay: options.forceRelay ?? (connectionRouteMode === "relay" ? true : undefined),
@@ -803,7 +826,9 @@ export function useRemoteControlController() {
   const browserRtcReady = roomReadyForBrowserRtc && busy === null && !browserWebRtcUnavailableReason;
   const browserIceServers = browserRemoteState.controlResult?.iceServers.length ?? 0;
   const connectionPathLabel = formatConnectionPath(browserRemoteState.connectionPath);
+  const inboundAudioStatsLabel = formatInboundAudioStats(browserRemoteState.inboundAudio);
   const inboundVideoStatsLabel = formatInboundVideoStats(browserRemoteState.inboundVideo);
+  const audioPlaybackLabel = formatAudioElement(browserRemoteState.audioElement);
   const videoFlowLabel = formatVideoFlow(browserRemoteState);
   const videoElementLabel = formatVideoElement(browserRemoteState.videoElement);
   const controlChannelLabel = formatDataChannelState(controlChannelState);
@@ -1053,6 +1078,7 @@ export function useRemoteControlController() {
   };
 
   const controlViewProps: RemoteControlViewProps = {
+    audioPlaybackLabel,
     autoSwitchThresholdLabel,
     autoConnect,
     autoReconnectEnabled,
@@ -1083,6 +1109,7 @@ export function useRemoteControlController() {
     forceJoin,
     hasRemoteVideo,
     iceControlStatusLabel,
+    inboundAudioStatsLabel,
     inboundVideoStatsLabel,
     inputControlActive,
     inputControlLabel,
@@ -1094,6 +1121,7 @@ export function useRemoteControlController() {
     occupyingParticipantLabel,
     primaryRemoteVideoActive,
     primaryRemoteVideoId,
+    remoteAudio,
     remoteBootstrap,
     remoteRecoveryLabel,
     remoteShortcutPlatform,

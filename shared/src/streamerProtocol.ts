@@ -683,6 +683,23 @@ export const STREAMER_SIMPLE_ACTION_WIRE_FIELDS = {
   featureFlagTag: 4,
 } as const;
 
+export const STREAMER_SYSTEM_STATE_CHANGE_WIRE_FIELDS = {
+  envelopeTag: 15,
+  cursorShapeTag: 2,
+} as const;
+
+export const STREAMER_CURSOR_SHAPE_WIRE_FIELDS = {
+  posXTag: 1,
+  posYTag: 2,
+  widthTag: 3,
+  heightTag: 4,
+  byteValueTag: 5,
+  cursorTypeTag: 6,
+  coordinateXScaleTag: 7,
+  coordinateYScaleTag: 8,
+  screenIdTag: 9,
+} as const;
+
 export const STREAMER_SIMPLE_ACTION_TYPES = {
   ACTION_TYPE_ECHO_REQUEST: 0,
   ACTION_TYPE_ECHO_RESPONSE: 1,
@@ -788,6 +805,22 @@ export interface DecodedStreamerRomMessage {
   byteValueLength?: number;
 }
 
+export interface DecodedStreamerCursorShape {
+  posX?: number;
+  posY?: number;
+  width?: number;
+  height?: number;
+  byteValue?: Uint8Array;
+  cursorType?: number;
+  coordinateXScale?: number;
+  coordinateYScale?: number;
+  screenId?: number;
+}
+
+export interface DecodedStreamerSystemStateChange {
+  cursorShape?: DecodedStreamerCursorShape;
+}
+
 export interface DecodedStreamerControlMessage {
   sequence?: number;
   timestampMs?: number;
@@ -797,6 +830,7 @@ export interface DecodedStreamerControlMessage {
   captureChange?: DecodedStreamerCaptureChange;
   romMessage?: DecodedStreamerRomMessage;
   sendToRom?: DecodedStreamerSendToRom;
+  systemStateChange?: DecodedStreamerSystemStateChange;
 }
 
 export interface StreamerScreenResolutionInput {
@@ -859,7 +893,9 @@ export interface BuildDefaultStreamerConnectOptionsBase64Input {
 
 const protobufWireType = {
   varint: 0,
+  fixed64: 1,
   lengthDelimited: 2,
+  fixed32: 5,
 } as const;
 
 const textEncoder = new TextEncoder();
@@ -1146,6 +1182,9 @@ export function decodeStreamerControlMessage(data: ArrayBuffer | ArrayBufferView
     if (field.tag === STREAMER_SEND_TO_ROM_WIRE_FIELDS.envelopeTag && field.bytes) {
       decoded.sendToRom = decodeStreamerSendToRom(field.bytes);
     }
+    if (field.tag === STREAMER_SYSTEM_STATE_CHANGE_WIRE_FIELDS.envelopeTag && field.bytes) {
+      decoded.systemStateChange = decodeStreamerSystemStateChange(field.bytes);
+    }
   }
 
   return decoded;
@@ -1179,6 +1218,7 @@ interface ProtobufField {
   wireType: number;
   varint?: bigint;
   bytes?: Uint8Array;
+  fixed64?: Uint8Array;
 }
 
 function readProtobufFields(bytes: Uint8Array): ProtobufField[] {
@@ -1187,25 +1227,44 @@ function readProtobufFields(bytes: Uint8Array): ProtobufField[] {
 
   while (offset < bytes.byteLength) {
     const key = readProtobufVarint(bytes, offset);
+    if (!key) break;
     offset = key.nextOffset;
     const tag = Number(key.value >> 3n);
     const wireType = Number(key.value & 0x07n);
-    if (!Number.isSafeInteger(tag) || tag <= 0) break;
+    if (!Number.isSafeInteger(tag) || tag <= 0 || tag > 0x1fffffff) break;
 
     if (wireType === protobufWireType.varint) {
       const value = readProtobufVarint(bytes, offset);
+      if (!value) break;
       offset = value.nextOffset;
       fields.push({ tag, wireType, varint: value.value });
       continue;
     }
 
+    if (wireType === protobufWireType.fixed64) {
+      const nextOffset = offset + 8;
+      if (nextOffset > bytes.byteLength) break;
+      fields.push({ tag, wireType, fixed64: bytes.slice(offset, nextOffset) });
+      offset = nextOffset;
+      continue;
+    }
+
     if (wireType === protobufWireType.lengthDelimited) {
       const length = readProtobufVarint(bytes, offset);
+      if (!length) break;
       offset = length.nextOffset;
       const byteLength = Number(length.value);
-      if (!Number.isSafeInteger(byteLength) || byteLength < 0 || offset + byteLength > bytes.byteLength) break;
+      if (!Number.isSafeInteger(byteLength) || byteLength < 0 || byteLength > bytes.byteLength - offset) break;
       fields.push({ tag, wireType, bytes: bytes.slice(offset, offset + byteLength) });
       offset += byteLength;
+      continue;
+    }
+
+    if (wireType === protobufWireType.fixed32) {
+      const nextOffset = offset + 4;
+      if (nextOffset > bytes.byteLength) break;
+      fields.push({ tag, wireType });
+      offset = nextOffset;
       continue;
     }
 
@@ -1215,21 +1274,19 @@ function readProtobufFields(bytes: Uint8Array): ProtobufField[] {
   return fields;
 }
 
-function readProtobufVarint(bytes: Uint8Array, startOffset: number): { value: bigint; nextOffset: number } {
+function readProtobufVarint(bytes: Uint8Array, startOffset: number): { value: bigint; nextOffset: number } | undefined {
   let value = 0n;
-  let shift = 0n;
   let offset = startOffset;
 
-  while (offset < bytes.byteLength) {
+  for (let index = 0; index < 10 && offset < bytes.byteLength; index += 1) {
     const byte = bytes[offset];
-    value |= BigInt(byte & 0x7f) << shift;
+    if (index === 9 && byte > 1) return undefined;
+    value |= BigInt(byte & 0x7f) << BigInt(index * 7);
     offset += 1;
     if ((byte & 0x80) === 0) return { value, nextOffset: offset };
-    shift += 7n;
-    if (shift > 63n) break;
   }
 
-  return { value, nextOffset: offset };
+  return undefined;
 }
 
 function decodeStreamerSimpleAction(bytes: Uint8Array): DecodedStreamerSimpleAction {
@@ -1290,6 +1347,50 @@ function decodeStreamerCaptureChange(bytes: Uint8Array): DecodedStreamerCaptureC
     captureId,
     desc,
   };
+}
+
+function decodeStreamerSystemStateChange(bytes: Uint8Array): DecodedStreamerSystemStateChange {
+  const decoded: DecodedStreamerSystemStateChange = {};
+  const fields = readProtobufFields(bytes);
+
+  for (const field of fields) {
+    if (field.tag === STREAMER_SYSTEM_STATE_CHANGE_WIRE_FIELDS.cursorShapeTag && field.bytes) {
+      decoded.cursorShape = decodeStreamerCursorShape(field.bytes);
+    }
+  }
+
+  return decoded;
+}
+
+function decodeStreamerCursorShape(bytes: Uint8Array): DecodedStreamerCursorShape {
+  const decoded: DecodedStreamerCursorShape = {};
+  const fields = readProtobufFields(bytes);
+
+  for (const field of fields) {
+    if (field.varint !== undefined) {
+      const value = decodeProtobufInt32(field.varint);
+      if (value === undefined) continue;
+      if (field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.posXTag) decoded.posX = value;
+      if (field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.posYTag) decoded.posY = value;
+      if (field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.widthTag) decoded.width = value;
+      if (field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.heightTag) decoded.height = value;
+      if (field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.cursorTypeTag) decoded.cursorType = value;
+      if (field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.screenIdTag) decoded.screenId = value;
+    }
+    if (field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.byteValueTag && field.bytes) {
+      decoded.byteValue = field.bytes;
+    }
+    if (field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.coordinateXScaleTag && field.fixed64) {
+      const value = readProtobufDouble(field.fixed64);
+      if (Number.isFinite(value)) decoded.coordinateXScale = value;
+    }
+    if (field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.coordinateYScaleTag && field.fixed64) {
+      const value = readProtobufDouble(field.fixed64);
+      if (Number.isFinite(value)) decoded.coordinateYScale = value;
+    }
+  }
+
+  return decoded;
 }
 
 function decodeStreamerSendToRom(bytes: Uint8Array): DecodedStreamerSendToRom {
@@ -1363,6 +1464,15 @@ function readStreamerActionArgsSeq(args: string): number | undefined {
 function safeNumber(value: bigint): number | undefined {
   const number = Number(value);
   return Number.isSafeInteger(number) ? number : undefined;
+}
+
+function decodeProtobufInt32(value: bigint): number | undefined {
+  if (value < 0n || value > 0xffffffffffffffffn) return undefined;
+  return Number(BigInt.asIntN(32, value));
+}
+
+function readProtobufDouble(bytes: Uint8Array): number {
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getFloat64(0, true);
 }
 
 function streamerSimpleActionName(action: number): string | undefined {

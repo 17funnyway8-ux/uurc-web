@@ -44,6 +44,31 @@ describe("toRemoteMousePosition", () => {
     expect(result.surfaceWidth).toBe(1600);
     expect(result.surfaceHeight).toBe(1200);
   });
+
+  it("uses cover geometry in fill mode", () => {
+    const stage = document.createElement("div");
+    stage.getBoundingClientRect = () => new DOMRect(0, 0, 1000, 500);
+    const video = document.createElement("video");
+    video.setAttribute("data-active", "true");
+    defineVideoSize(video, 1600, 1200);
+    stage.append(video);
+
+    expect(
+      toRemoteMousePosition(
+        {
+          clientX: 500,
+          clientY: 0,
+          currentTarget: stage as unknown as HTMLDivElement,
+        },
+        "fill",
+      ),
+    ).toEqual({
+      absX: 800,
+      absY: 200,
+      surfaceWidth: 1600,
+      surfaceHeight: 1200,
+    });
+  });
 });
 
 function defineVideoSize(video: HTMLVideoElement, width: number, height: number): void {

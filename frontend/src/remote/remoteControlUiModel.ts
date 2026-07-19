@@ -14,12 +14,14 @@ import type {
   NextAction,
   RemoteConnectionQuality,
   RemoteConnectionQualityMetric,
+  RemoteStageViewMode,
   RoomJoinContext,
   RemoteVideoSamplesById,
   RemoteVideoStream,
 } from "../app/remoteControlTypes.js";
 import { toAndroidKeyCodeFromDomEvent } from "./androidKeyCodes.js";
 import type { BrowserRemoteSessionState, BrowserRemoteVideoElementSample } from "./browserRemoteSession.js";
+import { clientPointToRemoteMedia, computeRemoteMediaGeometry } from "./remoteMediaGeometry.js";
 
 export function createIdleBrowserRemoteState(): BrowserRemoteSessionState {
   return {
@@ -342,7 +344,10 @@ export type RemotePointerLike = {
   currentTarget: HTMLDivElement;
 };
 
-export function toRemoteMousePosition(event: RemotePointerLike): {
+export function toRemoteMousePosition(
+  event: RemotePointerLike,
+  viewMode: RemoteStageViewMode = "fit",
+): {
   absX: number;
   absY: number;
   surfaceWidth: number;
@@ -355,12 +360,18 @@ export function toRemoteMousePosition(event: RemotePointerLike): {
     event.currentTarget.querySelector("video");
   const videoWidth = video?.videoWidth || Math.round(stageRect.width);
   const videoHeight = video?.videoHeight || Math.round(stageRect.height);
-  const rendered = getContainedMediaRect(stageRect, videoWidth, videoHeight);
-  const relX = clamp((event.clientX - rendered.left) / rendered.width, 0, 1);
-  const relY = clamp((event.clientY - rendered.top) / rendered.height, 0, 1);
+  const geometry = computeRemoteMediaGeometry({
+    containerRect: stageRect,
+    mediaWidth: videoWidth,
+    mediaHeight: videoHeight,
+    objectFit: viewMode === "fill" ? "cover" : "contain",
+  });
+  const position = geometry
+    ? clientPointToRemoteMedia(geometry, { x: event.clientX, y: event.clientY })
+    : { x: 0, y: 0 };
   return {
-    absX: Math.round(relX * videoWidth),
-    absY: Math.round(relY * videoHeight),
+    absX: Math.round(position.x * videoWidth),
+    absY: Math.round(position.y * videoHeight),
     surfaceWidth: videoWidth,
     surfaceHeight: videoHeight,
   };
@@ -372,22 +383,6 @@ export function toRemoteMouseButton(button: number): StreamerMouseButtonKind {
   if (button === 3) return "back";
   if (button === 4) return "forward";
   return "primary";
-}
-
-function getContainedMediaRect(container: DOMRect, mediaWidth: number, mediaHeight: number): DOMRect {
-  const mediaRatio = mediaWidth / mediaHeight;
-  const containerRatio = container.width / container.height;
-  if (containerRatio > mediaRatio) {
-    const width = container.height * mediaRatio;
-    return new DOMRect(container.left + (container.width - width) / 2, container.top, width, container.height);
-  }
-
-  const height = container.width / mediaRatio;
-  return new DOMRect(container.left, container.top + (container.height - height) / 2, container.width, height);
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }
 
 export function toRemoteKeyValue(event: KeyboardEvent): string | number {
@@ -465,6 +460,43 @@ export function formatInboundVideoStats(stats: BrowserRemoteSessionState["inboun
     stats.frameWidth && stats.frameHeight ? `${stats.frameWidth}x${stats.frameHeight}` : null,
   ].filter((item): item is string => item !== null);
   return parts.length > 0 ? parts.join(" · ") : "-";
+}
+
+export function formatInboundAudioStats(stats: BrowserRemoteSessionState["inboundAudio"]): string {
+  if (!stats) return "-";
+  const averageJitterBufferMs =
+    stats.jitterBufferDelay !== undefined && stats.jitterBufferEmittedCount
+      ? Math.round((stats.jitterBufferDelay / stats.jitterBufferEmittedCount) * 1000)
+      : undefined;
+  const parts = [
+    stats.codecMimeType,
+    stats.codecClockRate === undefined
+      ? null
+      : `${stats.codecClockRate}Hz${stats.codecChannels ? `/${stats.codecChannels}ch` : ""}`,
+    stats.packetsReceived === undefined ? null : `pkt=${stats.packetsReceived}`,
+    stats.packetsLost === undefined ? null : `lost=${stats.packetsLost}`,
+    stats.bytesReceived === undefined ? null : `bytes=${stats.bytesReceived}`,
+    stats.jitter === undefined ? null : `jitter=${Math.round(stats.jitter * 1000)}ms`,
+    averageJitterBufferMs === undefined ? null : `buffer=${averageJitterBufferMs}ms`,
+    stats.totalSamplesReceived === undefined ? null : `samples=${stats.totalSamplesReceived}`,
+    stats.concealedSamples === undefined ? null : `concealed=${stats.concealedSamples}`,
+  ].filter((item): item is string => item !== null);
+  return parts.length > 0 ? parts.join(" · ") : "-";
+}
+
+export function formatAudioElement(sample: BrowserRemoteSessionState["audioElement"]): string {
+  if (!sample) return "-";
+  const parts = [
+    sample.event,
+    `${sample.currentTimeMs}ms`,
+    sample.readyState === undefined ? null : `ready=${sample.readyState}`,
+    sample.paused === undefined ? null : `paused=${sample.paused}`,
+    sample.muted === undefined ? null : `muted=${sample.muted}`,
+    sample.volume === undefined ? null : `volume=${Math.round(sample.volume * 100)}%`,
+    sample.autoplayBlocked ? "autoplay=blocked" : null,
+    sample.errorName ? `error=${sample.errorName}` : null,
+  ].filter((item): item is string => item !== null);
+  return parts.join(" · ");
 }
 
 export function formatVideoFlow(state: BrowserRemoteSessionState): string {

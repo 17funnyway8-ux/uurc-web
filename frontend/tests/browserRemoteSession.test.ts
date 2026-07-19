@@ -25,6 +25,7 @@ import {
   encodeStreamerEchoRequestMessage,
   encodeStreamerInputMessage,
   encodeStreamerTextMessage,
+  type DecodedStreamerCursorShape,
 } from "@uurc/shared/streamerProtocol";
 import { BrowserRemoteSession } from "../src/remote/browserRemoteSession.js";
 
@@ -763,19 +764,6 @@ describe("BrowserRemoteSession", () => {
           summary: "发送控制输入",
           details: expect.objectContaining({
             label: STREAMER_DATA_CHANNEL_LABELS.control,
-            sequence: 1,
-            input: {
-              action: "mouse_move_absolute",
-              abs_x: 320,
-              abs_y: 240,
-            },
-          }),
-        }),
-        expect.objectContaining({
-          kind: "data_send",
-          summary: "发送控制输入",
-          details: expect.objectContaining({
-            label: STREAMER_DATA_CHANNEL_LABELS.control,
             sequence: 4,
             input: {
               action: "mouse_scroll",
@@ -786,6 +774,11 @@ describe("BrowserRemoteSession", () => {
         }),
       ]),
     );
+    expect(
+      session
+        .getState()
+        .debugEvents.some((event) => event.details?.input && event.details.input.action === "mouse_move_absolute"),
+    ).toBe(false);
   });
 
   it("starts the App echo heartbeat on the control data channel and stops it when closed", async () => {
@@ -886,6 +879,51 @@ describe("BrowserRemoteSession", () => {
     );
   });
 
+  it("keeps only the latest backpressured move and sends it at the low watermark", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({ api, createPeerConnection: () => peer, now: () => 6000 });
+    await session.start({ appControlId: "control-1", appDataBase64: "Cg==", streamerData: "{}" });
+    const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)!;
+    control.bufferedAmount = STREAMER_MAX_DATA_BUFFER_BYTES;
+
+    session.sendMouseMove({ absX: 120, absY: 80 });
+    session.sendMouseMove({ absX: 520, absY: 340 });
+    expect(control.sent).toEqual([]);
+
+    control.bufferedAmount = control.bufferedAmountLowThreshold;
+    control.emitBufferedAmountLow();
+    expect(control.sent).toEqual([
+      encodeStreamerInputMessage({
+        sequence: 1,
+        timestampMs: 6,
+        inputMessage: buildStreamerMouseMoveAbsoluteInputMessage({ absX: 520, absY: 340 }),
+      }),
+    ]);
+  });
+
+  it("sends a critical pointer position even while the control channel is backpressured", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({ api, createPeerConnection: () => peer, now: () => 6000 });
+    await session.start({ appControlId: "control-1", appDataBase64: "Cg==", streamerData: "{}" });
+    const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)!;
+    control.bufferedAmount = STREAMER_MAX_DATA_BUFFER_BYTES;
+
+    session.sendMouseMove({ absX: 120, absY: 80 });
+    session.sendMouseMove({ absX: 360, absY: 240 }, { critical: true });
+    control.bufferedAmount = 0;
+    control.emitBufferedAmountLow();
+
+    expect(control.sent).toEqual([
+      encodeStreamerInputMessage({
+        sequence: 1,
+        timestampMs: 6,
+        inputMessage: buildStreamerMouseMoveAbsoluteInputMessage({ absX: 360, absY: 240 }),
+      }),
+    ]);
+  });
+
   it("records throttled inbound data channel messages for control debugging", async () => {
     const api = new FakeRemoteApi();
     const peer = new FakePeerConnection();
@@ -934,6 +972,51 @@ describe("BrowserRemoteSession", () => {
         },
       }),
     ]);
+  });
+
+  it("publishes cursor shape changes without pushing session state", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const cursorShapes: Array<DecodedStreamerCursorShape | null> = [];
+    const onStateChange = vi.fn();
+    const session = new BrowserRemoteSession({
+      api,
+      createPeerConnection: () => peer,
+      onRemoteCursorShape: (shape) => cursorShapes.push(shape),
+      onStateChange,
+    });
+    await session.start({ appControlId: "control-1", appDataBase64: "Cg==", streamerData: "{}" });
+    const stateChangeCount = onStateChange.mock.calls.length;
+    const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)!;
+
+    control.emitMessage(cursorShapeControlMessage(5).buffer);
+
+    expect(cursorShapes).toEqual([
+      {
+        posX: 2,
+        posY: 3,
+        width: 16,
+        height: 24,
+        byteValue: new Uint8Array([1, 2, 3, 4]),
+        cursorType: 9,
+        screenId: 5,
+      },
+    ]);
+    expect(onStateChange).toHaveBeenCalledTimes(stateChangeCount);
+    expect(session.getState().debugEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          summary: "更新远端光标形状",
+          details: expect.objectContaining({ imageByteLength: 4, screenId: 5 }),
+        }),
+      ]),
+    );
+
+    session.close();
+    expect(cursorShapes.at(-1)).toBeNull();
+    const cursorChangeCount = cursorShapes.length;
+    control.emitMessage(cursorShapeControlMessage(5).buffer);
+    expect(cursorShapes).toHaveLength(cursorChangeCount);
   });
 
   it("replies to App control EchoRequest messages like the desktop controller", async () => {
@@ -1488,6 +1571,97 @@ describe("BrowserRemoteSession", () => {
     });
   });
 
+  it("publishes the active inbound audio RTP and Opus codec stats", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api,
+      createPeerConnection: (configuration) => {
+        peer.configuration = configuration;
+        return peer;
+      },
+    });
+    await session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+    });
+    peer.stats = new Map<string, Record<string, unknown>>([
+      [
+        "audio-low",
+        {
+          id: "audio-low",
+          type: "inbound-rtp",
+          kind: "audio",
+          bytesReceived: 100,
+        },
+      ],
+      [
+        "audio-active",
+        {
+          id: "audio-active",
+          type: "inbound-rtp",
+          mediaType: "audio",
+          codecId: "opus-codec",
+          packetsReceived: 240,
+          packetsLost: 3,
+          bytesReceived: 65536,
+          jitter: 0.012,
+          jitterBufferDelay: 1.2,
+          jitterBufferEmittedCount: 120,
+          totalSamplesReceived: 230400,
+          concealedSamples: 960,
+          silentConcealedSamples: 480,
+          totalAudioEnergy: 8.5,
+          audioLevel: 0.4,
+          timestamp: 123456,
+        },
+      ],
+      [
+        "opus-codec",
+        {
+          id: "opus-codec",
+          type: "codec",
+          mimeType: "audio/opus",
+          payloadType: 111,
+          clockRate: 48000,
+          channels: 2,
+        },
+      ],
+    ]);
+
+    await session.refreshConnectionStats();
+
+    expect(session.getState().inboundAudio).toEqual({
+      codecId: "opus-codec",
+      codecMimeType: "audio/opus",
+      codecPayloadType: 111,
+      codecClockRate: 48000,
+      codecChannels: 2,
+      packetsReceived: 240,
+      packetsLost: 3,
+      bytesReceived: 65536,
+      jitter: 0.012,
+      jitterBufferDelay: 1.2,
+      jitterBufferEmittedCount: 120,
+      totalSamplesReceived: 230400,
+      concealedSamples: 960,
+      silentConcealedSamples: 480,
+      totalAudioEnergy: 8.5,
+      audioLevel: 0.4,
+      timestampMs: 123456,
+    });
+    expect(session.getState().debugEvents.at(-1)).toMatchObject({
+      kind: "stats",
+      details: {
+        inboundAudio: {
+          codecMimeType: "audio/opus",
+          bytesReceived: 65536,
+        },
+      },
+    });
+  });
+
   it("diagnoses a decode-side stall when RTP bytes advance but decoded frames do not", async () => {
     const api = new FakeRemoteApi();
     const peer = new FakePeerConnection();
@@ -1651,6 +1825,45 @@ describe("BrowserRemoteSession", () => {
     });
   });
 
+  it("records audio autoplay failures and successful playback", async () => {
+    const session = new BrowserRemoteSession({ api: new FakeRemoteApi() });
+
+    session.recordAudioElementSample({
+      event: "autoplay_blocked",
+      currentTimeMs: 0,
+      readyState: 1,
+      paused: true,
+      muted: false,
+      volume: 1,
+      autoplayBlocked: true,
+      errorName: "NotAllowedError",
+    });
+
+    expect(session.getState().audioElement).toMatchObject({
+      event: "autoplay_blocked",
+      autoplayBlocked: true,
+      errorName: "NotAllowedError",
+    });
+    expect(session.getState().debugEvents.at(-1)).toMatchObject({
+      kind: "audio_element",
+      summary: "audio autoplay_blocked",
+    });
+
+    session.recordAudioElementSample({
+      event: "playing",
+      currentTimeMs: 240,
+      readyState: 4,
+      paused: false,
+      muted: false,
+      volume: 1,
+    });
+    expect(session.getState().audioElement).toMatchObject({
+      event: "playing",
+      currentTimeMs: 240,
+      paused: false,
+    });
+  });
+
   it("keeps the active video element sample when inactive transceivers report blank elements", async () => {
     const api = new FakeRemoteApi();
     const peer = new FakePeerConnection();
@@ -1760,6 +1973,31 @@ function soacEvent(id: number, payload: unknown): RemoteSignalGatewayEvent {
     receivedAt: "2026-05-15T00:00:00.000Z",
     payload: [payload],
   };
+}
+
+function cursorShapeControlMessage(screenId: number): Uint8Array {
+  const cursorShape = [
+    0x08,
+    0x02,
+    0x10,
+    0x03,
+    0x18,
+    0x10,
+    0x20,
+    0x18,
+    0x2a,
+    0x04,
+    0x01,
+    0x02,
+    0x03,
+    0x04,
+    0x30,
+    0x09,
+    0x48,
+    screenId,
+  ];
+  const systemStateChange = [0x12, cursorShape.length, ...cursorShape];
+  return new Uint8Array([0x7a, systemStateChange.length, ...systemStateChange]);
 }
 
 function makeInboundVideoStats(input: {
@@ -1956,8 +2194,10 @@ class FakeDataChannel {
   onclose: ((event: Event) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
+  onbufferedamountlow: ((event: Event) => void) | null = null;
   readyState: RTCDataChannelState = "open";
   bufferedAmount = 0;
+  bufferedAmountLowThreshold = 0;
   readonly sent: Array<string | Blob | ArrayBuffer | ArrayBufferView> = [];
   closed = false;
 
@@ -1969,6 +2209,10 @@ class FakeDataChannel {
 
   emitMessage(data: unknown): void {
     this.onmessage?.({ data } as MessageEvent);
+  }
+
+  emitBufferedAmountLow(): void {
+    this.onbufferedamountlow?.(new Event("bufferedamountlow"));
   }
 
   close(): void {

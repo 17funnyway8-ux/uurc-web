@@ -38,6 +38,7 @@ import {
   STREAMER_DATA_CHANNEL_LABELS,
   STREAMER_MAX_DATA_BUFFER_BYTES,
   classifyStreamerConnectionPath,
+  isStreamerDataChannelLabel,
   type StreamerConnectionPath,
   type StreamerDataChannelLabel,
 } from "@uurc/shared/streamer/transport";
@@ -58,6 +59,7 @@ export interface BrowserRemotePeerConnection {
   localDescription: RTCSessionDescriptionInit | null;
   remoteDescription: RTCSessionDescriptionInit | null;
   signalingState?: RTCSignalingState;
+  ondatachannel: ((event: RTCDataChannelEvent) => void) | null;
   onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null;
   ontrack: ((event: RTCTrackEvent) => void) | null;
   createDataChannel(label: string): BrowserRemoteDataChannel;
@@ -313,6 +315,7 @@ export class BrowserRemoteSession {
   private readonly now: () => number;
   private peer: BrowserRemotePeerConnection | null = null;
   private readonly dataChannels = new Map<StreamerDataChannelLabel, BrowserRemoteDataChannel>();
+  private readonly incomingDataChannels = new Set<BrowserRemoteDataChannel>();
   private echoHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
   private lastEchoHeartbeatDebugAtMs = 0;
   private lastMouseMoveBackpressureDebugAtMs = 0;
@@ -408,8 +411,20 @@ export class BrowserRemoteSession {
       }
     }
     this.dataChannels.clear();
+    for (const channel of this.incomingDataChannels) {
+      channel.onopen = null;
+      channel.onclose = null;
+      channel.onerror = null;
+      channel.onmessage = null;
+      channel.onbufferedamountlow = null;
+      if (channel.readyState !== "closed") {
+        channel.close?.();
+      }
+    }
+    this.incomingDataChannels.clear();
     this.lastDataReceiveDebugAtMs.clear();
     if (this.peer) {
+      this.peer.ondatachannel = null;
       this.peer.onicecandidate = null;
       this.peer.ontrack = null;
       this.peer.close?.();
@@ -479,6 +494,10 @@ export class BrowserRemoteSession {
     );
     this.peer = peer;
     this.createStreamerDataChannels(peer, lifecycleGeneration);
+    peer.ondatachannel = (event) => {
+      if (!this.isPeerLifecycleCurrent(peer, lifecycleGeneration)) return;
+      this.attachIncomingDataChannel(event.channel as BrowserRemoteDataChannel, lifecycleGeneration);
+    };
     this.createStreamerMediaTransceivers(peer);
     peer.onicecandidate = (event) => {
       if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
@@ -846,10 +865,41 @@ export class BrowserRemoteSession {
       };
       channel.onmessage = (event) => {
         if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
-        this.recordDataChannelMessage(label, event.data);
+        this.receiveDataChannelMessage(label, event.data, lifecycleGeneration);
       };
       this.dataChannels.set(label, channel);
     }
+  }
+
+  private attachIncomingDataChannel(channel: BrowserRemoteDataChannel, lifecycleGeneration: number): void {
+    this.incomingDataChannels.add(channel);
+    channel.binaryType = "arraybuffer";
+    const label = channel.label;
+    this.recordDebugEvent("data_channel", "收到远端创建的数据通道", {
+      label,
+      readyState: channel.readyState,
+      recognized: isStreamerDataChannelLabel(label),
+    });
+
+    channel.onopen = () => {
+      if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
+      this.recordDebugEvent("data_channel", `${label} remote open`, { label, readyState: channel.readyState });
+    };
+    channel.onclose = () => {
+      this.incomingDataChannels.delete(channel);
+      if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
+      this.recordDebugEvent("data_channel", `${label} remote close`, { label, readyState: channel.readyState });
+    };
+    channel.onerror = () => {
+      if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
+      this.recordDebugEvent("data_channel", `${label} remote error`, { label, readyState: channel.readyState });
+    };
+    channel.onmessage = isStreamerDataChannelLabel(label)
+      ? (event) => {
+          if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
+          this.receiveDataChannelMessage(label, event.data, lifecycleGeneration);
+        }
+      : null;
   }
 
   private createStreamerMediaTransceivers(peer: BrowserRemotePeerConnection): void {
@@ -1133,7 +1183,12 @@ export class BrowserRemoteSession {
   }
 
   private recordDataChannelMessage(label: StreamerDataChannelLabel, data: unknown): void {
-    if (label === STREAMER_DATA_CHANNEL_LABELS.text && this.handleTextDataMessage(data)) return;
+    if (
+      (label === STREAMER_DATA_CHANNEL_LABELS.file || label === STREAMER_DATA_CHANNEL_LABELS.text) &&
+      this.handleClipboardDataMessage(label, data)
+    ) {
+      return;
+    }
 
     const decodedControlMessage =
       label === STREAMER_DATA_CHANNEL_LABELS.control ? this.decodeControlDataChannelMessage(data) : undefined;
@@ -1146,12 +1201,36 @@ export class BrowserRemoteSession {
     this.lastDataReceiveDebugAtMs.set(label, now || 1);
     this.recordDebugEvent("data_recv", `收到 ${label} 数据`, {
       label,
-      ...summarizeDataChannelPayload(data, { includeHexPrefix: label !== STREAMER_DATA_CHANNEL_LABELS.text }),
+      ...summarizeDataChannelPayload(data, {
+        includeHexPrefix: label !== STREAMER_DATA_CHANNEL_LABELS.file && label !== STREAMER_DATA_CHANNEL_LABELS.text,
+      }),
       decoded: decodedControlMessage ? summarizeDecodedControlMessage(decodedControlMessage) : undefined,
     });
   }
 
-  private handleTextDataMessage(data: unknown): boolean {
+  private receiveDataChannelMessage(label: StreamerDataChannelLabel, data: unknown, lifecycleGeneration: number): void {
+    if (typeof Blob !== "undefined" && data instanceof Blob) {
+      void data
+        .arrayBuffer()
+        .then((buffer) => {
+          if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
+          this.recordDataChannelMessage(label, buffer);
+        })
+        .catch((error: unknown) => {
+          if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
+          this.recordDebugEvent("data_recv", "读取 DataChannel Blob 失败", {
+            label,
+            payloadType: "blob",
+            byteLength: data.size,
+            error: getErrorMessage(error),
+          });
+        });
+      return;
+    }
+    this.recordDataChannelMessage(label, data);
+  }
+
+  private handleClipboardDataMessage(label: StreamerDataChannelLabel, data: unknown): boolean {
     const bytes = dataChannelPayloadBytes(data);
     if (!bytes) return false;
 
@@ -1160,6 +1239,7 @@ export class BrowserRemoteSession {
       message = decodeStreamerClipboardMessage(bytes);
     } catch (error) {
       this.recordDebugEvent("data_recv", "剪贴板消息解码失败", {
+        label,
         error: getErrorMessage(error),
         ...summarizeDataChannelPayload(data, { includeHexPrefix: false }),
       });
@@ -1168,10 +1248,29 @@ export class BrowserRemoteSession {
     if (!message) return false;
 
     if (message.type === "text-change-response") {
+      this.recordDebugEvent("data_recv", "收到剪贴板同步响应", {
+        label,
+        byteLength: bytes.byteLength,
+        messageType: message.type,
+        sequence: message.sequence.toString(),
+        timestampMs: message.timestampMs.toString(),
+        requestId: message.requestId.toString(),
+        result: message.result,
+      });
       this.settleClipboardResponse(message.requestId, message.result);
       return true;
     }
 
+    this.recordDebugEvent("data_recv", "收到远端剪贴板通知", {
+      label,
+      byteLength: bytes.byteLength,
+      messageType: "text-changed-notification",
+      sequence: message.sequence.toString(),
+      timestampMs: message.timestampMs.toString(),
+      requestId: message.requestId.toString(),
+      formatId: message.formatId,
+      textLength: message.text.length,
+    });
     this.applyRemoteClipboardNotification(message.requestId, message.formatId, message.text);
     return true;
   }

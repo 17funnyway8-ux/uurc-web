@@ -825,18 +825,20 @@ describe("BrowserRemoteSession", () => {
   });
 
   it("sends Clipboard v3 text unchanged and resolves only after the matching success response", async () => {
-    const { session, textChannel } = await startClipboardSession({ now: () => 1234 });
+    const nowMs = 1_752_938_123_456;
+    const { session, fileChannel, textChannel } = await startClipboardSession({ now: () => nowMs });
     const clipboardText = "  first line\n\u7b2c\u4e8c\u884c \ud83d\udc4b\n";
 
     const send = session.sendClipboardText(clipboardText);
     await flushMicrotasks();
 
     expect(textChannel.sent).toHaveLength(1);
+    expect(fileChannel.sent).toHaveLength(0);
     const request = decodeStreamerClipboardTextChangeRequest(textChannel.sent[0] as Uint8Array);
     expect(request).toEqual({
       type: "text-change-request",
       sequence: 1n,
-      timestampMs: 1n,
+      timestampMs: BigInt(Math.floor(nowMs / 1000)),
       requestId: 1n,
       formatId: 1,
       text: clipboardText,
@@ -852,6 +854,19 @@ describe("BrowserRemoteSession", () => {
     textChannel.emitMessage(clipboardTextChangeResponse(1n, STREAMER_CLIPBOARD_RESULTS.succeeded).buffer);
     await expect(send).resolves.toBeUndefined();
     expect(settled).toBe(true);
+  });
+
+  it("also accepts a clipboard response on the file channel", async () => {
+    const { session, fileChannel, textChannel } = await startClipboardSession();
+    const send = session.sendClipboardText("file-channel response");
+    await flushMicrotasks();
+    const request = decodeStreamerClipboardTextChangeRequest(textChannel.sent[0] as Uint8Array)!;
+
+    fileChannel.emitMessage(
+      clipboardTextChangeResponse(request.requestId, STREAMER_CLIPBOARD_RESULTS.succeeded).buffer,
+    );
+
+    await expect(send).resolves.toBeUndefined();
   });
 
   it("preserves empty, whitespace-only, and Unicode clipboard values", async () => {
@@ -955,22 +970,22 @@ describe("BrowserRemoteSession", () => {
     }
   });
 
-  it("delivers remote clipboard notifications once and suppresses pending and completed echoes", async () => {
+  it("delivers remote clipboard notifications from text and file channels once and suppresses echoes", async () => {
     const received: string[] = [];
-    const { session, textChannel } = await startClipboardSession({
+    const { session, fileChannel, textChannel } = await startClipboardSession({
       onRemoteClipboard: (text) => received.push(text),
     });
     const remoteText = " remote \n\u526a\u8d34\u677f ";
 
     textChannel.emitMessage(clipboardTextChangeNotification(40, 41, remoteText).buffer);
-    textChannel.emitMessage(clipboardTextChangeNotification(41, 42, remoteText).buffer);
+    fileChannel.emitMessage(clipboardTextChangeNotification(41, 42, remoteText).buffer);
     expect(received).toEqual([remoteText]);
 
     const localText = "local echo";
     const send = session.sendClipboardText(localText);
     await flushMicrotasks();
     const request = decodeStreamerClipboardTextChangeRequest(textChannel.sent[0] as Uint8Array)!;
-    textChannel.emitMessage(clipboardTextChangeNotification(42, 43, localText).buffer);
+    fileChannel.emitMessage(clipboardTextChangeNotification(42, 43, localText).buffer);
     expect(received).toEqual([remoteText]);
 
     textChannel.emitMessage(
@@ -982,6 +997,29 @@ describe("BrowserRemoteSession", () => {
 
     textChannel.emitMessage(clipboardTextChangeNotification(44, 45, "").buffer);
     expect(received).toEqual([remoteText, ""]);
+  });
+
+  it("receives clipboard responses and notifications from a remote-created text channel as Blob data", async () => {
+    const received: string[] = [];
+    const { peer, session, textChannel } = await startClipboardSession({
+      onRemoteClipboard: (text) => received.push(text),
+    });
+    const incomingTextChannel = peer.emitIncomingDataChannel(STREAMER_DATA_CHANNEL_LABELS.text);
+    const send = session.sendClipboardText("local clipboard");
+    await flushMicrotasks();
+    const request = decodeStreamerClipboardTextChangeRequest(textChannel.sent[0] as Uint8Array)!;
+
+    incomingTextChannel.emitMessage(
+      blobFromBytes(clipboardTextChangeResponse(request.requestId, STREAMER_CLIPBOARD_RESULTS.succeeded)),
+    );
+    await expect(send).resolves.toBeUndefined();
+
+    incomingTextChannel.emitMessage(blobFromBytes(clipboardTextChangeNotification(70, 71, "remote clipboard")));
+    await vi.waitFor(() => expect(received).toEqual(["remote clipboard"]));
+
+    session.close();
+    expect(incomingTextChannel.closed).toBe(true);
+    expect(peer.ondatachannel).toBeNull();
   });
 
   it("rejects pending clipboard RPCs when the session or text channel closes", async () => {
@@ -1002,13 +1040,28 @@ describe("BrowserRemoteSession", () => {
 
   it("keeps clipboard text and encoded payload prefixes out of debug events", async () => {
     const secret = "clipboard-secret-\u526a\u8d34\u677f";
-    const { session, textChannel } = await startClipboardSession();
-    textChannel.emitMessage(clipboardTextChangeNotification(50, 51, secret).buffer);
-    textChannel.emitMessage(new TextEncoder().encode(`malformed-${secret}`).buffer);
+    const { session, fileChannel } = await startClipboardSession();
+    fileChannel.emitMessage(clipboardTextChangeNotification(50, 51, secret).buffer);
+    fileChannel.emitMessage(new TextEncoder().encode(`malformed-${secret}`).buffer);
 
     const events = session.getState().debugEvents;
     const serialized = JSON.stringify(events);
     expect(serialized).not.toContain(secret);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          summary: "收到远端剪贴板通知",
+          details: expect.objectContaining({
+            label: STREAMER_DATA_CHANNEL_LABELS.file,
+            messageType: "text-changed-notification",
+            requestId: "51",
+            timestampMs: expect.any(String),
+            byteLength: expect.any(Number),
+            textLength: secret.length,
+          }),
+        }),
+      ]),
+    );
     expect(
       events.some((event) => event.kind === "data_recv" && event.details && Object.hasOwn(event.details, "hexPrefix")),
     ).toBe(false);
@@ -2412,7 +2465,12 @@ async function startClipboardSession(
     now?: () => number;
     onRemoteClipboard?: (text: string) => void;
   } = {},
-): Promise<{ session: BrowserRemoteSession; textChannel: FakeDataChannel }> {
+): Promise<{
+  peer: FakePeerConnection;
+  session: BrowserRemoteSession;
+  fileChannel: FakeDataChannel;
+  textChannel: FakeDataChannel;
+}> {
   const api = new FakeRemoteApi();
   const peer = new FakePeerConnection();
   const session = new BrowserRemoteSession({
@@ -2422,9 +2480,16 @@ async function startClipboardSession(
   });
   await session.start({ appControlId: "control-1", appDataBase64: "Cg==", streamerData: "{}" });
   return {
+    peer,
     session,
+    fileChannel: peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.file)!,
     textChannel: peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.text)!,
   };
+}
+
+function blobFromBytes(bytes: Uint8Array): Blob {
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return new Blob([buffer]);
 }
 
 async function flushMicrotasks(): Promise<void> {
@@ -2624,6 +2689,7 @@ class FakePeerConnection {
   localDescription: RTCSessionDescriptionInit | null = null;
   remoteDescription: RTCSessionDescriptionInit | null = null;
   signalingState: RTCSignalingState = "stable";
+  ondatachannel: ((event: RTCDataChannelEvent) => void) | null = null;
   onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
   ontrack: ((event: RTCTrackEvent) => void) | null = null;
   readonly transceivers: Array<{ kind: string; direction?: RTCRtpTransceiverDirection }> = [];
@@ -2644,6 +2710,12 @@ class FakePeerConnection {
     this.dataChannels.push(label);
     const channel = new FakeDataChannel(label);
     this.channels.set(label, channel);
+    return channel;
+  }
+
+  emitIncomingDataChannel(label: string): FakeDataChannel {
+    const channel = new FakeDataChannel(label);
+    this.ondatachannel?.({ channel } as unknown as RTCDataChannelEvent);
     return channel;
   }
 

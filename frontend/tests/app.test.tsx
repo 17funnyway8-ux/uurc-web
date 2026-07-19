@@ -6,6 +6,7 @@ import {
   STREAMER_CONTROL_CONNECT_TYPES,
   buildDefaultStreamerConnectOptionsBase64,
 } from "@uurc/shared/streamer/connectOptions";
+import { encodeStreamerClipboardTextChangeRequest } from "@uurc/shared/streamer/clipboard";
 import { analyzeRemoteSignalReadiness } from "@uurc/shared/streamer/readiness";
 import App from "../src/App.js";
 import type { BrowserRemoteSessionState } from "../src/remote/browserRemoteSession.js";
@@ -92,6 +93,7 @@ describe("App console", () => {
       },
     ];
     TestPeerConnection.lastConfiguration = null;
+    TestPeerConnection.current = null;
     TestPeerConnection.sentByLabel = {};
     TestPeerConnection.channels = {};
     TestPeerConnection.closed = false;
@@ -1035,16 +1037,29 @@ describe("App console", () => {
     await user.click(screen.getByRole("button", { name: /^画面 2/ }));
     expect(screen.getByRole("button", { name: /^画面 2/ })).toHaveAttribute("aria-pressed", "true");
 
-    expect(screen.getByRole("checkbox", { name: "同步剪贴板" })).not.toBeChecked();
-    await user.click(screen.getByRole("button", { name: "同步一次" }));
+    expect(screen.getByRole("checkbox", { name: "同步剪贴板" })).toBeChecked();
     await waitFor(() => {
-      expect(readLocalClipboardTextMock).toHaveBeenCalledTimes(1);
+      expect(readLocalClipboardTextMock).toHaveBeenCalled();
     });
     await waitFor(() => expect(TestPeerConnection.sentByLabel.TEXT_DATA_CHANNEL?.length).toBeGreaterThan(0));
     TestPeerConnection.channels.TEXT_DATA_CHANNEL?.onmessage?.(
       new MessageEvent("message", { data: clipboardTextChangeResponse(1n, 1).buffer }),
     );
     await screen.findByText("已同步到远端（14 字符）");
+
+    const remoteClipboardText = "from remote clipboard";
+    TestPeerConnection.emitIncomingDataChannel("TEXT_DATA_CHANNEL").onmessage?.(
+      new MessageEvent("message", {
+        data: encodeStreamerClipboardTextChangeRequest({
+          sequence: 2,
+          timestampMs: 3,
+          requestId: 4,
+          text: remoteClipboardText,
+        }).buffer,
+      }),
+    );
+    await waitFor(() => expect(writeLocalClipboardTextMock).toHaveBeenCalledWith(remoteClipboardText));
+    await screen.findByText(`已同步到本机（${remoteClipboardText.length} 字符）`);
   });
 
   it("shows useful connection quality metrics when WebRTC stats provide them", async () => {
@@ -1934,16 +1949,19 @@ function clipboardTextChangeResponse(requestId: bigint, result: number): Uint8Ar
 
 class TestPeerConnection {
   static lastConfiguration: RTCConfiguration | null = null;
+  static current: TestPeerConnection | null = null;
   static sentByLabel: Record<string, number[]> = {};
   static channels: Record<string, RTCDataChannel> = {};
   static closed = false;
   static statsReports: Array<Map<string, Record<string, unknown>>> = [];
   localDescription: RTCSessionDescriptionInit | null = null;
   remoteDescription: RTCSessionDescriptionInit | null = null;
+  ondatachannel: ((event: RTCDataChannelEvent) => void) | null = null;
   onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
   ontrack: ((event: RTCTrackEvent) => void) | null = null;
 
   constructor(configuration?: RTCConfiguration) {
+    TestPeerConnection.current = this;
     TestPeerConnection.lastConfiguration = configuration ?? null;
   }
 
@@ -2027,6 +2045,24 @@ class TestPeerConnection {
     if (!channel) throw new Error(`Missing data channel ${label}`);
     Object.defineProperty(channel, "readyState", { value: "closed", configurable: true });
     channel.onclose?.(new Event("close"));
+  }
+
+  static emitIncomingDataChannel(label: string): RTCDataChannel {
+    const peer = TestPeerConnection.current;
+    if (!peer?.ondatachannel) throw new Error("Missing active peer data channel handler");
+    const channel = {
+      label,
+      readyState: "open",
+      binaryType: "blob",
+      onopen: null,
+      onclose: null,
+      onerror: null,
+      onmessage: null,
+      send: () => undefined,
+      close: () => undefined,
+    } as unknown as RTCDataChannel;
+    peer.ondatachannel({ channel } as RTCDataChannelEvent);
+    return channel;
   }
 }
 

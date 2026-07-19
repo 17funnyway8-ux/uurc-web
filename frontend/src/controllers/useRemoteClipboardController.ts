@@ -41,7 +41,8 @@ export function useRemoteClipboardController({
   const [state, setState] = useState<RemoteClipboardUiState>(createInitialState);
   const generationRef = useRef(0);
   const enabledRevisionRef = useRef(0);
-  const syncEnabledRef = useRef(false);
+  const preferredEnabledRef = useRef(true);
+  const syncEnabledRef = useRef(true);
   const autoReadAllowedRef = useRef(false);
   const readInFlightRef = useRef<Promise<void> | null>(null);
   const readSequenceRef = useRef(0);
@@ -62,7 +63,8 @@ export function useRemoteClipboardController({
   const resetClipboardSession = useCallback((): void => {
     generationRef.current += 1;
     enabledRevisionRef.current += 1;
-    syncEnabledRef.current = false;
+    const enabled = preferredEnabledRef.current;
+    syncEnabledRef.current = enabled;
     autoReadAllowedRef.current = false;
     readInFlightRef.current = null;
     readSequenceRef.current += 1;
@@ -71,7 +73,8 @@ export function useRemoteClipboardController({
     remoteWriteTailRef.current = Promise.resolve();
     synchronizedTextRef.current = { hasValue: false, text: "" };
     lastResumeReadAtRef.current = 0;
-    setState(createInitialState());
+    textChannelOpenedRef.current = false;
+    setState(createInitialState(enabled));
   }, []);
 
   useEffect(() => {
@@ -81,24 +84,20 @@ export function useRemoteClipboardController({
   }, [resetClipboardSession, sessionKey]);
 
   useEffect(() => {
-    if (textChannelState === "open") {
-      textChannelOpenedRef.current = true;
-      return;
-    }
-    if (!textChannelOpenedRef.current) return;
-    textChannelOpenedRef.current = false;
-    resetClipboardSession();
-  }, [resetClipboardSession, textChannelState]);
-
-  useEffect(
-    () => () => {
+    syncEnabledRef.current = preferredEnabledRef.current;
+    return () => {
       generationRef.current += 1;
       enabledRevisionRef.current += 1;
       syncEnabledRef.current = false;
       autoReadAllowedRef.current = false;
-    },
-    [],
-  );
+      readInFlightRef.current = null;
+      readSequenceRef.current += 1;
+      sendSequenceRef.current += 1;
+      remoteWriteSequenceRef.current += 1;
+      remoteWriteTailRef.current = Promise.resolve();
+      textChannelOpenedRef.current = false;
+    };
+  }, []);
 
   const sendClipboardText = useCallback(
     async (text: string): Promise<void> => {
@@ -205,6 +204,18 @@ export function useRemoteClipboardController({
   );
 
   useEffect(() => {
+    if (textChannelState === "open") {
+      if (textChannelOpenedRef.current) return;
+      textChannelOpenedRef.current = true;
+      if (syncEnabledRef.current && !readIssue) void readClipboard("resume", true);
+      return;
+    }
+    if (!textChannelOpenedRef.current) return;
+    textChannelOpenedRef.current = false;
+    resetClipboardSession();
+  }, [readClipboard, readIssue, resetClipboardSession, sessionKey, textChannelState]);
+
+  useEffect(() => {
     if (!state.enabled) return;
     const tryResumeSync = (): void => {
       if (document.visibilityState === "hidden" || !autoReadAllowedRef.current) return;
@@ -227,6 +238,7 @@ export function useRemoteClipboardController({
   function handleClipboardSyncEnabledChange(enabled: boolean): void {
     if (enabled && !clipboardSyncAvailable) return;
     enabledRevisionRef.current += 1;
+    preferredEnabledRef.current = enabled;
     syncEnabledRef.current = enabled;
     autoReadAllowedRef.current = false;
     readInFlightRef.current = null;
@@ -260,12 +272,18 @@ export function useRemoteClipboardController({
   const handleRemoteClipboard = useCallback((text: string): void => {
     if (!syncEnabledRef.current) return;
     autoReadAllowedRef.current = false;
+    readInFlightRef.current = null;
+    readSequenceRef.current += 1;
+    sendSequenceRef.current += 1;
     synchronizedTextRef.current = { hasValue: true, text };
     const generation = generationRef.current;
     const enabledRevision = enabledRevisionRef.current;
     const sequence = ++remoteWriteSequenceRef.current;
     setState((current) => ({
       ...current,
+      localStatus: current.reading || current.sending ? "本机同步已取消，以远端更新为准" : current.localStatus,
+      reading: false,
+      sending: false,
       remoteFallback: null,
       remoteStatus: `已收到远端剪贴板（${text.length} 字符），正在写入本机`,
     }));
@@ -354,9 +372,9 @@ export function useRemoteClipboardController({
   };
 }
 
-function createInitialState(): RemoteClipboardUiState {
+function createInitialState(enabled = true): RemoteClipboardUiState {
   return {
-    enabled: false,
+    enabled,
     localText: null,
     localStatus: initialLocalStatus(),
     remoteFallback: null,

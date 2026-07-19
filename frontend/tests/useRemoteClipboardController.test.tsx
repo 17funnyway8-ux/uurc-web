@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { useEffect, type RefObject } from "react";
+import { StrictMode, useEffect, useRef } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -34,7 +34,7 @@ describe("useRemoteClipboardController", () => {
     restoreProperty(navigator, "clipboard", clipboardDescriptor);
   });
 
-  it("keeps automatic sync off by default and preserves exact text for a one-click sync", async () => {
+  it("enables sync by default and preserves exact text for the initial sync", async () => {
     readText.mockResolvedValue("  hello\n");
     const session = createSession();
     let controller: ClipboardController | undefined;
@@ -47,21 +47,57 @@ describe("useRemoteClipboardController", () => {
       />,
     );
 
-    await waitFor(() => expect(controller).toBeDefined());
-    expect(controller?.clipboardSyncEnabled).toBe(false);
-    expect(readText).not.toHaveBeenCalled();
-
-    act(() => window.dispatchEvent(new Event("focus")));
-    expect(readText).not.toHaveBeenCalled();
-
-    act(() => controller?.handleReadLocalClipboard());
+    await waitFor(() => expect(controller?.clipboardSyncEnabled).toBe(true));
     await waitFor(() => expect(session.sendClipboardText).toHaveBeenCalledWith("  hello\n"));
     await waitFor(() => expect(controller?.localClipboardStatusLabel).toBe("已同步到远端（8 字符）"));
+    expect(readText).toHaveBeenCalledOnce();
     expect(controller?.canSendClipboardText).toBe(true);
 
+    act(() => controller?.handleClipboardSyncEnabledChange(false));
     act(() => controller?.handleRemoteClipboard("ignored while disabled"));
-    act(() => controller?.handleReadLocalClipboard());
-    await waitFor(() => expect(session.sendClipboardText).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("keeps default sync active across the StrictMode effect lifecycle", async () => {
+    readText.mockResolvedValue("strict mode clipboard");
+    const session = createSession();
+    let controller: ClipboardController | undefined;
+    render(
+      <StrictMode>
+        <Harness
+          session={session}
+          onController={(nextController) => {
+            controller = nextController;
+          }}
+        />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(session.sendClipboardText).toHaveBeenCalledWith("strict mode clipboard"));
+    expect(controller?.clipboardSyncEnabled).toBe(true);
+    act(() => controller?.handleRemoteClipboard("remote clipboard"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("remote clipboard"));
+  });
+
+  it("ignores late remote clipboard callbacks after unmount", async () => {
+    const session = createSession();
+    let controller: ClipboardController | undefined;
+    const view = render(
+      <Harness
+        session={session}
+        onController={(nextController) => {
+          controller = nextController;
+        }}
+      />,
+    );
+    await waitFor(() => expect(controller).toBeDefined());
+
+    view.unmount();
+    act(() => controller?.handleRemoteClipboard("late remote clipboard"));
+    await Promise.resolve();
+
+    expect(writeText).not.toHaveBeenCalled();
   });
 
   it("reads once when enabled and progressively syncs after focus without duplicate permission attempts", async () => {
@@ -78,9 +114,7 @@ describe("useRemoteClipboardController", () => {
         }}
       />,
     );
-    await waitFor(() => expect(controller).toBeDefined());
-
-    act(() => controller?.handleClipboardSyncEnabledChange(true));
+    await waitFor(() => expect(controller?.clipboardSyncEnabled).toBe(true));
     await waitFor(() => expect(session.sendClipboardText).toHaveBeenCalledWith("first"));
     expect(readText).toHaveBeenCalledTimes(1);
 
@@ -116,9 +150,8 @@ describe("useRemoteClipboardController", () => {
         }}
       />,
     );
-    await waitFor(() => expect(controller).toBeDefined());
-    act(() => controller?.handleClipboardSyncEnabledChange(true));
     await waitFor(() => expect(controller?.clipboardSyncEnabled).toBe(true));
+    await waitFor(() => expect(session.sendClipboardText).toHaveBeenCalledWith("local"));
 
     act(() => controller?.handleRemoteClipboard(" remote\ntext "));
     await waitFor(() => expect(controller?.remoteClipboardPendingText).toBe(" remote\ntext "));
@@ -146,12 +179,54 @@ describe("useRemoteClipboardController", () => {
         }}
       />,
     );
-    await waitFor(() => expect(controller).toBeDefined());
+    await waitFor(() => expect(controller?.clipboardSyncEnabled).toBe(true));
 
+    act(() => controller?.handleClipboardSyncEnabledChange(false));
     act(() => controller?.handleRemoteClipboard("secret"));
     await Promise.resolve();
     expect(writeText).not.toHaveBeenCalled();
     expect(controller?.remoteClipboardPendingText).toBeNull();
+  });
+
+  it("preserves the disabled preference across text channel reconnects", async () => {
+    const session = createSession();
+    let controller: ClipboardController | undefined;
+    const view = render(
+      <Harness
+        session={session}
+        onController={(nextController) => {
+          controller = nextController;
+        }}
+      />,
+    );
+    await waitFor(() => expect(controller?.clipboardSyncEnabled).toBe(true));
+    await waitFor(() => expect(readText).toHaveBeenCalledOnce());
+
+    act(() => controller?.handleClipboardSyncEnabledChange(false));
+    view.rerender(
+      <Harness
+        session={session}
+        textChannelState="closed"
+        onController={(nextController) => {
+          controller = nextController;
+        }}
+      />,
+    );
+    view.rerender(
+      <Harness
+        session={session}
+        textChannelState="open"
+        onController={(nextController) => {
+          controller = nextController;
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(controller?.clipboardSyncEnabled).toBe(false));
+    act(() => controller?.handleRemoteClipboard("ignored after reconnect"));
+    await Promise.resolve();
+    expect(readText).toHaveBeenCalledOnce();
+    expect(writeText).not.toHaveBeenCalled();
   });
 
   it("clears the session and ignores a stale clipboard read result", async () => {
@@ -170,22 +245,45 @@ describe("useRemoteClipboardController", () => {
     );
     await waitFor(() => expect(controller).toBeDefined());
 
-    act(() => controller?.handleClipboardSyncEnabledChange(true));
     await waitFor(() => expect(readText).toHaveBeenCalledOnce());
     view.rerender(
       <Harness
         session={session}
         sessionKey="device-b:2"
+        textChannelState="closed"
         onController={(nextController) => {
           controller = nextController;
         }}
       />,
     );
-    await waitFor(() => expect(controller?.clipboardSyncEnabled).toBe(false));
+    await waitFor(() => expect(controller?.clipboardSyncEnabled).toBe(true));
 
     await act(async () => pendingRead.resolve("stale text"));
     expect(session.sendClipboardText).not.toHaveBeenCalled();
     expect(controller?.localClipboardStatusLabel).toBe("尚未读取本机剪贴板");
+  });
+
+  it("lets an incoming remote update supersede a pending local clipboard read", async () => {
+    const pendingRead = deferred<string>();
+    readText.mockReturnValue(pendingRead.promise);
+    const session = createSession();
+    let controller: ClipboardController | undefined;
+    render(
+      <Harness
+        session={session}
+        onController={(nextController) => {
+          controller = nextController;
+        }}
+      />,
+    );
+    await waitFor(() => expect(readText).toHaveBeenCalledOnce());
+
+    act(() => controller?.handleRemoteClipboard("remote wins"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("remote wins"));
+    await act(async () => pendingRead.resolve("stale local text"));
+
+    expect(session.sendClipboardText).not.toHaveBeenCalled();
+    expect(controller?.remoteClipboardStatusLabel).toBe("已同步到本机（11 字符）");
   });
 
   it("does not let a pending write from an old session block the new session", async () => {
@@ -201,14 +299,11 @@ describe("useRemoteClipboardController", () => {
         }}
       />,
     );
-    await waitFor(() => expect(controller).toBeDefined());
-    act(() => controller?.handleClipboardSyncEnabledChange(true));
     await waitFor(() => expect(controller?.clipboardSyncEnabled).toBe(true));
 
     act(() => controller?.handleRemoteClipboard("old session"));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("old session"));
     act(() => controller?.resetClipboardSession());
-    act(() => controller?.handleClipboardSyncEnabledChange(true));
     await waitFor(() => expect(controller?.clipboardSyncEnabled).toBe(true));
     act(() => controller?.handleRemoteClipboard("new session"));
 
@@ -231,8 +326,6 @@ describe("useRemoteClipboardController", () => {
         }}
       />,
     );
-    await waitFor(() => expect(controller).toBeDefined());
-    act(() => controller?.handleClipboardSyncEnabledChange(true));
     await waitFor(() => expect(controller?.clipboardSyncEnabled).toBe(true));
 
     act(() => controller?.handleRemoteClipboard("before disable"));
@@ -302,17 +395,20 @@ type ClipboardController = ReturnType<typeof useRemoteClipboardController>;
 function Harness({
   session,
   sessionKey = "device-a:1",
+  textChannelState = "open",
   onController,
 }: {
   session: BrowserRemoteSession;
   sessionKey?: string;
+  textChannelState?: RTCDataChannelState;
   onController(controller: ClipboardController): void;
 }) {
-  const sessionRef = { current: session } as RefObject<BrowserRemoteSession | null>;
+  const sessionRef = useRef<BrowserRemoteSession | null>(session);
+  sessionRef.current = session;
   const controller = useRemoteClipboardController({
     browserSessionRef: sessionRef,
     sessionKey,
-    textChannelState: "open",
+    textChannelState,
     onError: () => undefined,
     onSessionStateChange: () => undefined,
     showToast: () => undefined,

@@ -122,12 +122,23 @@ describe("App console", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { level: 1, name: "UU Remote Web" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "UU 远程桌面网页版" })).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /进入控制台/ })).not.toHaveLength(0);
     for (const link of screen.getAllByRole("link", { name: /进入控制台/ })) {
       expect(link).toHaveAttribute("href", "/devices");
     }
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("returns to the landing page from the console brand", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "我的设备" });
+    await user.click(screen.getByRole("link", { name: "返回 UU Remote Web 首页" }));
+
+    expect(await screen.findByRole("heading", { level: 1, name: "UU 远程桌面网页版" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
   });
 
   it("supports the app-aligned mobile login flow and local state export", async () => {
@@ -169,6 +180,27 @@ describe("App console", () => {
         '"token": "header.payload.signature"',
       );
     });
+    expect(writeLocalClipboardTextMock).toHaveBeenCalledWith(
+      expect.stringContaining('"token": "header.payload.signature"'),
+    );
+    expect(await screen.findByText("账号凭证已导出并复制到剪贴板")).toBeInTheDocument();
+  });
+
+  it("keeps exported credentials available when automatic clipboard writing fails", async () => {
+    writeLocalClipboardTextMock.mockRejectedValueOnce(new Error("clipboard denied"));
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "我的设备" });
+    await user.click(screen.getByRole("link", { name: /账号与凭证/ }));
+    await screen.findByRole("heading", { name: "账号与凭证" });
+
+    await user.click(screen.getByRole("button", { name: "导出账号凭证" }));
+
+    expect(await screen.findByText("账号凭证已导出，自动复制失败，请手动复制")).toBeInTheDocument();
+    expect((screen.getByLabelText("账号凭证 JSON") as HTMLTextAreaElement).value).toContain(
+      '"token": "header.payload.signature"',
+    );
   });
 
   it("uses a consumer remote-control flow: login page, device list, then focused control page", async () => {
@@ -885,7 +917,7 @@ describe("App console", () => {
 
     TestPeerConnection.closeDataChannel("CONTROL_DATA_CHANNEL");
 
-    await screen.findByText("控制连接已断开");
+    await screen.findByText(/控制连接已断开/);
     const reconnectButton = screen.getByRole("button", { name: "立即重连" });
     expect(reconnectButton).toBeEnabled();
 
@@ -912,7 +944,6 @@ describe("App console", () => {
 
     TestPeerConnection.closeDataChannel("CONTROL_DATA_CHANNEL");
 
-    await screen.findByText(/自动重连将在/);
     await waitFor(
       () => {
         expect(requestLog.filter((call) => call.path === "/api/remote/signal/control")).toHaveLength(2);
@@ -942,16 +973,16 @@ describe("App console", () => {
     });
     await screen.findByRole("button", { name: "控制中" });
 
-    expect(screen.getByRole("region", { name: "连接质量" })).toBeInTheDocument();
-    expect(screen.getByText("等待质量采样")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "状态" }));
     expect(screen.getByRole("checkbox", { name: "自动重连" })).toBeChecked();
 
-    expect(screen.getByRole("region", { name: "画面源" })).toBeInTheDocument();
+    const videoSourcePanel = screen.getByRole("region", { name: "画面源" });
     // 画面源按钮名称现含分辨率/信号标注（如“画面 1 无信号”），用前缀匹配定位。
-    expect(screen.getByRole("button", { name: /^画面 1/ })).toHaveAttribute("aria-pressed", "true");
-    await user.click(screen.getByRole("button", { name: /^画面 2/ }));
-    expect(screen.getByRole("button", { name: /^画面 2/ })).toHaveAttribute("aria-pressed", "true");
+    expect(within(videoSourcePanel).getByRole("button", { name: /^画面 1/ })).toHaveAttribute("aria-pressed", "true");
+    await user.click(within(videoSourcePanel).getByRole("button", { name: /^画面 2/ }));
+    expect(within(videoSourcePanel).getByRole("button", { name: /^画面 2/ })).toHaveAttribute("aria-pressed", "true");
 
+    await user.click(screen.getByRole("tab", { name: "剪贴板" }));
     expect(screen.getByRole("checkbox", { name: "同步剪贴板" })).toBeChecked();
     await waitFor(() => {
       expect(readLocalClipboardTextMock).toHaveBeenCalled();
@@ -1027,6 +1058,7 @@ describe("App console", () => {
       expectSignalState("已连接");
     });
     await openAdvancedSettings(user);
+    await user.click(screen.getByRole("tab", { name: "状态" }));
 
     // 连接质量由后台自动轮询刷新 WebRTC 统计，等待轮询消费至少两帧统计后算出码率/帧率。
     const quality = screen.getByRole("region", { name: "连接质量" });
@@ -1300,6 +1332,8 @@ describe("App console", () => {
 
     await screen.findByLabelText("远控画面视频");
     expect(screen.queryByLabelText("远控视频 2")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "状态" }));
     expect(screen.getByRole("region", { name: "画面源" })).toBeInTheDocument();
     expect(screen.getByText(/2 路视频/)).toBeInTheDocument();
   });

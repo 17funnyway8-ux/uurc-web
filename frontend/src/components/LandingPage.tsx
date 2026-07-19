@@ -40,10 +40,12 @@ export function LandingPage({ loggedIn }: { loggedIn: boolean }) {
         </header>
 
         <div className="landing-hero-content">
-          <p className="landing-eyebrow">非官方开源项目</p>
-          <h1 id="landing-title">UU Remote Web</h1>
-          <p className="landing-hero-tagline">在浏览器里控制你的 UU 远程设备。</p>
-          <p className="landing-hero-description">不方便安装主控客户端时，打开网页即可查看设备并发起远程控制。</p>
+          <p className="landing-eyebrow">UU Remote Web · 非官方开源项目</p>
+          <h1 id="landing-title">UU 远程桌面网页版</h1>
+          <p className="landing-hero-tagline">打开浏览器，连接并控制你的 UU 远程设备。</p>
+          <p className="landing-hero-description">
+            无需安装主控客户端。这是可自托管的非官方 UU 远程桌面 Web 版主控端，支持短信登录、设备列表和网页远程控制。
+          </p>
           <div className="landing-actions">
             <Link className="landing-primary-action" to={consolePath}>
               进入控制台

@@ -18,7 +18,11 @@ describe("PageMetadata", () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => expect(document.title).toBe("UU Remote Web - 非官方 UU 远程网页版主控端"));
+    await waitFor(() => expect(document.title).toBe("UU 远程桌面网页版（Web 版）- UU Remote Web"));
+    expect(document.head.querySelector('meta[name="keywords"]')).toHaveAttribute(
+      "content",
+      expect.stringContaining("UU 远程桌面 Web 版"),
+    );
     expect(document.head.querySelector('meta[name="robots"]')).toHaveAttribute(
       "content",
       "index, follow, max-image-preview:large",

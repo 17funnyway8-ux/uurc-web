@@ -37,6 +37,7 @@ import {
   stopRemoteSignalGateway,
 } from "../api/client.js";
 import { createRemoteControlPageProps, type RemoteControlViewProps } from "../app/remoteControlPageProps.js";
+import { writeLocalClipboardText } from "../browser/clipboard.js";
 import { formatParticipantMeta } from "../devices/deviceLabels.js";
 import { pickControllableDesktop } from "../devices/deviceSummary.js";
 import { BrowserRemoteSession, type BrowserRemoteSessionState } from "../remote/browserRemoteSession.js";
@@ -367,20 +368,21 @@ export function useRemoteControlController() {
   async function handleExport() {
     await run("export", async () => {
       const state = await exportAuthState();
-      setAuthJson(JSON.stringify(state, null, 2));
-      showToast("已生成账号凭证备份，请妥善保管");
+      const exportedAuthJson = JSON.stringify(state, null, 2);
+      setAuthJson(exportedAuthJson);
+      try {
+        await writeLocalClipboardText(exportedAuthJson);
+        showToast("账号凭证已导出并复制到剪贴板");
+      } catch {
+        showToast("账号凭证已导出，自动复制失败，请手动复制");
+      }
     });
   }
 
   async function handleCopyAuthJson() {
-    const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
     if (!authJson.trim()) return;
-    if (!clipboard?.writeText) {
-      showToast("当前环境不支持自动复制，请手动选择文本复制");
-      return;
-    }
     try {
-      await clipboard.writeText(authJson);
+      await writeLocalClipboardText(authJson);
       showToast("已复制账号凭证到剪贴板");
     } catch {
       showToast("复制失败，请手动选择文本复制");

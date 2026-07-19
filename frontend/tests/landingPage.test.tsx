@@ -14,7 +14,8 @@ describe("LandingPage", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("heading", { level: 1, name: "UU Remote Web" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "UU 远程桌面网页版" })).toBeInTheDocument();
+    expect(screen.getByText(/UU 远程桌面 Web 版主控端/)).toBeInTheDocument();
     for (const link of screen.getAllByRole("link", { name: /进入控制台/ })) {
       expect(link).toHaveAttribute("href", "/devices");
     }

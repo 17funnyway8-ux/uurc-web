@@ -4,7 +4,9 @@ import { useLocation } from "react-router";
 const SITE_NAME = "UU Remote Web";
 const SITE_URL = "https://uurc.678234.xyz";
 const DEFAULT_DESCRIPTION =
-  "UU Remote Web 是开源、自托管的非官方 UU 远程网页版主控端，支持短信登录、设备列表、远控伙伴和浏览器远程控制。";
+  "UU Remote Web 是开源、自托管的非官方 UU 远程桌面网页版（Web 版）主控端，支持短信登录、设备列表、远控伙伴和浏览器远程控制。";
+const DEFAULT_KEYWORDS =
+  "UU 远程桌面网页版, UU 远程桌面 Web 版, UU 远程网页版, UU Remote Web, 网页远程桌面, 浏览器远程控制";
 
 interface Metadata {
   title: string;
@@ -25,6 +27,7 @@ export function PageMetadata() {
 
     document.title = metadata.title;
     setMeta("name", "description", metadata.description);
+    setMeta("name", "keywords", DEFAULT_KEYWORDS);
     setMeta("name", "robots", metadata.robots);
     setMeta("name", "theme-color", metadata.themeColor);
     setMeta("property", "og:title", metadata.title);
@@ -41,7 +44,7 @@ export function PageMetadata() {
 export function getPageMetadata(pathname: string): Metadata {
   if (pathname === "/") {
     return {
-      title: `${SITE_NAME} - 非官方 UU 远程网页版主控端`,
+      title: `UU 远程桌面网页版（Web 版）- ${SITE_NAME}`,
       description: DEFAULT_DESCRIPTION,
       canonicalPath: "/",
       robots: "index, follow, max-image-preview:large",

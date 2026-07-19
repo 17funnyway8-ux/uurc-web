@@ -1,5 +1,5 @@
 import { Github, Handshake, KeyRound, Monitor, Search } from "lucide-react";
-import { NavLink, Outlet } from "react-router";
+import { Link, NavLink, Outlet } from "react-router";
 
 import type { UuDeviceGroups } from "@uurc/shared/types";
 
@@ -26,13 +26,13 @@ export function AppShell({
   return (
     <div className="app-shell">
       <aside className="app-sidebar">
-        <div className="app-sidebar-brand">
+        <Link className="app-sidebar-brand" to="/" aria-label="返回 UU Remote Web 首页">
           <span className="app-sidebar-logo" aria-hidden="true">
             <Monitor size={13} />
           </span>
           <span className="app-sidebar-wordmark">UU Remote</span>
           <span className="app-sidebar-badge">WEB</span>
-        </div>
+        </Link>
 
         <button type="button" className="app-sidebar-search" onClick={() => palette.setOpen(true)}>
           <Search size={14} />

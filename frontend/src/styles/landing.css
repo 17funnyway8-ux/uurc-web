@@ -17,7 +17,8 @@
 
 .landing-hero {
   position: relative;
-  min-height: 88svh;
+  min-height: 100vh;
+  min-height: 100svh;
   overflow: hidden;
   isolation: isolate;
   background: #0b0b0c;
@@ -425,10 +426,6 @@
 
   .landing-nav > a:first-child span {
     display: none;
-  }
-
-  .landing-hero {
-    min-height: 88svh;
   }
 
   .landing-hero-media {

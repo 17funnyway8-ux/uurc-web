@@ -66,7 +66,7 @@
   }
 
   .command-palette-scrim {
-    padding-top: 64px;
+    --command-palette-top-offset: 64px;
   }
 }
 
@@ -104,17 +104,12 @@
     display: none;
   }
 
-  .reconnect-banner {
-    max-width: calc(100% - 16px);
+  .control-command-bar:has(.shortcut-menu[open]) {
+    overflow: visible;
   }
 
-  .shortcut-menu-panel {
-    position: fixed;
-    top: 72px;
-    right: 12px;
-    left: 12px;
-    width: auto;
-    max-width: none;
+  .reconnect-banner {
+    max-width: calc(100% - 16px);
   }
 
   .shortcut-menu-grid {

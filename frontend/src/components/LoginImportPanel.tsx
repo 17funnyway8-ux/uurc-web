@@ -12,7 +12,7 @@ export function LoginImportPanel({
   onImport: () => void;
 }) {
   return (
-    <div className="form-section" aria-label="导入已有账号凭证">
+    <div className="form-section login-import-panel" aria-label="导入已有账号凭证">
       <textarea
         id="auth-json"
         name="auth-json"

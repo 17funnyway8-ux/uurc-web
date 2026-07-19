@@ -39,8 +39,7 @@ export function RemoteCommandBar({
   remoteStageViewMode,
 }: RemoteCommandBarProps) {
   const nextStageMode = remoteStageViewMode === "fit" ? "fill" : "fit";
-  // 非全屏时工具栏固定悬浮在画面底部居中（不可拖动）；仅全屏时允许拖到画面内任意位置。
-  const { dragHandleProps, isDragging, panelRef, panelStyle } = useDraggableFloatingPanel<HTMLElement>(isFullscreen);
+  const { dragHandleProps, isDragging, panelRef, panelStyle } = useDraggableFloatingPanel<HTMLElement>();
   const idleHidden = useFullscreenIdleHide(isFullscreen, isDragging);
   const connected = controlChannelState === "open";
 
@@ -51,11 +50,9 @@ export function RemoteCommandBar({
       style={panelStyle}
       aria-label="远控主流程"
     >
-      {isFullscreen ? (
-        <button className="command-drag-handle" type="button" aria-label="拖动工具栏" {...dragHandleProps}>
-          <GripHorizontal size={17} />
-        </button>
-      ) : null}
+      <button className="command-drag-handle" type="button" aria-label="拖动工具栏" {...dragHandleProps}>
+        <GripHorizontal size={17} />
+      </button>
       <div className="command-action-group command-action-primary">
         {connected ? (
           <div className="control-mode-switch" role="group" aria-label="控制模式">

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -59,6 +59,17 @@ describe("App account and devices", () => {
     expect(screen.queryByText(/ADB/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "创建网页设备" })).not.toBeInTheDocument();
 
+    const smsTab = screen.getByRole("tab", { name: "短信登录" });
+    const importTab = screen.getByRole("tab", { name: "导入凭证" });
+    expect(smsTab).toHaveAttribute("aria-selected", "true");
+    await user.click(importTab);
+    expect(importTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("粘贴此前导出的账号凭证，直接恢复登录。")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/粘贴形如/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("手机号")).not.toBeInTheDocument();
+    await user.click(smsTab);
+    expect(smsTab).toHaveAttribute("aria-selected", "true");
+
     expect(screen.getByLabelText("区号")).toHaveValue("86");
     await user.type(screen.getByLabelText("手机号"), "13800000000");
     await user.click(screen.getByRole("button", { name: "获取验证码" }));
@@ -85,6 +96,62 @@ describe("App account and devices", () => {
       expect.stringContaining('"token": "header.payload.signature"'),
     );
     expect(await screen.findByText("账号凭证已导出并复制到剪贴板")).toBeInTheDocument();
+  });
+
+  it("imports existing credentials from the segmented login tab", async () => {
+    window.localStorage.removeItem("uurc.loginState");
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "登录 UU Remote" });
+    await user.click(screen.getByRole("tab", { name: "导入凭证" }));
+    const credentials = {
+      token: "header.payload.signature",
+      userId: "imported-user",
+      clientId: "imported-client",
+      deviceId: "imported-device",
+      channel: "official",
+    };
+    fireEvent.change(screen.getByPlaceholderText(/粘贴形如/), {
+      target: { value: JSON.stringify(credentials) },
+    });
+    await user.click(screen.getByRole("button", { name: "导入并登录" }));
+
+    expect(await screen.findByRole("heading", { name: "我的设备" })).toBeInTheDocument();
+    expect(JSON.parse(window.localStorage.getItem("uurc.loginState") ?? "{}")).toMatchObject(credentials);
+  });
+
+  it("keeps sidebar navigation state neutral and aligned with the current route", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "我的设备" });
+    const devicesLink = screen.getByRole("link", { name: /我的设备/ });
+    const accountLink = screen.getByRole("link", { name: /账号与凭证/ });
+    expect(devicesLink).toHaveClass("is-active");
+    expect(accountLink).not.toHaveClass("is-active");
+
+    await user.click(accountLink);
+    await screen.findByRole("heading", { name: "账号与凭证" });
+    expect(devicesLink).not.toHaveClass("is-active");
+    expect(accountLink).toHaveClass("is-active");
+  });
+
+  it("opens, focuses, filters, and closes the command palette from the keyboard", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "我的设备" });
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const palette = await screen.findByRole("dialog", { name: "命令面板" });
+    expect(palette).toBeInTheDocument();
+    const search = screen.getByRole("textbox", { name: "搜索设备或操作" });
+    expect(search).toHaveFocus();
+    fireEvent.change(search, { target: { value: "Office" } });
+    expect(within(palette).getByText("Office Mac")).toBeInTheDocument();
+    expect(within(palette).queryByText("iPhone")).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "命令面板" })).not.toBeInTheDocument());
   });
 
   it("keeps exported credentials available when automatic clipboard writing fails", async () => {

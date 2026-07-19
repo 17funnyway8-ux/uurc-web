@@ -153,13 +153,19 @@
   transition: transform 0.14s ease;
 }
 
-.shortcut-menu[open] .shortcut-menu-chevron {
+.shortcut-menu--opens-up .shortcut-menu-chevron,
+.shortcut-menu--opens-down[open] .shortcut-menu-chevron {
   transform: rotate(180deg);
+}
+
+.shortcut-menu--opens-up[open] .shortcut-menu-chevron {
+  transform: rotate(0deg);
 }
 
 .shortcut-menu-panel {
   position: absolute;
-  top: calc(100% + 8px);
+  top: auto;
+  bottom: calc(100% + 8px);
   right: 0;
   z-index: 10;
   width: 360px;
@@ -171,8 +177,15 @@
   background: rgba(24, 24, 27, 0.96);
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
   padding: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
+}
+
+.shortcut-menu--opens-down .shortcut-menu-panel {
+  top: calc(100% + 8px);
+  bottom: auto;
 }
 
 .shortcut-menu-group {

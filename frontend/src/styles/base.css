@@ -298,10 +298,25 @@ h3 {
   animation: app-toast-in 0.18s ease;
 }
 
+.app-toast--remote {
+  bottom: 84px;
+}
+
+.app-toast--positioned {
+  animation-name: app-toast-positioned-in;
+}
+
 @keyframes app-toast-in {
   from {
     opacity: 0;
     transform: translate(-50%, 8px);
+  }
+}
+
+@keyframes app-toast-positioned-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
   }
 }
 

@@ -69,7 +69,11 @@ export function LoginPage({
           ) : null}
           <div className="auth-card">
             <h1>登录 UU Remote</h1>
-            <p className="auth-card-desc">使用手机号验证码登录，或导入已有账号凭证。</p>
+            <p className="auth-card-desc">
+              {tab === "import"
+                ? "粘贴此前导出的账号凭证，直接恢复登录。"
+                : "使用手机号验证码登录，或导入已有账号凭证。"}
+            </p>
             <Tabs
               ariaLabel="登录方式"
               variant="segmented"

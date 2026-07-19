@@ -9,7 +9,7 @@ export function RemoteControlRoute({ context }: { context: RemoteControlContext 
   return (
     <>
       <RemoteControlPage {...controller.page} />
-      <Toast toast={controller.toast} onDismiss={controller.onDismissToast} />
+      <Toast toast={controller.toast} onDismiss={controller.onDismissToast} placement="remote" />
     </>
   );
 }

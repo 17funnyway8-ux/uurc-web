@@ -243,7 +243,7 @@
 }
 
 /* Tabs 浅色 segmented 变体（登录卡片：短信登录/导入凭证），视觉上与 .segmented-control 一致。 */
-.tabs-list-segmented {
+.tabs-list.tabs-list-segmented {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 2px;
@@ -252,6 +252,16 @@
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   background: var(--surface-2);
+}
+
+.login-import-panel textarea {
+  min-height: 96px;
+  margin-top: 0;
+}
+
+.login-import-panel .field-hint {
+  margin-top: 2px;
+  text-align: center;
 }
 
 .tabs-list-segmented button {

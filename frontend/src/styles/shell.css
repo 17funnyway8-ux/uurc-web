@@ -121,6 +121,7 @@
   padding: 0 9px;
   border-radius: var(--radius-sm);
   color: var(--gray-600);
+  text-decoration: none;
   font-size: 13px;
   font-weight: 500;
 }
@@ -146,11 +147,23 @@
 
 .app-sidebar-nav-item:hover {
   background: var(--surface-hover);
+  color: var(--gray-600);
+  text-decoration: none;
 }
 
-.app-sidebar-nav-item.is-active {
+.app-sidebar-nav-item:focus-visible {
+  color: var(--gray-600);
+  text-decoration: none;
+  outline: 2px solid var(--border-strong);
+  outline-offset: 1px;
+}
+
+.app-sidebar-nav-item.is-active,
+.app-sidebar-nav-item.is-active:hover,
+.app-sidebar-nav-item.is-active:focus-visible {
   background: var(--surface-hover);
   color: var(--text);
+  text-decoration: none;
 }
 
 .app-sidebar-nav-item.is-active svg {

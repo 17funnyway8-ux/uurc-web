@@ -11,7 +11,7 @@ import { requestLogger } from "./middleware/requestLogger.js";
 import { createDiagnosticsRouter } from "./routes/diagnostics.js";
 import { createProxyRouter } from "./routes/proxy.js";
 import { createRemoteRouter } from "./routes/remote.js";
-import type { SignalGatewayConnector } from "./services/remoteControlService.js";
+import type { SignalGatewayConnector } from "./services/signalGateway.js";
 import { RemoteControlSessionRegistry } from "./services/remoteControlSessionRegistry.js";
 
 export interface AppOverrides extends BackendConfigOverrides {

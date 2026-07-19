@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
-import { RemoteControlService, type SignalGatewayConnector } from "./remoteControlService.js";
+import { RemoteControlService } from "./remoteControlService.js";
+import type { SignalGatewayConnector } from "./signalGateway.js";
 
 const DEFAULT_MAX_REMOTE_SESSIONS = 64;
 const DEFAULT_REMOTE_SESSION_IDLE_TTL_MS = 60 * 60 * 1000;

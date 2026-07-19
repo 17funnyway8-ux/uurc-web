@@ -1,4 +1,23 @@
-import type { AuthStatus, LoginState } from "./types.js";
+export interface LoginState {
+  token?: string;
+  userId?: string;
+  clientId?: string;
+  deviceId?: string;
+  oaid?: string;
+  uuid?: string;
+  channel?: string;
+}
+
+export interface AuthStatus {
+  hasState: boolean;
+  missingFields: string[];
+  userId?: string;
+  clientId?: string;
+  deviceId?: string;
+  channel?: string;
+  tokenExpiresAt?: string;
+  tokenExpired?: boolean;
+}
 
 const REQUIRED_LOGIN_FIELDS: Array<keyof LoginState> = ["token", "userId", "deviceId"];
 

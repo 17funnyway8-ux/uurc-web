@@ -4,7 +4,7 @@ import { REMOTE_SESSION_HEADER } from "@uurc/shared";
 import { STREAMER_ICE_NETWORK_TYPES } from "@uurc/shared/streamer/signal";
 
 import { createApp } from "../src/app.js";
-import type { SignalGatewayConnectOptions, SignalGatewayConnector } from "../src/services/remoteControlService.js";
+import type { SignalGatewayConnectOptions, SignalGatewayConnector } from "../src/services/signalGateway.js";
 
 describe("remote routes", () => {
   it("requires an opaque browser session capability", async () => {

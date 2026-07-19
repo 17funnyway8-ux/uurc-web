@@ -5,12 +5,9 @@ import { type RemoteRoomJoinContext, type RoomJoinUpstreamSummary } from "@uurc/
 import { STREAMER_ICE_NETWORK_TYPES } from "@uurc/shared/streamer/signal";
 import type { StreamerRoomConfig } from "@uurc/shared/types";
 
-import {
-  RemoteControlService,
-  SocketIoSignalGatewayConnector,
-  type SignalGatewayConnectOptions,
-  type SignalGatewayConnector,
-} from "../src/services/remoteControlService.js";
+import { RemoteControlService } from "../src/services/remoteControlService.js";
+import type { SignalGatewayConnectOptions, SignalGatewayConnector } from "../src/services/signalGateway.js";
+import { SocketIoSignalGatewayConnector } from "../src/services/socketIoSignalGatewayConnector.js";
 
 describe("RemoteControlService", () => {
   it("returns null before a room config has been captured", async () => {

@@ -4,22 +4,30 @@ import { Link } from "react-router";
 const GITHUB_URL = "https://github.com/iola1999/uurc-web";
 const V2EX_URL = "https://www.v2ex.com/t/1225978";
 
+function HeroSignalMap() {
+  return (
+    <div className="landing-signal-field" aria-hidden="true">
+      <span className="landing-signal-frame" />
+      <span className="landing-signal-route landing-signal-route-a" />
+      <span className="landing-signal-route landing-signal-route-b" />
+      <span className="landing-signal-route landing-signal-route-c" />
+      <span className="landing-signal-route landing-signal-route-d" />
+      <span className="landing-signal-route landing-signal-route-e" />
+      <span className="landing-signal-node landing-signal-node-a" />
+      <span className="landing-signal-node landing-signal-node-b" />
+      <span className="landing-signal-node landing-signal-node-c" />
+      <span className="landing-signal-node landing-signal-node-active" />
+    </div>
+  );
+}
+
 export function LandingPage({ loggedIn }: { loggedIn: boolean }) {
   const consolePath = loggedIn ? "/devices" : "/login";
 
   return (
     <main className="landing-page">
       <section className="landing-hero" aria-labelledby="landing-title">
-        <img
-          className="landing-hero-media"
-          src="/product/social-preview.png"
-          alt=""
-          width="1200"
-          height="630"
-          fetchPriority="high"
-          aria-hidden="true"
-        />
-        <div className="landing-hero-scrim" aria-hidden="true" />
+        <HeroSignalMap />
 
         <header className="landing-header">
           <a className="landing-brand" href="/" aria-label="UU Remote Web 首页">

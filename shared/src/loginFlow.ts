@@ -1,10 +1,38 @@
-import type {
-  AndroidDeviceInitProfile,
-  MobileCodeRequestInput,
-  MobileLoginRequestInput,
-  MobileLoginResult,
-  UuRequest,
-} from "./types.js";
+import type { UuRequest } from "./uuTransport.js";
+
+export interface MobileCodeRequestInput {
+  regionCode: string;
+  mobile: string;
+}
+
+export interface MobileLoginRequestInput extends MobileCodeRequestInput {
+  code: string;
+}
+
+export interface MobileLoginResult {
+  userId: string;
+  nickName: string;
+  token: string;
+}
+
+export interface AndroidDeviceInitProfile {
+  name: string;
+  client_id: string;
+  system_id: string;
+  system_version: string;
+  gaid: string;
+  install_id: string;
+  build_fingerprint: string;
+  brand: string;
+  manufacturer: string;
+  model: string;
+  product: string;
+  rom: string;
+  abi: string;
+  resolution: string;
+  screen_size: string;
+  dpi: number;
+}
 
 export const MOBILE_CODE_PATH = "/api/v1/security/mobile/code";
 export const MOBILE_LOGIN_PATH = "/api/v1/login/by_mobile";

@@ -8,7 +8,7 @@ describe("LandingPage", () => {
   afterEach(cleanup);
 
   it("sends signed-in visitors to their devices", () => {
-    render(
+    const { container } = render(
       <MemoryRouter>
         <LandingPage loggedIn />
       </MemoryRouter>,
@@ -22,6 +22,8 @@ describe("LandingPage", () => {
     expect(screen.getByRole("img", { name: "UU Remote Web 手机号验证码登录页面" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "UU Remote Web 设备列表页面" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "UU Remote Web 远程控制会话页面" })).toBeInTheDocument();
+    expect(container.querySelector(".landing-hero img")).not.toBeInTheDocument();
+    expect(container.querySelector(".landing-signal-field")).toHaveAttribute("aria-hidden", "true");
   });
 
   it("sends signed-out visitors to login", () => {

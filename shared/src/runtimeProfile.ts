@@ -1,4 +1,14 @@
-import type { RuntimeProfile, UurcRuntime } from "./types.js";
+export type UurcRuntime = "node" | "cloudflare-worker";
+export type UurcSignalGatewayMode = "node-socket-io" | "cloudflare-durable-object";
+
+export interface RuntimeProfile {
+  ok: true;
+  runtime: UurcRuntime;
+  uuProxyPath: "/api/proxy/uu";
+  signalGateway: UurcSignalGatewayMode;
+  remoteApiBase: "/api/remote";
+  wispProxy: boolean;
+}
 
 export function createRuntimeProfile(runtime: UurcRuntime, options: { wispProxy?: boolean } = {}): RuntimeProfile {
   return {

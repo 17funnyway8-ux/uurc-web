@@ -1,4 +1,24 @@
-import type { StreamerRoomConfig, StreamerRoomConfigSummary } from "./types.js";
+export interface StreamerRoomConfig {
+  token: string;
+  signalServers: string[];
+  timeout?: number;
+  signalReconnectDelay?: number;
+  reportToken?: string;
+  reportUrl?: string;
+  reportServerAddress?: string;
+  appData?: string;
+}
+
+export interface StreamerRoomConfigSummary {
+  tokenPresent: boolean;
+  signalServerCount: number;
+  signalServers: string[];
+  timeout?: number;
+  signalReconnectDelay?: number;
+  reportUrl?: string;
+  reportServerAddress?: string;
+  appDataPresent: boolean;
+}
 
 type UnknownRecord = Record<string, unknown>;
 

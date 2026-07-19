@@ -1,3 +1,4 @@
+import { TerminalSquare } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
 
@@ -7,6 +8,7 @@ export function RemoteAssistancePage({
   busy,
   connectCode,
   connectId,
+  error,
   notice,
   onConnectCodeChange,
   onConnectIdChange,
@@ -15,6 +17,7 @@ export function RemoteAssistancePage({
   busy: string | null;
   connectCode: string;
   connectId: string;
+  error: string;
   notice: string;
   onConnectCodeChange: (value: string) => void;
   onConnectIdChange: (value: string) => void;
@@ -38,6 +41,12 @@ export function RemoteAssistancePage({
       </header>
       <div className="shell-page-body">
         <div className="shell-page-body-narrow">
+          {error ? (
+            <section className="error-strip" role="alert" aria-live="assertive">
+              <TerminalSquare size={18} />
+              <span>{error}</span>
+            </section>
+          ) : null}
           <RemoteAssistanceCard
             busy={busy}
             connectCode={connectCode}

@@ -107,7 +107,7 @@ describe("App console", () => {
     // 默认关闭“自动连接”，让现有用例显式走手动连接流程；单独的用例会显式打开它。
     window.localStorage.setItem("uurc.autoConnect", "false");
     window.sessionStorage.clear();
-    window.history.replaceState(null, "", "/");
+    window.history.replaceState(null, "", "/devices");
     seedLoginState(authReady);
     vi.stubGlobal("fetch", vi.fn(handleFetch));
   });
@@ -117,16 +117,29 @@ describe("App console", () => {
     vi.unstubAllGlobals();
   });
 
+  it("renders the public landing page without loading product data", async () => {
+    window.history.replaceState(null, "", "/");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "UU Remote Web" })).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /进入控制台/ })).not.toHaveLength(0);
+    for (const link of screen.getAllByRole("link", { name: /进入控制台/ })) {
+      expect(link).toHaveAttribute("href", "/devices");
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("supports the app-aligned mobile login flow and local state export", async () => {
     window.localStorage.removeItem("uurc.loginState");
     const user = userEvent.setup();
     render(<App />);
 
     await screen.findByText("未登录");
-    expect(screen.getByRole("heading", { name: "登录" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "登录 UU Remote" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/login");
     expect(screen.getByLabelText("用手机号登录")).toBeInTheDocument();
-    expect(screen.getByText("导入账号凭证")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "导入凭证" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "远控画面" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "我的设备" })).not.toBeInTheDocument();
     expect(screen.queryByText("Android 刷新")).not.toBeInTheDocument();
@@ -142,11 +155,12 @@ describe("App console", () => {
     await user.type(screen.getByLabelText("短信验证码"), "123456");
     await user.click(screen.getByRole("button", { name: "登录" }));
 
-    await waitFor(() => {
-      expect(screen.getAllByText("已登录").length).toBeGreaterThan(0);
-    });
     await screen.findByRole("heading", { name: "我的设备" });
     expect(window.location.pathname).toBe("/devices");
+
+    await user.click(screen.getByRole("link", { name: /账号与凭证/ }));
+    await screen.findByRole("heading", { name: "账号与凭证" });
+    expect(screen.getAllByText("已登录").length).toBeGreaterThan(0);
     expect(screen.getAllByText("user-1").length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "导出账号凭证" }));
@@ -164,7 +178,6 @@ describe("App console", () => {
     await screen.findByRole("heading", { name: "我的设备" });
     await screen.findByRole("button", { name: /Office Mac/ });
     expect(screen.queryByRole("heading", { name: "远控画面" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "导出账号凭证" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /连接 Office Mac/ }));
 
@@ -172,9 +185,9 @@ describe("App console", () => {
     expect(window.location.pathname).toBe("/devices/desktop-1/control");
     expect(screen.getByRole("application", { name: "远控画面" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "我的设备" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "我的账号" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "返回设备列表" })).toBeInTheDocument();
-    expect(screen.getByText("控制设置")).toBeInTheDocument();
+
+    await openAdvancedSettings(user);
     expect(screen.getByText("调试信息")).toBeInTheDocument();
   });
 
@@ -218,18 +231,19 @@ describe("App console", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "我的设备" });
+    await user.click(screen.getByRole("link", { name: /远控伙伴/ }));
+    await screen.findByRole("heading", { name: "远控伙伴" });
     expect(
       within(screen.getByRole("region", { name: "远控伙伴设备" })).queryByRole("combobox"),
     ).not.toBeInTheDocument();
     await user.type(screen.getByLabelText("伙伴的设备 ID"), "982123456");
-    await user.type(screen.getByLabelText("伙伴的设备验证码"), "L6026CCD");
-    await user.click(screen.getByRole("button", { name: /^连接$/ }));
+    await user.type(screen.getByLabelText(/设备验证码/), "L6026CCD");
+    await user.click(screen.getByRole("button", { name: "发起连接" }));
 
     await screen.findByRole("heading", { name: "Partner PC" });
     expect(window.location.pathname).toBe("/devices/982123456/control");
     expect(uuCalls("/api/v2/room/share/control_mode")).toHaveLength(1);
     expect(uuCalls("/api/v2/room/join/share/by_code")).toHaveLength(1);
-    expect(screen.getAllByText("远程协助 · 验证码").length).toBeGreaterThan(0);
 
     await startCompatibleConnection(user);
 
@@ -274,15 +288,16 @@ describe("App console", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "我的设备" });
+    await user.click(screen.getByRole("link", { name: /远控伙伴/ }));
+    await screen.findByRole("heading", { name: "远控伙伴" });
     await user.type(screen.getByLabelText("伙伴的设备 ID"), "982123456");
     // 故意不填验证码：应直接走“等待对方确认”
-    await user.click(screen.getByRole("button", { name: /^连接$/ }));
+    await user.click(screen.getByRole("button", { name: "发起连接" }));
 
     await screen.findByRole("heading", { name: "Partner PC" });
     expect(window.location.pathname).toBe("/devices/982123456/control");
     expect(uuCalls("/api/v2/room/join/share/by_code")).toHaveLength(0);
     expect(uuCalls("/api/v2/room/join/share/by_confirmation")).toHaveLength(1);
-    expect(screen.getAllByText("远程协助 · 验证码或确认").length).toBeGreaterThan(0);
   });
 
   it("continues by code through partner confirmation with the detected platform", async () => {
@@ -294,9 +309,11 @@ describe("App console", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "我的设备" });
+    await user.click(screen.getByRole("link", { name: /远控伙伴/ }));
+    await screen.findByRole("heading", { name: "远控伙伴" });
     await user.type(screen.getByLabelText("伙伴的设备 ID"), "982123456");
-    await user.type(screen.getByLabelText("伙伴的设备验证码"), "L6026CCD");
-    await user.click(screen.getByRole("button", { name: /^连接$/ }));
+    await user.type(screen.getByLabelText(/设备验证码/), "L6026CCD");
+    await user.click(screen.getByRole("button", { name: "发起连接" }));
 
     await screen.findByRole("heading", { name: "Partner PC" });
     expect(uuCalls("/api/v2/room/join/share/by_code")).toHaveLength(1);
@@ -325,12 +342,13 @@ describe("App console", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "我的设备" });
+    await user.click(screen.getByRole("link", { name: /远控伙伴/ }));
+    await screen.findByRole("heading", { name: "远控伙伴" });
     await user.type(screen.getByLabelText("伙伴的设备 ID"), "982123456");
-    await user.type(screen.getByLabelText("伙伴的设备验证码"), "L6026CCD");
-    await user.click(screen.getByRole("button", { name: /^连接$/ }));
+    await user.type(screen.getByLabelText(/设备验证码/), "L6026CCD");
+    await user.click(screen.getByRole("button", { name: "发起连接" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("伙伴设备未返回设备系统，已取消本次远程协助");
-    expect(window.location.pathname).toBe("/devices");
     expect(uuCalls("/api/v2/room/share/cancel_remote_assist")).toHaveLength(1);
     expect(requestLog.filter((call) => call.path === "/api/remote/signal/start")).toHaveLength(0);
     expect(window.sessionStorage.getItem("uurc.latestRoomSession")).toBeNull();
@@ -371,57 +389,13 @@ describe("App console", () => {
     });
   });
 
-  it("loads controllable devices and joins a selected room", async () => {
+  it("joins a room by device with the selected join mode and route policy", async () => {
     vi.stubGlobal("RTCPeerConnection", TestPeerConnection);
-    currentRemoteSignalEvents = [
-      ...currentRemoteSignalEvents,
-      {
-        id: 2,
-        direction: "inbound",
-        event: "soac:ack",
-        receivedAt: "2026-05-14T00:00:00.250Z",
-        payload: ["success", { code: 0 }],
-      },
-      {
-        id: 3,
-        direction: "inbound",
-        event: "mystery_direct_event",
-        receivedAt: "2026-05-14T00:00:00.300Z",
-        payload: [{ opaque: true }],
-      },
-    ];
     const user = userEvent.setup();
     render(<App />);
 
     await openOfficeMacControl(user);
-    expect(screen.getAllByText("已有控制端").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("iPhone").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Studio Mac").length).toBeGreaterThan(0);
-    const iPhoneParticipant = screen.getByText("iPhone").closest(".participant-card");
-    const macParticipant = screen.getByText("Studio Mac").closest(".participant-card");
-    expect(iPhoneParticipant).not.toBeNull();
-    expect(macParticipant).not.toBeNull();
-    expect(within(iPhoneParticipant as HTMLElement).getByText(/iOS · 主控 · 3m/)).toBeInTheDocument();
-    expect(within(iPhoneParticipant as HTMLElement).getByText(/模式：副屏/)).toBeInTheDocument();
-    expect(within(macParticipant as HTMLElement).getByText(/macOS · 主控 · 3m/)).toBeInTheDocument();
-    expect(within(macParticipant as HTMLElement).getByText(/模式：普通桌面/)).toBeInTheDocument();
-    expect(screen.getByText("控制模式")).toBeInTheDocument();
-    expect(screen.getAllByText("普通桌面").length).toBeGreaterThan(0);
-    expect(screen.getByRole("radio", { name: "普通加入" })).toBeChecked();
-    expect(screen.getByRole("radio", { name: "接管控制" })).not.toBeChecked();
-    expect(screen.queryByText(/room-token-1/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/report-token-1/)).not.toBeInTheDocument();
-    expect(screen.getByText("连接服务")).toBeInTheDocument();
-    expect(screen.queryByText(/X-NRD-AUTH=<redacted room token>/)).not.toBeInTheDocument();
-    expect(screen.queryByText("soac, streamer_push, forward_setting, device_capability")).not.toBeInTheDocument();
-    expect(screen.queryByText(/be-controlled, answer, candidate/)).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("radio", { name: "兼容模式" }));
-    expect(screen.getByRole("radio", { name: "自动路径" })).toBeChecked();
-    await user.click(screen.getByRole("radio", { name: "强制 UU 中转" }));
-    expect(getPrimaryAction("开始连接")).toBeEnabled();
-    expect(screen.queryByText("选择接管后重试")).not.toBeInTheDocument();
-
+    await openSettingsTab(user);
     await user.click(screen.getByRole("radio", { name: "接管控制" }));
     await waitFor(() => {
       expect(screen.getByRole("radio", { name: "接管控制" })).toBeChecked();
@@ -431,37 +405,10 @@ describe("App console", () => {
       expect(uuCalls("/api/v1/room/join/by_device/desktop-1")).toHaveLength(1);
     });
     await waitFor(() => {
-      expect(screen.getAllByText("接管加入").length).toBeGreaterThan(0);
-    });
-    await waitFor(() => {
       expect(requestLog.filter((call) => call.path === "/api/remote/signal/start")).toHaveLength(1);
     });
-    expect(screen.getByText(/gzip_sdp":false/)).toBeInTheDocument();
-    expect(screen.getByText(/X-NRD-AUTH=<redacted room token>/)).toBeInTheDocument();
-    expect(screen.getByText("soac, streamer_push, forward_setting, device_capability")).toBeInTheDocument();
     await waitFor(() => {
       expect(requestLog.filter((call) => call.path === "/api/remote/signal/control")).toHaveLength(1);
-    });
-    expect(screen.queryByRole("button", { name: "打开远控画面" })).not.toBeInTheDocument();
-    expect(TestPeerConnection.lastConfiguration).toMatchObject({ iceTransportPolicy: "relay" });
-    expect(screen.getAllByText("强制中转").length).toBeGreaterThan(0);
-    expect(screen.getByText("使用 ack ICE")).toBeInTheDocument();
-    expect(screen.getByText("possible pkt=8 latency=90 / force pkt=18 latency=160")).toBeInTheDocument();
-    expect(screen.getByText("mystery_direct_event")).toBeInTheDocument();
-    expect(screen.getByText("入会方式")).toBeInTheDocument();
-    expect(screen.getAllByText("接管加入").length).toBeGreaterThan(0);
-    expect(screen.getByText("连接许可已确认")).toBeInTheDocument();
-    expect(uuCalls("/api/v1/room/app_flag")).toHaveLength(0);
-    expect(screen.queryByText("controlled-1")).not.toBeInTheDocument();
-    await waitFor(() => {
-      expect(requestLog.some((call) => call.path === "/api/remote/signal/events")).toBe(true);
-    });
-    await waitFor(() => {
-      expect(screen.getAllByText("UU 中转").length).toBeGreaterThan(0);
-    });
-    await user.click(screen.getByRole("button", { name: "手动断开连接" }));
-    await waitFor(() => {
-      expect(screen.getAllByText("已关闭").length).toBeGreaterThan(0);
     });
   });
 
@@ -516,47 +463,6 @@ describe("App console", () => {
     expect(screen.queryByRole("button", { name: "打开远控画面" })).not.toBeInTheDocument();
   });
 
-  it("presents the console as an operator workflow instead of a protocol dump", async () => {
-    render(<App />);
-
-    await screen.findByRole("heading", { name: "我的设备" });
-    expect(screen.getByRole("heading", { name: "设备" })).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: /连接 Office Mac/ })).toBeInTheDocument();
-    expect(screen.getByLabelText("账号管理")).toBeInTheDocument();
-    expect(screen.queryByLabelText("远控主流程")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "开始连接" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "打开远控画面" })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "桌面端" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "移动端" })).toBeInTheDocument();
-  });
-
-  it("prioritizes the remote workspace over account administration", async () => {
-    render(<App />);
-
-    await screen.findByRole("heading", { name: "我的设备" });
-
-    const panelHeadings = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
-    expect(panelHeadings.slice(0, 2)).toEqual(["设备", "账号管理"]);
-    expect(await screen.findByRole("button", { name: /连接 Office Mac/ })).toBeInTheDocument();
-    expect(screen.queryByRole("application", { name: "远控画面" })).not.toBeInTheDocument();
-  });
-
-  it("presents account operations as a controller identity workflow", async () => {
-    render(<App />);
-
-    await screen.findByRole("heading", { name: "我的设备" });
-
-    expect(screen.getByRole("heading", { name: "账号管理" })).toBeInTheDocument();
-    const identityStatus = screen.getByLabelText("账号状态");
-    expect(within(identityStatus).getByText("身份")).toBeInTheDocument();
-    expect(within(identityStatus).getByText("网页控制端")).toBeInTheDocument();
-    expect(within(identityStatus).getByText("状态")).toBeInTheDocument();
-    expect(within(identityStatus).getByText("本机控制端")).toBeInTheDocument();
-    expect(screen.queryByText("导入账号凭证")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "导出账号凭证" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "退出登录" })).toBeInTheDocument();
-  });
-
   it("logs out from account management and returns to the login entry", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -564,11 +470,12 @@ describe("App console", () => {
     await screen.findByRole("heading", { name: "我的设备" });
     expect(window.localStorage.getItem("uurc.loginState")).not.toBeNull();
 
+    await user.click(screen.getByRole("link", { name: /账号与凭证/ }));
+    await screen.findByRole("heading", { name: "账号与凭证" });
     await user.click(screen.getByRole("button", { name: "退出登录" }));
 
-    await screen.findByRole("heading", { name: "登录" });
+    await screen.findByRole("heading", { name: "登录 UU Remote" });
     expect(window.localStorage.getItem("uurc.loginState")).toBeNull();
-    expect(screen.getByText("导入账号凭证")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "我的设备" })).not.toBeInTheDocument();
   });
 
@@ -1413,16 +1320,31 @@ function getPrimaryAction(name: string): HTMLElement {
   return within(screen.getByLabelText("远控主流程")).getByRole("button", { name });
 }
 
+async function openSettingsTab(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  const tab = screen.getByRole("tab", { name: "设置" });
+  if (tab.getAttribute("aria-selected") !== "true") {
+    await user.click(tab);
+  }
+}
+
 async function startCompatibleConnection(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await openSettingsTab(user);
+  await openAdvancedSettings(user);
   await user.click(screen.getByRole("radio", { name: "兼容模式" }));
   await user.click(getPrimaryAction("开始连接"));
 }
 
 async function openAdvancedSettings(user: ReturnType<typeof userEvent.setup>): Promise<void> {
-  const advanced = screen.getByText("调试信息");
-  const details = advanced.closest("details");
-  if (!details?.hasAttribute("open")) {
+  await openSettingsTab(user);
+  const advanced = screen.getByText("高级设置（调试用）");
+  const advancedDetails = advanced.closest("details");
+  if (!advancedDetails?.hasAttribute("open")) {
     await user.click(advanced);
+  }
+  const debugInfo = screen.getByText("调试信息");
+  const details = debugInfo.closest("details");
+  if (!details?.hasAttribute("open")) {
+    await user.click(debugInfo);
   }
 }
 

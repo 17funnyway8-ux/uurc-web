@@ -1,8 +1,11 @@
 import { lazy, Suspense, type ReactNode } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 
+import { LandingPage } from "./components/LandingPage.js";
+import { PageMetadata } from "./components/PageMetadata.js";
 import { Toast } from "./components/Toast.js";
 import { useRemoteControlController } from "./controllers/useRemoteControlController.js";
+import { getStoredAuthStatus } from "./uu/loginStateStore.js";
 import "./styles/index.css";
 
 const LoginPage = lazy(() => import("./components/LoginPage.js").then((module) => ({ default: module.LoginPage })));
@@ -23,12 +26,23 @@ const RemoteControlPage = lazy(() =>
 export default function App() {
   return (
     <BrowserRouter>
-      <AppRoutes />
+      <PageMetadata />
+      <RootRoutes />
     </BrowserRouter>
   );
 }
 
-function AppRoutes() {
+function RootRoutes() {
+  const location = useLocation();
+
+  if (location.pathname === "/") {
+    return <LandingPage loggedIn={getStoredAuthStatus().hasState} />;
+  }
+
+  return <ProductRoutes />;
+}
+
+function ProductRoutes() {
   const controller = useRemoteControlController();
   let content: ReactNode;
   if (controller.authLoading) {
@@ -52,6 +66,7 @@ function AppRoutes() {
         busy={d.busy}
         connectCode={d.assistanceConnectCode}
         connectId={d.assistanceConnectId}
+        error={d.error}
         notice={d.assistanceNotice}
         onConnectCodeChange={d.onAssistanceConnectCodeChange}
         onConnectIdChange={d.onAssistanceConnectIdChange}

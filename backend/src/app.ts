@@ -44,6 +44,11 @@ export function createApp(overrides: AppOverrides = {}) {
 
   const frontendDist = resolveFrontendDist();
   if (frontendDist) {
+    app.use((req, res, next) => {
+      const robotsHeader = getFrontendRobotsHeader(req.path);
+      if (robotsHeader) res.setHeader("X-Robots-Tag", robotsHeader);
+      next();
+    });
     app.use(
       express.static(frontendDist, {
         setHeaders: setStaticCacheHeaders,
@@ -81,6 +86,16 @@ export function getStaticCacheControl(filePath: string): string | undefined {
   }
   if (path.basename(filePath) === "index.html") return "no-cache";
   return undefined;
+}
+
+export function getFrontendRobotsHeader(urlPath: string): string | undefined {
+  const isPrivatePage =
+    urlPath === "/login" ||
+    urlPath === "/devices" ||
+    urlPath.startsWith("/devices/") ||
+    urlPath === "/partner" ||
+    urlPath === "/account";
+  return isPrivatePage ? "noindex, nofollow, noarchive" : undefined;
 }
 
 function resolveFrontendDist(): string | null {

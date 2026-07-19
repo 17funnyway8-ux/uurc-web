@@ -68,7 +68,7 @@ export function LoginPage({
             </section>
           ) : null}
           <div className="auth-card">
-            <h2>登录 UU Remote</h2>
+            <h1>登录 UU Remote</h1>
             <p className="auth-card-desc">使用手机号验证码登录，或导入已有账号凭证。</p>
             <Tabs
               ariaLabel="登录方式"

@@ -1,0 +1,37 @@
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { MemoryRouter } from "react-router";
+
+import { LandingPage } from "../src/components/LandingPage.js";
+
+describe("LandingPage", () => {
+  afterEach(cleanup);
+
+  it("sends signed-in visitors to their devices", () => {
+    render(
+      <MemoryRouter>
+        <LandingPage loggedIn />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("heading", { level: 1, name: "UU Remote Web" })).toBeInTheDocument();
+    for (const link of screen.getAllByRole("link", { name: /进入控制台/ })) {
+      expect(link).toHaveAttribute("href", "/devices");
+    }
+    expect(screen.getByRole("img", { name: "UU Remote Web 手机号验证码登录页面" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "UU Remote Web 设备列表页面" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "UU Remote Web 远程控制会话页面" })).toBeInTheDocument();
+  });
+
+  it("sends signed-out visitors to login", () => {
+    render(
+      <MemoryRouter>
+        <LandingPage loggedIn={false} />
+      </MemoryRouter>,
+    );
+
+    for (const link of screen.getAllByRole("link", { name: /进入控制台/ })) {
+      expect(link).toHaveAttribute("href", "/login");
+    }
+  });
+});

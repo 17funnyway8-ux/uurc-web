@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getStaticCacheControl } from "../src/app.js";
+import { getFrontendRobotsHeader, getStaticCacheControl } from "../src/app.js";
 
 describe("static asset cache policy", () => {
   it("keeps hashed assets immutable and the SPA shell revalidating", () => {
@@ -9,5 +9,15 @@ describe("static asset cache policy", () => {
     );
     expect(getStaticCacheControl("/app/frontend/dist/index.html")).toBe("no-cache");
     expect(getStaticCacheControl("/app/frontend/dist/favicon.svg")).toBeUndefined();
+  });
+
+  it("keeps private app routes out of search results", () => {
+    expect(getFrontendRobotsHeader("/")).toBeUndefined();
+    expect(getFrontendRobotsHeader("/product/social-preview.png")).toBeUndefined();
+    expect(getFrontendRobotsHeader("/login")).toBe("noindex, nofollow, noarchive");
+    expect(getFrontendRobotsHeader("/devices")).toBe("noindex, nofollow, noarchive");
+    expect(getFrontendRobotsHeader("/devices/device-1/control")).toBe("noindex, nofollow, noarchive");
+    expect(getFrontendRobotsHeader("/partner")).toBe("noindex, nofollow, noarchive");
+    expect(getFrontendRobotsHeader("/account")).toBe("noindex, nofollow, noarchive");
   });
 });

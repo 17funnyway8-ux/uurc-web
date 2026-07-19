@@ -1,46 +1,98 @@
 @media (max-width: 1180px) {
-  .device-home {
-    grid-template-areas:
-      "devices"
-      "account";
-    grid-template-columns: 1fr;
+  .app-sidebar {
+    flex-basis: 200px;
   }
 
-  .account-drawer {
-    position: static;
+  .control-side-panel {
+    flex-basis: 260px;
+  }
+}
+
+@media (max-width: 900px) {
+  /* 侧栏在窄屏下从纵向导航改为顶部横条：搜索/导航换行排列，账号身份文字收起只留状态点。 */
+  .app-shell {
+    flex-direction: column;
+  }
+
+  .app-sidebar {
+    flex: 0 0 auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    border-right: none;
+    border-bottom: 1px solid var(--border-soft);
+    padding: 10px 12px;
+  }
+
+  .app-sidebar-search {
+    order: 2;
+    flex: 1 1 160px;
+    margin-bottom: 0;
+  }
+
+  .app-sidebar-nav {
+    order: 3;
+    flex: 1 1 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .app-sidebar-spacer {
+    display: none;
+  }
+
+  .app-sidebar-identity {
+    order: 1;
+    flex: 0 0 auto;
+    margin: 0 8px 0 0;
+    padding: 0;
+    border-top: none;
+  }
+
+  .app-sidebar-identity-text {
+    display: none;
+  }
+
+  /* 会话页画面 + 右侧面板改为上下堆叠，面板限高避免挤压画面。 */
+  .control-stage-layout {
+    flex-direction: column;
+  }
+
+  .control-side-panel {
+    flex-basis: auto;
+    max-height: 42vh;
+    border-left: none;
+    border-top: 1px solid var(--dark-border);
+  }
+
+  .command-palette-scrim {
+    padding-top: 64px;
   }
 }
 
 @media (max-width: 780px) {
-  .product-shell,
-  .control-shell,
   .auth-product-shell {
     width: min(100vw - 24px, 760px);
     padding-top: 20px;
   }
 
-  .topbar,
-  .product-topbar,
-  .control-topbar {
+  .product-topbar {
     align-items: flex-start;
     flex-direction: column;
     display: flex;
   }
 
-  .control-drawer-row,
   .login-actions,
-  .device-home,
-  .remote-assistance-form {
+  .assistance-form {
     grid-template-columns: 1fr;
   }
 
   .control-remote-stage {
-    height: clamp(320px, 58vh, 560px);
+    height: clamp(320px, 50vh, 480px);
   }
 
   .control-command-bar {
-    width: 100%;
-    max-width: none;
+    max-width: calc(100% - 16px);
     flex-wrap: nowrap;
     justify-content: flex-start;
     overflow-x: auto;
@@ -52,9 +104,8 @@
     display: none;
   }
 
-  .connection-recovery-strip {
-    flex-basis: 260px;
-    max-width: 260px;
+  .reconnect-banner {
+    max-width: calc(100% - 16px);
   }
 
   .shortcut-menu-panel {
@@ -75,46 +126,44 @@
     width: 280px;
   }
 
-  .control-drawer-row {
-    margin-top: 8px;
-  }
-
-  .control-insights {
-    grid-template-columns: 1fr;
-  }
-
-  .quality-metrics {
-    grid-template-columns: 1fr;
-  }
-
   .remote-input-row:not(.compact) {
     grid-template-columns: 1fr;
   }
 
-  .control-stage-layout {
-    gap: 10px;
-  }
-
-  .button-row.three,
-  .account-actions,
   .input-guard,
-  .identity-summary div,
   .inline-fields,
   .join-mode-control,
   .segmented-control,
   .readiness-steps,
   .route-options,
-  .transport-actions {
+  .transport-actions,
+  .occupied-dialog-options {
     grid-template-columns: 1fr;
   }
 
   .identity-summary div {
-    display: block;
+    grid-template-columns: 1fr;
   }
 
   .identity-summary span {
     display: block;
     margin-bottom: 2px;
+  }
+
+  .device-quick-connect input {
+    width: 130px;
+  }
+
+  .device-row {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 52px;
+    padding: 10px 16px;
+  }
+
+  .device-row-meta {
+    flex-basis: 100%;
+    padding-left: 20px;
   }
 
   h1 {

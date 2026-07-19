@@ -1,5 +1,5 @@
-import type { StreamerSignalControlResult } from "@uurc/shared/streamer/signal";
-import type { RemoteSignalGatewayEvent, RemoteSignalGatewayStatus } from "@uurc/shared/types";
+import type { RemoteSignalGatewayEvent, RemoteSignalGatewayStatus } from "@uurc/shared/signalGateway/model";
+import type { StreamerSignalControlResult } from "@uurc/shared/streamer/signalControl";
 
 export function formatSignalGatewayErrorHint(status: RemoteSignalGatewayStatus | null): string {
   if (status?.status !== "error") return "";

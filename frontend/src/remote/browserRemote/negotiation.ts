@@ -1,8 +1,8 @@
-import type { StreamerIceNetworkType } from "@uurc/shared/streamer/signal";
-import type { RemoteSignalGatewayEvent } from "@uurc/shared/types";
+import type { RemoteSignalGatewayEvent } from "@uurc/shared/signalGateway/model";
+import type { StreamerIceNetworkType } from "@uurc/shared/streamer/signalSoac";
 import { asRecord, dropUndefinedFields } from "./utils.js";
 
-export interface SwitchNetworkNotify {
+interface SwitchNetworkNotify {
   transportType?: StreamerIceNetworkType;
   iceId?: string;
 }

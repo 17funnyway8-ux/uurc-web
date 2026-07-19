@@ -2,30 +2,32 @@ import { describe, expect, it } from "vitest";
 
 import {
   STREAMER_CONTROLLER_SIGNAL_EVENTS,
-  STREAMER_CONTROLLER_INBOUND_SOAC_TYPES,
-  STREAMER_CONTROLLER_OUTBOUND_SOAC_TYPES,
   STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS,
   STREAMER_CONTROL_EVENT_NAME,
-  STREAMER_CONTROL_EVENT_WIRE_ARGUMENT_ORDER,
-  STREAMER_CONTROL_EVENT_PAYLOAD_KEYS,
-  STREAMER_CONTROL_EVENT_PAYLOAD_TYPES,
-  STREAMER_CONTROL_RESULT_KEYS,
-  STREAMER_DEFAULT_SIGNAL_HEADER_VALUES,
-  STREAMER_CLIENT_VERSION,
-  buildStreamerFlagHeader,
   buildStreamerSignalHeaders,
-  STREAMER_ICE_NETWORK_TYPES,
-  STREAMER_SIGNAL_HEADER_KEYS,
   STREAMER_SIGNAL_SOCKET_EVENTS,
+} from "../src/streamer/signalSession.js";
+import {
+  STREAMER_CONTROLLER_INBOUND_SOAC_TYPES,
+  STREAMER_ICE_NETWORK_TYPES,
   STREAMER_SOAC_EVENT,
-  STREAMER_SOAC_MESSAGE_KEYS,
-  STREAMER_SOAC_PAYLOAD_KEYS,
   STREAMER_SOAC_TYPES,
   buildStreamerSoacPayload,
-  buildStreamerRtcConfiguration,
-  normalizeStreamerSignalControlAck,
+} from "../src/streamer/signalSoac.js";
+import { buildStreamerRtcConfiguration, normalizeStreamerSignalControlAck } from "../src/streamer/signalControl.js";
+import {
+  STREAMER_CLIENT_VERSION,
+  STREAMER_CONTROLLER_OUTBOUND_SOAC_TYPES,
+  STREAMER_CONTROL_EVENT_PAYLOAD_KEYS,
+  STREAMER_CONTROL_EVENT_PAYLOAD_TYPES,
+  STREAMER_CONTROL_EVENT_WIRE_ARGUMENT_ORDER,
   STREAMER_CONTROL_RESULT_ICE_SERVER_KEYS,
-} from "../src/streamer/signal.js";
+  STREAMER_CONTROL_RESULT_KEYS,
+  STREAMER_DEFAULT_SIGNAL_HEADER_VALUES,
+  STREAMER_SIGNAL_HEADER_KEYS,
+  STREAMER_SOAC_MESSAGE_KEYS,
+  STREAMER_SOAC_PAYLOAD_KEYS,
+} from "../src/streamer/internal/signalSchema.js";
 
 describe("streamer signal", () => {
   it("captures the SOAC payload surface", () => {
@@ -66,7 +68,9 @@ describe("streamer signal", () => {
       "X-NRD-CONTROLLING": "0",
       streamer_version: "V3.1.14",
     });
-    expect(buildStreamerFlagHeader({ gzipSdp: true })).toBe('{"sdp_flags":{"gzip_sdp":true}}');
+    expect(buildStreamerSignalHeaders({ token: "room-token", gzipSdp: true }).streamer_flag).toBe(
+      '{"sdp_flags":{"gzip_sdp":true}}',
+    );
   });
 
   it("captures controller socket.io event names and control payload keys", () => {

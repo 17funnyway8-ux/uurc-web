@@ -1,4 +1,4 @@
-import type { DecodedStreamerCursorShape } from "@uurc/shared/streamer/controlChannel";
+import type { DecodedStreamerCursorShape } from "@uurc/shared/streamer/controlChannelDecode";
 
 export const REMOTE_CURSOR_LOCAL_RENDERING_ENABLED = import.meta.env.VITE_REMOTE_CURSOR_LOCAL_RENDERING !== "false";
 
@@ -9,7 +9,7 @@ export const REMOTE_CURSOR_IMAGE_LIMITS = {
   maxRenderedDimension: 128,
 } as const;
 
-export type RemoteCursorKind =
+type RemoteCursorKind =
   | "default"
   | "text"
   | "wait"
@@ -123,7 +123,7 @@ export function createRemoteCursorPresentation(shape: DecodedStreamerCursorShape
   };
 }
 
-export function remoteCursorKind(cursorType: number | undefined): RemoteCursorKind {
+function remoteCursorKind(cursorType: number | undefined): RemoteCursorKind {
   switch (cursorType) {
     case 0x7f01:
       return "text";

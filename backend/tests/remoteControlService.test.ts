@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import { RemoteControlService } from "../src/services/remoteControlService.js";
 import {
   DeferredSignalGatewayConnector,
-  FakeSignalGatewayConnection,
   FakeSignalGatewayConnector,
   createRoomConfigSource,
   roomConfigFor,
@@ -278,6 +277,21 @@ describe("RemoteControlService", () => {
     });
   });
 
+  it("keeps the active connection authoritative when a later start has no room config", async () => {
+    const connector = new FakeSignalGatewayConnector();
+    const service = new RemoteControlService(undefined, connector);
+    await service.startSignalGateway({ roomConfig: roomConfigFor("wss://signal-a.example") });
+
+    await expect(service.startSignalGateway()).resolves.toBeNull();
+
+    expect(connector.connections[0].closed).toBe(false);
+    connector.connectCalls[0].onConnectionStateChange?.({ status: "closed", reason: "remote disconnect" });
+    expect(service.getSignalGatewayStatus()).toMatchObject({
+      status: "closed",
+      error: "remote disconnect",
+    });
+  });
+
   it("propagates an upstream disconnect into the gateway status", async () => {
     const connector = new FakeSignalGatewayConnector();
     const service = new RemoteControlService(createRoomConfigSource(), connector);
@@ -294,5 +308,4 @@ describe("RemoteControlService", () => {
     });
     await expect(service.sendSignalControl({ appControlId: "app-control-1" })).resolves.toBeNull();
   });
-
 });

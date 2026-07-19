@@ -1,6 +1,6 @@
 import { CircleStop, LoaderCircle, Monitor, PlugZap } from "lucide-react";
 
-import type { UuDevice, UuParticipantInfo } from "@uurc/shared/types";
+import type { UuDevice, UuParticipantInfo } from "@uurc/shared/devices";
 
 import type { BusyAction, ConnectionRouteMode, SdpTransportMode } from "../app/remoteControlTypes.js";
 import { ParticipantList } from "./ParticipantList.js";

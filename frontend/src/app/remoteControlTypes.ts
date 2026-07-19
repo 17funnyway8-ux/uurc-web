@@ -1,11 +1,7 @@
-import type {
-  AuthStatus,
-  RemoteAssistanceControlMode,
-  RemoteControlBootstrap,
-  RoomJoinKind,
-  RoomJoinResult,
-  UuDeviceGroups,
-} from "@uurc/shared/types";
+import type { AuthStatus } from "@uurc/shared/authState";
+import type { UuDeviceGroups } from "@uurc/shared/devices";
+import type { RemoteControlBootstrap } from "@uurc/shared/remoteBootstrap";
+import type { RemoteAssistanceControlMode, RoomJoinKind, RoomJoinResult } from "@uurc/shared/roomSession";
 
 import type { BrowserRemoteVideoElementSample } from "../remote/browserRemoteSessionTypes.js";
 
@@ -72,7 +68,7 @@ export type RemoteVideoSourceInfo = {
   hasSignal: boolean;
 };
 
-export type RemoteConnectionQualityState = "pending" | "good" | "warn" | "bad";
+type RemoteConnectionQualityState = "pending" | "good" | "warn" | "bad";
 
 export type RemoteConnectionQuality = {
   state: RemoteConnectionQualityState;

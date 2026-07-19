@@ -1,22 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  ANDROID_DEVICE_INIT_PATH,
   buildAndroidDeviceInitRequest,
   buildMobileCodeRequest,
   buildMobileLoginRequest,
-  MOBILE_CODE_PATH,
-  MOBILE_LOGIN_PATH,
   normalizeDeviceInitResult,
   normalizeMobileLoginResult,
   type AndroidDeviceInitProfile,
-} from "../src/index.js";
+} from "../src/loginFlow.js";
 
 describe("UU app-aligned login flow requests", () => {
   it("builds the SMS code request body used by the Android app", () => {
     expect(buildMobileCodeRequest({ regionCode: "86", mobile: "13800000000" })).toEqual({
       method: "POST",
-      path: MOBILE_CODE_PATH,
+      path: "/api/v1/security/mobile/code",
       body: {
         country_code: "86",
         mobile: "13800000000",
@@ -28,7 +25,7 @@ describe("UU app-aligned login flow requests", () => {
   it("builds the mobile login request body used by the Android app", () => {
     expect(buildMobileLoginRequest({ regionCode: "86", mobile: "13800000000", code: "123456" })).toEqual({
       method: "POST",
-      path: MOBILE_LOGIN_PATH,
+      path: "/api/v1/login/by_mobile",
       body: {
         country_code: "86",
         mobile: "13800000000",
@@ -59,7 +56,7 @@ describe("UU app-aligned login flow requests", () => {
 
     expect(buildAndroidDeviceInitRequest(profile)).toEqual({
       method: "POST",
-      path: ANDROID_DEVICE_INIT_PATH,
+      path: "/api/v1/device/android/init",
       body: profile,
     });
   });

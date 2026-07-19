@@ -1,7 +1,7 @@
 import { Github, Handshake, KeyRound, Monitor, Search } from "lucide-react";
 import { Link, NavLink, Outlet } from "react-router";
 
-import type { UuDeviceGroups } from "@uurc/shared/types";
+import type { UuDeviceGroups } from "@uurc/shared/devices";
 
 import { useCommandPaletteController } from "../controllers/useCommandPaletteController.js";
 import { CommandPalette } from "./CommandPalette.js";

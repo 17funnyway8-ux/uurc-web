@@ -1,15 +1,15 @@
 import { Router } from "express";
 import { REMOTE_SESSION_HEADER, isRemoteSessionId } from "@uurc/shared/remoteSession";
-
-import type { RemoteControlService } from "../services/remoteControlService.js";
-import type { RemoteControlSessionRegistry } from "../services/remoteControlSessionRegistry.js";
 import {
-  BadRequestError,
+  ValidationError,
   parseOptionalEventId,
   parseSignalControlRequest,
   parseSignalGatewayStartRequest,
   parseSignalSoacRequest,
-} from "./remoteRequestParsers.js";
+} from "@uurc/shared/signalGateway/requests";
+
+import type { RemoteControlService } from "../services/remoteControlService.js";
+import type { RemoteControlSessionRegistry } from "../services/remoteControlSessionRegistry.js";
 
 export function createRemoteRouter(remoteControlSessions: RemoteControlSessionRegistry): Router {
   const router = Router();
@@ -52,7 +52,7 @@ export function createRemoteRouter(remoteControlSessions: RemoteControlSessionRe
 
       res.json(status);
     } catch (error) {
-      if (error instanceof BadRequestError) {
+      if (error instanceof ValidationError) {
         res.status(400).json({ error: error.message });
         return;
       }
@@ -71,7 +71,7 @@ export function createRemoteRouter(remoteControlSessions: RemoteControlSessionRe
       const afterEventId = parseOptionalEventId(req.query.after);
       res.json(remoteControl.getSignalGatewayEvents(afterEventId));
     } catch (error) {
-      if (error instanceof BadRequestError) {
+      if (error instanceof ValidationError) {
         res.status(400).json({ error: error.message });
         return;
       }
@@ -96,7 +96,7 @@ export function createRemoteRouter(remoteControlSessions: RemoteControlSessionRe
 
       res.json(result);
     } catch (error) {
-      if (error instanceof BadRequestError) {
+      if (error instanceof ValidationError) {
         res.status(400).json({ error: error.message });
         return;
       }
@@ -116,7 +116,7 @@ export function createRemoteRouter(remoteControlSessions: RemoteControlSessionRe
 
       res.json(result);
     } catch (error) {
-      if (error instanceof BadRequestError) {
+      if (error instanceof ValidationError) {
         res.status(400).json({ error: error.message });
         return;
       }

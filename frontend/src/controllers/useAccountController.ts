@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { AuthStatus } from "@uurc/shared/types";
+import type { AuthStatus } from "@uurc/shared/authState";
 
 export function useAccountController() {
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);

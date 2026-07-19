@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 
-import { SIGNAL_GATEWAY_MAX_EVENTS } from "@uurc/shared/signalGatewayProtocol";
-import type {
-  RemoteSignalGatewayEvent,
-  RemoteSignalGatewayStatus,
-  RemoteSignalReadinessDiagnostics,
-} from "@uurc/shared/types";
+import { SIGNAL_GATEWAY_MAX_EVENTS } from "@uurc/shared/signalGateway/status";
+import type { RemoteSignalGatewayEvent, RemoteSignalGatewayStatus } from "@uurc/shared/signalGateway/model";
+import type { RemoteSignalReadinessDiagnostics } from "@uurc/shared/streamer/readiness";
 
 import type { RoomJoinContext } from "../app/remoteControlTypes.js";
-import { getRemoteSignalDiagnostics, getRemoteSignalEvents } from "../api/client.js";
+import { getRemoteSignalDiagnostics, getRemoteSignalEvents } from "../api/remoteSignalApi.js";
 import type { BrowserRemoteSession } from "../remote/browserRemoteSession.js";
 import type { BrowserRemoteSessionState } from "../remote/browserRemoteSessionTypes.js";
 

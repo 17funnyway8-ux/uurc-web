@@ -1,9 +1,6 @@
-import type {
-  RemoteAssistanceControlMode,
-  RemoteControlBootstrap,
-  RemoteSignalGatewayStatus,
-  RoomJoinResult,
-} from "@uurc/shared/types";
+import type { RemoteAssistanceControlMode, RoomJoinResult } from "@uurc/shared/roomSession";
+import type { RemoteControlBootstrap } from "@uurc/shared/remoteBootstrap";
+import type { RemoteSignalGatewayStatus } from "@uurc/shared/signalGateway/model";
 
 import type { RoomJoinContext } from "../app/remoteControlTypes.js";
 
@@ -37,11 +34,6 @@ export function getRoomJoinFailureMessage(result: RoomJoinResult | null): string
     result.upstream.body.msg?.trim() ||
     (typeof upstreamCode === "number" ? `code ${upstreamCode}` : `HTTP ${upstreamStatus}`);
   return `服务端拒绝加入房间：${reason}`;
-}
-
-export function getRoomJoinFailureTakeoverHint(result: RoomJoinResult | null, forceJoin: boolean): string {
-  if (forceJoin || !result || result.roomConfigSummary) return "";
-  return result.upstream.body.code === 2002 ? "选择接管后重试。" : "";
 }
 
 export function formatRoomJoinContext(context: RemoteControlBootstrap["joinContext"]): string {

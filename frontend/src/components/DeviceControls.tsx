@@ -1,6 +1,6 @@
 import { ChevronRight, Monitor, Smartphone, Tv } from "lucide-react";
 
-import type { UuDeviceGroups } from "@uurc/shared/types";
+import type { UuDeviceGroups } from "@uurc/shared/devices";
 
 import {
   categorizeDeviceGroups,

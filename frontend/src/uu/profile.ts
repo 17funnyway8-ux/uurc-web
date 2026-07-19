@@ -1,4 +1,5 @@
-import type { AndroidDeviceInitProfile, LoginState } from "@uurc/shared/types";
+import type { LoginState } from "@uurc/shared/authState";
+import type { AndroidDeviceInitProfile } from "@uurc/shared/loginFlow";
 
 export function createSyntheticAndroidProfile(
   state: Partial<LoginState>,

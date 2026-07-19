@@ -1,4 +1,5 @@
 import { STREAMER_SOAC_EVENT } from "./signalSoac.js";
+import { STREAMER_DEFAULT_SIGNAL_HEADER_VALUES } from "./internal/signalSchema.js";
 
 export const STREAMER_CONTROLLER_SIGNAL_EVENTS = [
   STREAMER_SOAC_EVENT,
@@ -16,13 +17,6 @@ export const STREAMER_SIGNAL_SOCKET_EVENTS = {
 
 export const STREAMER_CONTROL_EVENT_NAME = STREAMER_SIGNAL_SOCKET_EVENTS.control;
 export const STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS = 10_000;
-export const STREAMER_CLIENT_VERSION = "V3.1.14" as const;
-
-const STREAMER_DEFAULT_SIGNAL_HEADER_VALUES = {
-  "X-NRD-CONTROLLING": "0",
-  streamer_version: STREAMER_CLIENT_VERSION,
-} as const;
-
 interface StreamerFlagHeaderOptions {
   gzipSdp: boolean;
 }
@@ -32,7 +26,7 @@ export interface BuildStreamerSignalHeadersInput {
   gzipSdp?: boolean;
 }
 
-export function buildStreamerFlagHeader(options: StreamerFlagHeaderOptions): string {
+function buildStreamerFlagHeader(options: StreamerFlagHeaderOptions): string {
   return JSON.stringify({ sdp_flags: { gzip_sdp: options.gzipSdp } });
 }
 

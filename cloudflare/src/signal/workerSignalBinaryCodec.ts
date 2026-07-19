@@ -1,4 +1,4 @@
-import type { AsyncSignalGatewayBinaryCodec } from "@uurc/shared/signalGatewayProtocol";
+import type { AsyncSignalGatewayBinaryCodec } from "@uurc/shared/signalGateway/payload";
 
 export const workerSignalGatewayBinary: AsyncSignalGatewayBinaryCodec<Uint8Array> = {
   decodeBase64: decodeBase64Bytes,

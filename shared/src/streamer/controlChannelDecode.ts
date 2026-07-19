@@ -280,7 +280,10 @@ function decodeProtobufInt32(value: bigint): number | undefined {
   return value >= 0n && value <= 0xffffffffffffffffn ? Number(BigInt.asIntN(32, value)) : undefined;
 }
 
-function readDoubleField(bytes: Uint8Array, field: Parameters<typeof protobufFixed64FieldBytes>[1]): number | undefined {
+function readDoubleField(
+  bytes: Uint8Array,
+  field: Parameters<typeof protobufFixed64FieldBytes>[1],
+): number | undefined {
   const encoded = protobufFixed64FieldBytes(bytes, field);
   if (!encoded) return undefined;
   const value = new DataView(encoded.buffer, encoded.byteOffset, encoded.byteLength).getFloat64(0, true);
@@ -302,5 +305,7 @@ function romMessageTypeName(value: number): string | undefined {
 }
 
 function toBytes(data: ArrayBuffer | ArrayBufferView): Uint8Array {
-  return data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  return data instanceof ArrayBuffer
+    ? new Uint8Array(data)
+    : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
 }

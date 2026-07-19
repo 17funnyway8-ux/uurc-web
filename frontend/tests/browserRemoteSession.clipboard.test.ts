@@ -1,55 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-  RemoteSignalControlRequest,
-  RemoteSignalControlResult,
-  RemoteSignalGatewayEvent,
-  RemoteSignalSoacRequest,
-  RemoteSignalSoacResult,
-} from "@uurc/shared/types";
+import { encodeStreamerTextMessage } from "@uurc/shared/streamer/controlChannelEncode";
+import { STREAMER_CLIPBOARD_FORMAT_NAMES, STREAMER_CLIPBOARD_RESULTS } from "@uurc/shared/streamer/clipboardProtocol";
+import { decodeStreamerClipboardMessage } from "@uurc/shared/streamer/clipboardV3";
 import {
-  STREAMER_CAPTURE_CHANGE_TYPES,
-  encodeStreamerEchoResponseMessage,
-  encodeStreamerEchoRequestMessage,
-  encodeStreamerInputMessage,
-  encodeStreamerTextMessage,
-  type DecodedStreamerCursorShape,
-} from "@uurc/shared/streamer/controlChannel";
-import {
-  STREAMER_CLIPBOARD_FORMAT_NAMES,
-  STREAMER_CLIPBOARD_RESULTS,
   decodeStreamerClipboardV4Message,
-  decodeStreamerClipboardTextChangeRequest,
   encodeStreamerClipboardFormatDataAskRequest,
-} from "@uurc/shared/streamer/clipboard";
-import {
-  buildStreamerKeyboardInputMessage,
-  buildStreamerMacKeyboardInputMessage,
-  buildStreamerMacMouseMoveAbsoluteInputMessage,
-  buildStreamerMacMouseScrollInputMessage,
-  buildStreamerMouseButtonInputMessage,
-  buildStreamerMouseMoveAbsoluteInputMessage,
-  buildStreamerMouseScrollInputMessage,
-  buildStreamerTextInputMessage,
-  buildStreamerWindowsKeyboardInputMessage,
-} from "@uurc/shared/streamer/input";
-import { STREAMER_ICE_NETWORK_TYPES } from "@uurc/shared/streamer/signal";
-import { STREAMER_DATA_CHANNEL_LABELS, STREAMER_MAX_DATA_BUFFER_BYTES } from "@uurc/shared/streamer/transport";
+} from "@uurc/shared/streamer/clipboardV4";
+import { STREAMER_DATA_CHANNEL_LABELS } from "@uurc/shared/streamer/transport";
 import { BrowserRemoteSession } from "../src/remote/browserRemoteSession.js";
 import {
-  FakeDataChannel,
   FakePeerConnection,
   FakeRemoteApi,
   blobFromBytes,
   clipboardDataBlockRequest,
-  cursorShapeControlMessage,
-  deferred,
   encodeUtf8,
   flushMicrotasks,
-  makeInboundVideoStats,
-  soacEvent,
   startClipboardSession,
 } from "./browserRemoteSessionTestHarness.js";
+
+function decodeStreamerClipboardTextChangeRequest(data: ArrayBuffer | ArrayBufferView) {
+  const message = decodeStreamerClipboardMessage(data);
+  return message?.type === "text-change-request" ? message : undefined;
+}
 
 describe("BrowserRemoteSession", () => {
   it("publishes remote media streams and sends text data on the App text channel", async () => {
@@ -510,5 +483,4 @@ describe("BrowserRemoteSession", () => {
       vi.useRealTimers();
     }
   });
-
 });

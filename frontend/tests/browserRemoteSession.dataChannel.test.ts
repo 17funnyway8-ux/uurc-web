@@ -1,55 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-  RemoteSignalControlRequest,
-  RemoteSignalControlResult,
-  RemoteSignalGatewayEvent,
-  RemoteSignalSoacRequest,
-  RemoteSignalSoacResult,
-} from "@uurc/shared/types";
+import type { DecodedStreamerCursorShape } from "@uurc/shared/streamer/controlChannelDecode";
 import {
-  STREAMER_CAPTURE_CHANGE_TYPES,
-  encodeStreamerEchoResponseMessage,
   encodeStreamerEchoRequestMessage,
-  encodeStreamerInputMessage,
-  encodeStreamerTextMessage,
-  type DecodedStreamerCursorShape,
-} from "@uurc/shared/streamer/controlChannel";
-import {
-  STREAMER_CLIPBOARD_FORMAT_NAMES,
-  STREAMER_CLIPBOARD_RESULTS,
-  decodeStreamerClipboardV4Message,
-  decodeStreamerClipboardTextChangeRequest,
-  encodeStreamerClipboardFormatDataAskRequest,
-} from "@uurc/shared/streamer/clipboard";
-import {
-  buildStreamerKeyboardInputMessage,
-  buildStreamerMacKeyboardInputMessage,
-  buildStreamerMacMouseMoveAbsoluteInputMessage,
-  buildStreamerMacMouseScrollInputMessage,
-  buildStreamerMouseButtonInputMessage,
-  buildStreamerMouseMoveAbsoluteInputMessage,
-  buildStreamerMouseScrollInputMessage,
-  buildStreamerTextInputMessage,
-  buildStreamerWindowsKeyboardInputMessage,
-} from "@uurc/shared/streamer/input";
-import { STREAMER_ICE_NETWORK_TYPES } from "@uurc/shared/streamer/signal";
-import { STREAMER_DATA_CHANNEL_LABELS, STREAMER_MAX_DATA_BUFFER_BYTES } from "@uurc/shared/streamer/transport";
+  encodeStreamerEchoResponseMessage,
+} from "@uurc/shared/streamer/controlChannelEncode";
+import { STREAMER_DATA_CHANNEL_LABELS } from "@uurc/shared/streamer/transport";
 import { BrowserRemoteSession } from "../src/remote/browserRemoteSession.js";
-import {
-  FakeDataChannel,
-  FakePeerConnection,
-  FakeRemoteApi,
-  blobFromBytes,
-  clipboardDataBlockRequest,
-  cursorShapeControlMessage,
-  deferred,
-  encodeUtf8,
-  flushMicrotasks,
-  makeInboundVideoStats,
-  soacEvent,
-  startClipboardSession,
-} from "./browserRemoteSessionTestHarness.js";
+import { FakePeerConnection, FakeRemoteApi, cursorShapeControlMessage } from "./browserRemoteSessionTestHarness.js";
 
 describe("BrowserRemoteSession", () => {
   it("records throttled inbound data channel messages for control debugging", async () => {
@@ -242,5 +200,4 @@ describe("BrowserRemoteSession", () => {
     });
     expect(states.at(-1)).toBe("idle");
   });
-
 });

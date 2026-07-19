@@ -1,4 +1,4 @@
-export type LocalClipboardOperation = "read" | "write";
+type LocalClipboardOperation = "read" | "write";
 
 export function getLocalClipboardAccessIssue(operation: LocalClipboardOperation): string | null {
   if (typeof window === "undefined" || typeof navigator === "undefined") {

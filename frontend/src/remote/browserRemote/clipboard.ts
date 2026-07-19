@@ -3,14 +3,18 @@ import {
   STREAMER_CLIPBOARD_FORMAT_NAMES,
   STREAMER_CLIPBOARD_FORMATS,
   STREAMER_CLIPBOARD_RESULTS,
+} from "@uurc/shared/streamer/clipboardProtocol";
+import {
   decodeStreamerClipboardMessage,
+  encodeStreamerClipboardTextChangeRequest,
+} from "@uurc/shared/streamer/clipboardV3";
+import {
   decodeStreamerClipboardV4Message,
   encodeStreamerClipboardDataBlockConfirmResponse,
   encodeStreamerClipboardFormatDataAskRequest,
-  encodeStreamerClipboardTextChangeRequest,
   type DecodedStreamerClipboardDataBlockRequest,
   type DecodedStreamerClipboardFormatDataConfirm,
-} from "@uurc/shared/streamer/clipboard";
+} from "@uurc/shared/streamer/clipboardV4";
 import { STREAMER_DATA_CHANNEL_LABELS, type StreamerDataChannelLabel } from "@uurc/shared/streamer/transport";
 import { dataChannelPayloadBytes, summarizeDataChannelPayload } from "./dataChannel.js";
 import { getErrorMessage } from "./utils.js";
@@ -43,7 +47,11 @@ interface BrowserRemoteClipboardOptions {
   nextEnvelope(): ClipboardEnvelope;
   now(): number;
   onRemoteClipboard?(text: string): void;
-  recordDebugEvent(kind: "data_channel" | "data_recv" | "data_send", summary: string, details?: Record<string, unknown>): void;
+  recordDebugEvent(
+    kind: "data_channel" | "data_recv" | "data_send",
+    summary: string,
+    details?: Record<string, unknown>,
+  ): void;
   sendDataChannel(label: StreamerDataChannelLabel, payload: Uint8Array, event: ClipboardSendEvent): void;
 }
 

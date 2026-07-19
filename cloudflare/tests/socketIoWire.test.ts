@@ -4,8 +4,8 @@ import {
   buildEngineIoWebSocketUrl,
   deconstructBinary,
   encodeSocketIoPacket,
-  ensureEngineIoBinaryFramePrefix,
   parseSocketIoPacket,
+  prefixEngineIoBinaryFrame,
   reconstructBinaryPlaceholders,
   stripEngineIoBinaryFramePrefix,
 } from "../src/signal/socketIoWire.js";
@@ -54,12 +54,12 @@ describe("Socket.IO wire codec", () => {
     });
   });
 
-  it("adds and removes the Engine.IO binary frame prefix exactly once", () => {
+  it("adds a transport prefix to every raw binary payload and strips one received prefix", () => {
     const payload = new Uint8Array([8, 1]);
-    const prefixed = ensureEngineIoBinaryFramePrefix(payload);
+    const prefixed = prefixEngineIoBinaryFrame(payload);
 
     expect(prefixed).toEqual(new Uint8Array([4, 8, 1]));
-    expect(ensureEngineIoBinaryFramePrefix(prefixed)).toBe(prefixed);
+    expect(prefixEngineIoBinaryFrame(prefixed)).toEqual(new Uint8Array([4, 4, 8, 1]));
     expect(stripEngineIoBinaryFramePrefix(prefixed)).toEqual(payload);
     expect(stripEngineIoBinaryFramePrefix(payload)).toBe(payload);
   });

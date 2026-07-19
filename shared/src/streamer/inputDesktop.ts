@@ -1,18 +1,17 @@
 import { STREAMER_ANDROID_TO_MAC_KEY_CODES, STREAMER_ANDROID_TO_WINDOWS_KEY_CODES } from "./internal/keyCodes.js";
 
-export const STREAMER_DESKTOP_INPUT_EVENT_TYPES = {
+const STREAMER_DESKTOP_INPUT_EVENT_TYPES = {
   mousePress: "mouse_press",
   mouseRelease: "mouse_release",
   mouseClick: "mouse_click",
   mouseMoveAbsolute: "mouse_move_absolute",
-  mouseMoveRelative: "mouse_move_relative",
   mouseScroll: "mouse_scroll",
   keyboardPress: "kbd_press",
   keyboardRelease: "kbd_release",
   keyboardClick: "kbd_click",
 } as const;
 
-export const STREAMER_MOUSE_BUTTON_CODES = {
+const STREAMER_MOUSE_BUTTON_CODES = {
   primary: 1,
   secondary: 2,
   tertiary: 4,

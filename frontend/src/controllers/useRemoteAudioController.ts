@@ -3,8 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import type { RemoteAudioControlProps } from "../components/RemoteAudioControl.js";
 import type { RemoteAudioPlaybackState } from "../app/remoteControlTypes.js";
 import type { BrowserRemoteSession } from "../remote/browserRemoteSession.js";
-import type { BrowserRemoteAudioElementSample, BrowserRemoteSessionState } from "../remote/browserRemoteSessionTypes.js";
-import { createSingleTrackMediaStream } from "../remote/remoteControlUiModel.js";
+import type {
+  BrowserRemoteAudioElementSample,
+  BrowserRemoteSessionState,
+} from "../remote/browserRemoteSessionTypes.js";
+import { createSingleTrackMediaStream } from "../remote/remoteVideoModel.js";
 
 interface UseRemoteAudioControllerOptions {
   browserSessionRef: RefObject<BrowserRemoteSession | null>;

@@ -1,5 +1,5 @@
-import { API_BASE, APP_PACKAGE, APP_SIGNING_KEY, VERSION_CODE, VERSION_NAME } from "@uurc/shared/constants";
-import type { LoginState } from "@uurc/shared/types";
+import { APP_PACKAGE, APP_SIGNING_KEY, VERSION_CODE, VERSION_NAME } from "@uurc/shared/constants";
+import type { LoginState } from "@uurc/shared/authState";
 
 interface HeaderOverrides {
   channel?: string;
@@ -49,11 +49,6 @@ export async function buildSignedHeaders({
   }
 
   return headers;
-}
-
-export function buildUuApiUrl(path: string): string {
-  assertAllowedUuApiPath(path);
-  return `${API_BASE}${path}`;
 }
 
 function buildCommonHeaders(state: Partial<LoginState>, overrides: HeaderOverrides = {}): Record<string, string> {

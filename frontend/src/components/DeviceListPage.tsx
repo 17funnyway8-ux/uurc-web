@@ -1,6 +1,7 @@
 import { ChevronRight, LoaderCircle, RefreshCw, TerminalSquare } from "lucide-react";
 
-import type { AuthStatus, UuDeviceGroups } from "@uurc/shared/types";
+import type { AuthStatus } from "@uurc/shared/authState";
+import type { UuDeviceGroups } from "@uurc/shared/devices";
 
 import { DeviceList } from "./DeviceControls.js";
 

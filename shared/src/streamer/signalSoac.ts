@@ -1,7 +1,6 @@
 export const STREAMER_SOAC_EVENT = "soac" as const;
 export const STREAMER_SOAC_TYPES = ["offer", "answer", "candidate", "restart_ice"] as const;
 export type StreamerSoacType = (typeof STREAMER_SOAC_TYPES)[number];
-export const STREAMER_CONTROLLER_OUTBOUND_SOAC_TYPES = ["offer", "candidate", "restart_ice"] as const;
 export const STREAMER_CONTROLLER_INBOUND_SOAC_TYPES = ["answer", "candidate", "restart_ice"] as const;
 
 export const STREAMER_ICE_NETWORK_TYPES = {

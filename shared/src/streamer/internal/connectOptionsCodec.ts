@@ -1,5 +1,3 @@
-import type { StreamerScreenResolutionInput, StreamerVirtualDisplayModeInput } from "../connectOptions.js";
-import { STREAMER_CLIENT_TYPES, STREAMER_CONTROL_CONNECT_TYPES } from "../connectOptions.js";
 import {
   STREAMER_APP_CLIENT_VERSION,
   STREAMER_CAPTURE_TYPES,
@@ -12,6 +10,12 @@ import {
   STREAMER_FPS_VALUES,
   STREAMER_VIDEO_QUALITY_VALUES,
 } from "./connectOptionsSchema.js";
+import {
+  STREAMER_CLIENT_TYPES,
+  STREAMER_CONTROL_CONNECT_TYPES,
+  type StreamerScreenResolutionInput,
+  type StreamerVirtualDisplayModeInput,
+} from "../connectOptionsModel.js";
 import { pushInt32Field, pushMessageField, pushStringField, pushVarintField } from "./protobufWire.js";
 
 export interface EncodeStreamerCaptureParamsInput {
@@ -63,15 +67,18 @@ export function encodeStreamerConnectOptions(input: EncodeStreamerConnectOptions
 
   if (captureType !== STREAMER_CAPTURE_TYPES.CT_UNKNOWN) pushVarintField(bytes, 1, captureType);
   if (typeValue !== 0) pushInt32Field(bytes, 2, typeValue);
-  const captureParams = input.captureParams === null ? new Uint8Array() : encodeStreamerCaptureParams(input.captureParams ?? {});
+  const captureParams =
+    input.captureParams === null ? new Uint8Array() : encodeStreamerCaptureParams(input.captureParams ?? {});
   if (captureParams.length > 0) pushMessageField(bytes, 3, captureParams);
   for (const decoderCap of input.decoderCapList ?? []) pushMessageField(bytes, 4, decoderCap);
   if (input.forceVirtualDisplay) pushVarintField(bytes, 5, 1);
   for (const mode of input.virtualDisplayModes ?? []) pushMessageField(bytes, 6, encodeVirtualDisplayMode(mode));
-  if (input.virtualDisplayInitResolution) pushMessageField(bytes, 7, encodeResolution(input.virtualDisplayInitResolution));
+  if (input.virtualDisplayInitResolution)
+    pushMessageField(bytes, 7, encodeResolution(input.virtualDisplayInitResolution));
   if (clientType !== STREAMER_CLIENT_TYPES.Client_UNSPECIFIED) pushVarintField(bytes, 8, clientType);
   if (input.deviceId.length > 0) pushStringField(bytes, 9, input.deviceId);
-  if (controlConnectType !== STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_UNKNOWN) pushVarintField(bytes, 10, controlConnectType);
+  if (controlConnectType !== STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_UNKNOWN)
+    pushVarintField(bytes, 10, controlConnectType);
   const featureFlags = encodeFeatureFlags(input.featureFlags ?? STREAMER_DEFAULT_FEATURE_FLAGS);
   if (featureFlags.length > 0) pushMessageField(bytes, 11, featureFlags);
   if (clientVersion.length > 0) pushStringField(bytes, 12, clientVersion);
@@ -118,15 +125,19 @@ export function encodeBase64(bytes: Uint8Array): string {
 function encodeStreamerCaptureParams(input: EncodeStreamerCaptureParamsInput): Uint8Array {
   const bytes: number[] = [];
   if (input.fps && input.fps !== STREAMER_FPS_VALUES.FPS_UNKNOWN) pushVarintField(bytes, 1, input.fps);
-  if (input.videoQuality && input.videoQuality !== STREAMER_VIDEO_QUALITY_VALUES.VideoQuality_UNKNOWN) pushVarintField(bytes, 2, input.videoQuality);
+  if (input.videoQuality && input.videoQuality !== STREAMER_VIDEO_QUALITY_VALUES.VideoQuality_UNKNOWN)
+    pushVarintField(bytes, 2, input.videoQuality);
   if (input.cursorCapture) pushVarintField(bytes, 3, 1);
-  if (input.chooseResolutionType && input.chooseResolutionType !== STREAMER_CHOOSE_RESOLUTION_TYPES.ChooseType_UNKNOWN) pushVarintField(bytes, 4, input.chooseResolutionType);
+  if (input.chooseResolutionType && input.chooseResolutionType !== STREAMER_CHOOSE_RESOLUTION_TYPES.ChooseType_UNKNOWN)
+    pushVarintField(bytes, 4, input.chooseResolutionType);
   if (input.localResolution) pushMessageField(bytes, 5, encodeResolution(input.localResolution));
   if (input.chooseResolution) pushMessageField(bytes, 6, encodeResolution(input.chooseResolution));
-  if (input.chromaFormat && input.chromaFormat !== STREAMER_CHROMA_FORMATS.ChromaFormat_UNKNOWN) pushVarintField(bytes, 7, input.chromaFormat);
+  if (input.chromaFormat && input.chromaFormat !== STREAMER_CHROMA_FORMATS.ChromaFormat_UNKNOWN)
+    pushVarintField(bytes, 7, input.chromaFormat);
   if (input.maxCustomBitrate) pushInt32Field(bytes, 8, input.maxCustomBitrate);
   if (input.enableHdr) pushVarintField(bytes, 9, 1);
-  if (input.autoFrameQuality && input.autoFrameQuality !== STREAMER_VIDEO_QUALITY_VALUES.VideoQuality_UNKNOWN) pushVarintField(bytes, 10, input.autoFrameQuality);
+  if (input.autoFrameQuality && input.autoFrameQuality !== STREAMER_VIDEO_QUALITY_VALUES.VideoQuality_UNKNOWN)
+    pushVarintField(bytes, 10, input.autoFrameQuality);
   if (input.fpsCount) pushInt32Field(bytes, 11, input.fpsCount);
   return new Uint8Array(bytes);
 }

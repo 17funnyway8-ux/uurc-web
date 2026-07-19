@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export interface TabItem {
+interface TabItem {
   value: string;
   label: ReactNode;
   content: ReactNode;

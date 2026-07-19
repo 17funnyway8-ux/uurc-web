@@ -1,4 +1,4 @@
-import type { TransportResult, UuRequest, UuTransport } from "@uurc/shared";
+import type { TransportResult, UuRequest, UuTransport } from "@uurc/shared/uuTransport";
 
 export class LocalProxyTransport implements UuTransport {
   constructor(

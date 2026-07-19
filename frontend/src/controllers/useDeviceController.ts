@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 
-import type { UuDeviceGroups } from "@uurc/shared/types";
+import type { UuDeviceGroups } from "@uurc/shared/devices";
 
 export function useDeviceController() {
   const [devices, setDevices] = useState<UuDeviceGroups>(createEmptyDeviceGroups);

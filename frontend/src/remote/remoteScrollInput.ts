@@ -9,7 +9,7 @@ const DESKTOP_SCROLL_GAIN = 0.5;
 const WINDOWS_PLATFORM = 1;
 const MACOS_PLATFORM = 4;
 
-export interface BrowserWheelDeltaInput {
+interface BrowserWheelDeltaInput {
   deltaX: number;
   deltaY: number;
   deltaMode: number;
@@ -17,7 +17,7 @@ export interface BrowserWheelDeltaInput {
   desktopTarget: boolean;
 }
 
-export interface RemoteScrollDelta {
+interface RemoteScrollDelta {
   deltaX: number;
   deltaY: number;
 }

@@ -27,7 +27,7 @@ export function sanitizeUuProxyHeaders(value: unknown): Record<string, string> {
   return headers;
 }
 
-export function isForwardableUuProxyHeader(name: string): boolean {
+function isForwardableUuProxyHeader(name: string): boolean {
   return !BLOCKED_PROXY_HEADERS.has(name.toLowerCase());
 }
 

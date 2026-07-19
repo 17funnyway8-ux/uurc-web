@@ -1,12 +1,9 @@
-import {
-  SIGNAL_GATEWAY_EVENT_RETENTION_MS,
-  SIGNAL_GATEWAY_MAX_EVENTS,
-} from "@uurc/shared/signalGatewayProtocol";
+import { SIGNAL_GATEWAY_EVENT_RETENTION_MS, SIGNAL_GATEWAY_MAX_EVENTS } from "@uurc/shared/signalGateway/status";
 import type {
   RemoteSignalGatewayEvent,
   RemoteSignalGatewayEventDirection,
   RemoteSignalGatewayStatus,
-} from "@uurc/shared/types";
+} from "@uurc/shared/signalGateway/model";
 
 type SignalSqlStorage = DurableObjectStorage["sql"];
 
@@ -40,11 +37,7 @@ export class SignalSessionStore {
   }
 
   writeStatus(status: RemoteSignalGatewayStatus): void {
-    this.sql.exec(
-      "INSERT OR REPLACE INTO signal_state (key, value) VALUES (?, ?)",
-      "status",
-      JSON.stringify(status),
-    );
+    this.sql.exec("INSERT OR REPLACE INTO signal_state (key, value) VALUES (?, ?)", "status", JSON.stringify(status));
   }
 
   clearEvents(): void {

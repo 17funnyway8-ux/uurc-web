@@ -16,14 +16,14 @@ import {
 } from "lucide-react";
 import type { ClipboardEvent, KeyboardEvent, PointerEvent, RefObject, WheelEvent } from "react";
 
-import type { UuDevice } from "@uurc/shared/types";
+import type { UuDevice } from "@uurc/shared/devices";
 
 import type { RemoteStageViewMode, RemoteVideoStream } from "../app/remoteControlTypes.js";
 import type {
   BrowserRemoteSessionState,
   BrowserRemoteVideoElementSample,
 } from "../remote/browserRemoteSessionTypes.js";
-import { getConnectingStageSteps } from "../remote/remoteControlUiModel.js";
+import { getConnectingStageSteps } from "../remote/remoteSessionUiModel.js";
 import { RemoteVideoTile } from "./RemoteVideoTile.js";
 
 export interface RemoteControlStageProps {

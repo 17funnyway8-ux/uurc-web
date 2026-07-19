@@ -4,7 +4,7 @@ import type {
   RemoteSignalGatewayEvent,
   RemoteSignalSoacRequest,
   RemoteSignalSoacResult,
-} from "@uurc/shared/types";
+} from "@uurc/shared/signalGateway/model";
 import { STREAMER_DATA_CHANNEL_LABELS } from "@uurc/shared/streamer/transport";
 import { BrowserRemoteSession } from "../src/remote/browserRemoteSession.js";
 

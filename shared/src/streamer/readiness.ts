@@ -1,9 +1,10 @@
-import type { RemoteSignalGatewayEvent, RemoteSignalGatewayState, RemoteSignalGatewayStatus } from "../signalGateway/model.js";
-import {
-  getStreamerSignalControlFailure,
-  mapStreamerControlResultProtocolError,
-  normalizeStreamerSignalControlAck,
-} from "./signalControl.js";
+import type {
+  RemoteSignalGatewayEvent,
+  RemoteSignalGatewayState,
+  RemoteSignalGatewayStatus,
+} from "../signalGateway/model.js";
+import { getStreamerSignalControlFailure, normalizeStreamerSignalControlAck } from "./signalControl.js";
+import { mapStreamerControlResultProtocolError } from "./internal/signalControlErrors.js";
 import { STREAMER_SOAC_EVENT, STREAMER_SOAC_TYPES, type StreamerSoacType } from "./signalSoac.js";
 import { STREAMER_CONTROL_EVENT_NAME, STREAMER_SIGNAL_SOCKET_EVENTS } from "./signalSession.js";
 import { asRecord } from "./internal/unknown.js";

@@ -1,30 +1,17 @@
+import type { DecodedStreamerControlMessage } from "@uurc/shared/streamer/controlChannelDecode";
+import { encodeStreamerInputMessage, encodeStreamerTextMessage } from "@uurc/shared/streamer/controlChannelEncode";
+import { STREAMER_SIMPLE_ACTION_TYPES } from "@uurc/shared/streamer/controlChannelProtocol";
 import {
-  decodeStreamerControlMessage,
-  encodeStreamerEchoResponseMessage,
-  encodeStreamerEchoRequestMessage,
-  encodeStreamerInputMessage,
-  encodeStreamerTextMessage,
-  STREAMER_SIMPLE_ACTION_TYPES,
-  type DecodedStreamerControlMessage,
-} from "@uurc/shared/streamer/controlChannel";
-import {
-  STREAMER_ICE_NETWORK_TYPES,
   buildStreamerRtcConfiguration,
   formatStreamerSignalControlFailure,
   getStreamerSignalControlFailure,
-  type StreamerIceNetworkType,
-} from "@uurc/shared/streamer/signal";
-import {
-  STREAMER_DATA_CHANNEL_LABELS,
-  isStreamerDataChannelLabel,
-  type StreamerDataChannelLabel,
-} from "@uurc/shared/streamer/transport";
-import type { RemoteSignalGatewayEvent } from "@uurc/shared/types";
+} from "@uurc/shared/streamer/signalControl";
+import { STREAMER_ICE_NETWORK_TYPES, type StreamerIceNetworkType } from "@uurc/shared/streamer/signalSoac";
+import { STREAMER_DATA_CHANNEL_LABELS, type StreamerDataChannelLabel } from "@uurc/shared/streamer/transport";
+import type { RemoteSignalGatewayEvent } from "@uurc/shared/signalGateway/model";
+import { BrowserRemoteChannels } from "./browserRemote/channels.js";
 import { BrowserRemoteClipboard } from "./browserRemote/clipboard.js";
 import {
-  dataChannelPayloadByteLength,
-  dataChannelPayloadBytes,
-  summarizeDataChannelPayload,
   summarizeDecodedControlMessage,
   summarizeCursorShape,
   summarizeInputMessage,
@@ -53,7 +40,7 @@ import {
   readStringField,
   summarizeSignalEvent,
 } from "./browserRemote/negotiation.js";
-import { asRecord, createAbortError, dropUndefinedFields, getErrorMessage, isDesktopPlatform } from "./browserRemote/utils.js";
+import { asRecord, createAbortError, dropUndefinedFields, isDesktopPlatform } from "./browserRemote/utils.js";
 import type {
   BrowserRemoteAudioElementSample,
   BrowserRemoteDataChannel,
@@ -76,21 +63,14 @@ import { applyOpusReceiverPreferencesToSdp } from "./remoteSdp.js";
 
 export class BrowserRemoteSession {
   private static readonly maxDebugEvents = 120;
-  private static readonly echoHeartbeatIntervalMs = 100;
-  private static readonly echoHeartbeatDebugIntervalMs = 30000;
-  private static readonly dataReceiveDebugIntervalMs = 30000;
 
   private readonly createPeerConnection: (configuration: RTCConfiguration) => BrowserRemotePeerConnection;
   private readonly getVideoCodecPreferences: () => RTCRtpCodec[];
   private readonly now: () => number;
+  private readonly channels: BrowserRemoteChannels;
   private readonly clipboard: BrowserRemoteClipboard;
   private readonly input: BrowserRemoteInput;
   private peer: BrowserRemotePeerConnection | null = null;
-  private readonly dataChannels = new Map<StreamerDataChannelLabel, BrowserRemoteDataChannel>();
-  private readonly incomingDataChannels = new Set<BrowserRemoteDataChannel>();
-  private echoHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
-  private lastEchoHeartbeatDebugAtMs = 0;
-  private readonly lastDataReceiveDebugAtMs = new Map<StreamerDataChannelLabel, number>();
   private debugEventId = 1;
   private debugEvents: BrowserRemoteDebugEvent[] = [];
   private appControlId = "";
@@ -123,6 +103,21 @@ export class BrowserRemoteSession {
       ((configuration) => new RTCPeerConnection(configuration) as BrowserRemotePeerConnection);
     this.getVideoCodecPreferences = options.getVideoCodecPreferences ?? getBrowserH264CodecPreferences;
     this.now = options.now ?? Date.now;
+    this.channels = new BrowserRemoteChannels({
+      handleClipboardMessage: (label, data) => this.clipboard.handleDataMessage(label, data),
+      isGenerationCurrent: (generation) => this.isLifecycleGenerationCurrent(generation),
+      nextEnvelope: () => {
+        const sequence = this.sequence++;
+        return { sequence, timestampSeconds: this.streamerTimestampSeconds() };
+      },
+      now: this.now,
+      onBufferedAmountLow: () => this.input.flushPendingMouseMove(),
+      onClipboardUnavailable: (reason) => this.clipboard.reset(reason),
+      onControlMessage: (message) => this.handleControlDataMessage(message),
+      onControlUnavailable: () => this.input.clearPendingPointerMoves(),
+      onReadyStateChange: (label, readyState) => this.updateDataChannelState(label, readyState),
+      recordDebugEvent: (kind, summary, details) => this.recordDebugEvent(kind, summary, details),
+    });
     this.clipboard = new BrowserRemoteClipboard({
       assertGeneration: (generation) => this.assertLifecycleGeneration(generation),
       currentGeneration: () => this.lifecycleGeneration,
@@ -133,10 +128,10 @@ export class BrowserRemoteSession {
       now: this.now,
       onRemoteClipboard: options.onRemoteClipboard,
       recordDebugEvent: (kind, summary, details) => this.recordDebugEvent(kind, summary, details),
-      sendDataChannel: (label, payload, event) => this.sendDataChannel(label, payload, event),
+      sendDataChannel: (label, payload, event) => this.channels.send(label, payload, event),
     });
     this.input = new BrowserRemoteInput({
-      getControlChannel: () => this.dataChannels.get(STREAMER_DATA_CHANNEL_LABELS.control),
+      getControlChannel: () => this.channels.get(STREAMER_DATA_CHANNEL_LABELS.control),
       getTargetPlatform: () => this.targetPlatform,
       now: this.now,
       recordDebugEvent: (summary, details) => this.recordDebugEvent("data_send", summary, details),
@@ -175,30 +170,7 @@ export class BrowserRemoteSession {
       iceId: this.iceId,
     });
     this.clipboard.reset("浏览器远控会话已关闭");
-    this.stopEchoHeartbeat();
-    for (const channel of this.dataChannels.values()) {
-      channel.onopen = null;
-      channel.onclose = null;
-      channel.onerror = null;
-      channel.onmessage = null;
-      channel.onbufferedamountlow = null;
-      if (channel.readyState !== "closed") {
-        channel.close?.();
-      }
-    }
-    this.dataChannels.clear();
-    for (const channel of this.incomingDataChannels) {
-      channel.onopen = null;
-      channel.onclose = null;
-      channel.onerror = null;
-      channel.onmessage = null;
-      channel.onbufferedamountlow = null;
-      if (channel.readyState !== "closed") {
-        channel.close?.();
-      }
-    }
-    this.incomingDataChannels.clear();
-    this.lastDataReceiveDebugAtMs.clear();
+    this.channels.closeAll();
     if (this.peer) {
       this.peer.ondatachannel = null;
       this.peer.onicecandidate = null;
@@ -266,10 +238,10 @@ export class BrowserRemoteSession {
       buildStreamerRtcConfiguration(result, { forceRelay: input.forceRelay === true }),
     );
     this.peer = peer;
-    this.createStreamerDataChannels(peer, lifecycleGeneration);
+    this.channels.create(peer, lifecycleGeneration, MOUSE_MOVE_BUFFERED_AMOUNT_LOW_THRESHOLD);
     peer.ondatachannel = (event) => {
       if (!this.isPeerLifecycleCurrent(peer, lifecycleGeneration)) return;
-      this.attachIncomingDataChannel(event.channel as BrowserRemoteDataChannel, lifecycleGeneration);
+      this.channels.attachIncoming(event.channel as BrowserRemoteDataChannel, lifecycleGeneration);
     };
     this.createStreamerMediaTransceivers(peer);
     peer.onicecandidate = (event) => {
@@ -288,7 +260,7 @@ export class BrowserRemoteSession {
       controlIceIdMatch: input.iceId && result.iceId ? input.iceId === result.iceId : undefined,
       controlResult: result,
       controlResultIceId: result.iceId,
-      dataChannels: this.getDataChannelStates(),
+      dataChannels: this.channels.getStates(),
       debugEvents: this.debugEvents,
       iceId: this.iceId,
       remoteTrackCount: 0,
@@ -325,7 +297,7 @@ export class BrowserRemoteSession {
       displayId: this.remoteInputDisplayId,
     });
     this.sequence += 1;
-    this.sendDataChannel(STREAMER_DATA_CHANNEL_LABELS.text, payload, {
+    this.channels.send(STREAMER_DATA_CHANNEL_LABELS.text, payload, {
       summary: "发送文本输入",
       details: {
         sequence,
@@ -526,90 +498,6 @@ export class BrowserRemoteSession {
         this.processedSignalEventIds.add(event.id);
       }
     }
-  }
-
-  private createStreamerDataChannels(peer: BrowserRemotePeerConnection, lifecycleGeneration: number): void {
-    for (const label of Object.values(STREAMER_DATA_CHANNEL_LABELS)) {
-      const channel = peer.createDataChannel(label);
-      channel.binaryType = "arraybuffer";
-      if (label === STREAMER_DATA_CHANNEL_LABELS.control) {
-        channel.bufferedAmountLowThreshold = MOUSE_MOVE_BUFFERED_AMOUNT_LOW_THRESHOLD;
-        channel.onbufferedamountlow = () => {
-          if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
-          this.input.flushPendingMouseMove();
-        };
-      }
-      channel.onopen = () => {
-        if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
-        this.recordDebugEvent("data_channel", `${label} open`, { label, readyState: channel.readyState });
-        this.updateDataChannelState(label);
-        if (label === STREAMER_DATA_CHANNEL_LABELS.control) {
-          this.startEchoHeartbeat();
-        }
-      };
-      channel.onclose = () => {
-        if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
-        this.recordDebugEvent("data_channel", `${label} close`, { label, readyState: channel.readyState });
-        if (label === STREAMER_DATA_CHANNEL_LABELS.control) {
-          console.warn(`[uurc] 控制数据通道关闭（${label}）→ 心跳停止，被控端可能停推画面`);
-          this.input.clearPendingPointerMoves();
-          this.stopEchoHeartbeat();
-        } else if (label === STREAMER_DATA_CHANNEL_LABELS.text || label === STREAMER_DATA_CHANNEL_LABELS.file) {
-          this.clipboard.reset("剪贴板数据通道已关闭");
-        }
-        this.updateDataChannelState(label);
-      };
-      channel.onerror = () => {
-        if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
-        this.recordDebugEvent("data_channel", `${label} error`, { label, readyState: channel.readyState });
-        if (label === STREAMER_DATA_CHANNEL_LABELS.control && channel.readyState !== "open") {
-          console.warn(`[uurc] 控制数据通道错误（${label}），readyState=${channel.readyState}`);
-          this.stopEchoHeartbeat();
-        } else if (
-          (label === STREAMER_DATA_CHANNEL_LABELS.text || label === STREAMER_DATA_CHANNEL_LABELS.file) &&
-          channel.readyState !== "open"
-        ) {
-          this.clipboard.reset("剪贴板数据通道发生错误");
-        }
-        this.updateDataChannelState(label);
-      };
-      channel.onmessage = (event) => {
-        if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
-        this.receiveDataChannelMessage(label, event.data, lifecycleGeneration);
-      };
-      this.dataChannels.set(label, channel);
-    }
-  }
-
-  private attachIncomingDataChannel(channel: BrowserRemoteDataChannel, lifecycleGeneration: number): void {
-    this.incomingDataChannels.add(channel);
-    channel.binaryType = "arraybuffer";
-    const label = channel.label;
-    this.recordDebugEvent("data_channel", "收到远端创建的数据通道", {
-      label,
-      readyState: channel.readyState,
-      recognized: isStreamerDataChannelLabel(label),
-    });
-
-    channel.onopen = () => {
-      if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
-      this.recordDebugEvent("data_channel", `${label} remote open`, { label, readyState: channel.readyState });
-    };
-    channel.onclose = () => {
-      this.incomingDataChannels.delete(channel);
-      if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
-      this.recordDebugEvent("data_channel", `${label} remote close`, { label, readyState: channel.readyState });
-    };
-    channel.onerror = () => {
-      if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
-      this.recordDebugEvent("data_channel", `${label} remote error`, { label, readyState: channel.readyState });
-    };
-    channel.onmessage = isStreamerDataChannelLabel(label)
-      ? (event) => {
-          if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
-          this.receiveDataChannelMessage(label, event.data, lifecycleGeneration);
-        }
-      : null;
   }
 
   private createStreamerMediaTransceivers(peer: BrowserRemotePeerConnection): void {
@@ -829,135 +717,6 @@ export class BrowserRemoteSession {
     });
   }
 
-  private startEchoHeartbeat(): void {
-    if (this.echoHeartbeatTimer !== undefined) return;
-    this.recordDebugEvent("data_channel", "启动控制心跳", {
-      label: STREAMER_DATA_CHANNEL_LABELS.control,
-      intervalMs: BrowserRemoteSession.echoHeartbeatIntervalMs,
-    });
-    this.sendEchoHeartbeat();
-    this.echoHeartbeatTimer = setInterval(() => {
-      this.sendEchoHeartbeat();
-    }, BrowserRemoteSession.echoHeartbeatIntervalMs);
-  }
-
-  private stopEchoHeartbeat(): void {
-    if (this.echoHeartbeatTimer !== undefined) {
-      clearInterval(this.echoHeartbeatTimer);
-      this.echoHeartbeatTimer = undefined;
-    }
-    this.lastEchoHeartbeatDebugAtMs = 0;
-  }
-
-  private sendEchoHeartbeat(): void {
-    const label = STREAMER_DATA_CHANNEL_LABELS.control;
-    const channel = this.dataChannels.get(label);
-    if (!channel || channel.readyState !== "open") {
-      this.stopEchoHeartbeat();
-      return;
-    }
-
-    const sequence = this.sequence;
-    const now = this.now();
-    const payload = encodeStreamerEchoRequestMessage({
-      sequence,
-      timestampMs: this.streamerTimestampSeconds(),
-    });
-    this.sequence += 1;
-
-    try {
-      channel.send(payload);
-    } catch (error) {
-      this.recordDebugEvent("data_send", "控制心跳发送失败", {
-        label,
-        sequence,
-        readyState: channel.readyState,
-        error: getErrorMessage(error),
-      });
-      // 仅在通道确实不可用时停止心跳。瞬时背压（send 抛错但通道仍 open）不应永久杀死心跳，
-      // 否则受控端会因连续收不到心跳而判定主控离线并停止推流，只能断开重连才恢复。
-      if (channel.readyState !== "open") {
-        this.stopEchoHeartbeat();
-      }
-      return;
-    }
-
-    if (
-      this.lastEchoHeartbeatDebugAtMs === 0 ||
-      now - this.lastEchoHeartbeatDebugAtMs >= BrowserRemoteSession.echoHeartbeatDebugIntervalMs
-    ) {
-      this.recordDebugEvent("data_send", "发送控制心跳", {
-        label,
-        byteLength: payload.byteLength,
-        sequence,
-        intervalMs: BrowserRemoteSession.echoHeartbeatIntervalMs,
-      });
-      this.lastEchoHeartbeatDebugAtMs = now || 1;
-    }
-  }
-
-  private recordDataChannelMessage(label: StreamerDataChannelLabel, data: unknown): void {
-    if (
-      (label === STREAMER_DATA_CHANNEL_LABELS.file || label === STREAMER_DATA_CHANNEL_LABELS.text) &&
-      this.clipboard.handleDataMessage(label, data)
-    ) {
-      return;
-    }
-
-    const decodedControlMessage =
-      label === STREAMER_DATA_CHANNEL_LABELS.control ? this.decodeControlDataChannelMessage(data) : undefined;
-    if (decodedControlMessage) this.handleControlDataMessage(decodedControlMessage);
-
-    const now = this.now();
-    const lastDebugAtMs = this.lastDataReceiveDebugAtMs.get(label) ?? 0;
-    if (lastDebugAtMs > 0 && now - lastDebugAtMs < BrowserRemoteSession.dataReceiveDebugIntervalMs) return;
-
-    this.lastDataReceiveDebugAtMs.set(label, now || 1);
-    this.recordDebugEvent("data_recv", `收到 ${label} 数据`, {
-      label,
-      ...summarizeDataChannelPayload(data, {
-        includeHexPrefix: label !== STREAMER_DATA_CHANNEL_LABELS.file && label !== STREAMER_DATA_CHANNEL_LABELS.text,
-      }),
-      decoded: decodedControlMessage ? summarizeDecodedControlMessage(decodedControlMessage) : undefined,
-    });
-  }
-
-  private receiveDataChannelMessage(label: StreamerDataChannelLabel, data: unknown, lifecycleGeneration: number): void {
-    if (typeof Blob !== "undefined" && data instanceof Blob) {
-      void data
-        .arrayBuffer()
-        .then((buffer) => {
-          if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
-          this.recordDataChannelMessage(label, buffer);
-        })
-        .catch((error: unknown) => {
-          if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
-          this.recordDebugEvent("data_recv", "读取 DataChannel Blob 失败", {
-            label,
-            payloadType: "blob",
-            byteLength: data.size,
-            error: getErrorMessage(error),
-          });
-        });
-      return;
-    }
-    this.recordDataChannelMessage(label, data);
-  }
-
-  private decodeControlDataChannelMessage(data: unknown): DecodedStreamerControlMessage | undefined {
-    const bytes = dataChannelPayloadBytes(data);
-    if (!bytes) return undefined;
-    try {
-      return decodeStreamerControlMessage(bytes);
-    } catch (error) {
-      this.recordDebugEvent("data_recv", "控制数据解码失败", {
-        error: getErrorMessage(error),
-        ...summarizeDataChannelPayload(data),
-      });
-      return undefined;
-    }
-  }
-
   private handleControlDataMessage(message: DecodedStreamerControlMessage): void {
     this.applyCaptureChangeInputIndex(message);
     this.applyRemoteCursorShape(message);
@@ -970,7 +729,7 @@ export class BrowserRemoteSession {
       return;
     }
 
-    this.sendEchoResponse(responseSequence);
+    this.channels.sendEchoResponse(responseSequence);
   }
 
   private applyRemoteCursorShape(message: DecodedStreamerControlMessage): void {
@@ -1013,56 +772,6 @@ export class BrowserRemoteSession {
     });
   }
 
-  private sendEchoResponse(responseSequence: number): void {
-    const label = STREAMER_DATA_CHANNEL_LABELS.control;
-    const channel = this.dataChannels.get(label);
-    if (!channel || channel.readyState !== "open") return;
-
-    const sequence = this.sequence;
-    const timestampSeconds = this.streamerTimestampSeconds();
-    const payload = encodeStreamerEchoResponseMessage({
-      sequence,
-      timestampMs: timestampSeconds,
-      responseSequence,
-    });
-    this.sequence += 1;
-
-    this.sendDataChannel(label, payload, {
-      summary: "回复控制 EchoRequest",
-      details: {
-        sequence,
-        timestampSeconds,
-        responseSequence,
-      },
-    });
-  }
-
-  private sendDataChannel(
-    label: StreamerDataChannelLabel,
-    payload: string | Uint8Array,
-    event:
-      | {
-          summary: string;
-          details?: Record<string, unknown>;
-        }
-      | false
-      | undefined = undefined,
-  ): void {
-    const channel = this.dataChannels.get(label);
-    if (!channel) throw new Error(`${label} has not been created`);
-    if (channel.readyState !== "open") throw new Error(`${label} is ${channel.readyState}, not open`);
-    channel.send(payload);
-    if (event !== false) {
-      this.recordDebugEvent("data_send", event?.summary ?? `发送 ${label}`, {
-        label,
-        byteLength: dataChannelPayloadByteLength(payload),
-        frameType: typeof payload === "string" ? "text" : "binary",
-        ...(event?.details ?? {}),
-      });
-    }
-    this.updateDataChannelState(label);
-  }
-
   private sendInputData(inputMessage: string, options: { recordDebugEvent?: boolean } = {}): void {
     if (!inputMessage) {
       this.recordDebugEvent("data_send", "跳过空控制输入", {
@@ -1082,7 +791,7 @@ export class BrowserRemoteSession {
           displayId: inputDisplayId,
         });
     this.sequence += 1;
-    this.sendDataChannel(
+    this.channels.send(
       STREAMER_DATA_CHANNEL_LABELS.control,
       payload,
       options.recordDebugEvent === false
@@ -1120,9 +829,7 @@ export class BrowserRemoteSession {
     throw createAbortError("browser remote session start was superseded or closed");
   }
 
-  private updateDataChannelState(label: StreamerDataChannelLabel): void {
-    const channel = this.dataChannels.get(label);
-    const nextReadyState = channel?.readyState ?? "closed";
+  private updateDataChannelState(label: StreamerDataChannelLabel, nextReadyState: RTCDataChannelState): void {
     // 仅在通道状态真正变化时推送，避免每次发送（鼠标移动/心跳/输入）都触发整页重渲染。
     if (this.state.dataChannels[label] === nextReadyState) return;
     this.setState({
@@ -1132,14 +839,6 @@ export class BrowserRemoteSession {
         [label]: nextReadyState,
       },
     });
-  }
-
-  private getDataChannelStates(): Partial<Record<StreamerDataChannelLabel, RTCDataChannelState>> {
-    const states: Partial<Record<StreamerDataChannelLabel, RTCDataChannelState>> = {};
-    for (const [label, channel] of this.dataChannels) {
-      states[label] = channel.readyState;
-    }
-    return states;
   }
 
   private setState(state: BrowserRemoteSessionState): void {

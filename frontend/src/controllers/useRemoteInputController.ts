@@ -14,7 +14,7 @@ import type { RemoteStageViewMode } from "../app/remoteControlTypes.js";
 import type { BrowserRemoteSession } from "../remote/browserRemoteSession.js";
 import type { BrowserRemoteSessionState } from "../remote/browserRemoteSessionTypes.js";
 import { sendRemoteShortcut, type RemoteShortcut } from "../remote/remoteShortcuts.js";
-import { toRemoteKeyValue, toRemoteMouseButton } from "../remote/remoteControlUiModel.js";
+import { toRemoteKeyValue, toRemoteMouseButton } from "../remote/remoteInputModel.js";
 import { clientPointToRemoteMedia } from "../remote/remoteMediaGeometry.js";
 import { isDesktopRemoteScrollTarget, RemoteScrollDeltaAccumulator } from "../remote/remoteScrollInput.js";
 import { useRemoteCursorController } from "./useRemoteCursorController.js";

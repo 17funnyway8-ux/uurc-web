@@ -1,10 +1,8 @@
-import type {
-  RemoteControlBootstrap,
-  RemoteSignalGatewayEvent,
-  RemoteSignalReadinessDiagnostics,
-  RuntimeProfile,
-  UuDevice,
-} from "@uurc/shared/types";
+import type { UuDevice } from "@uurc/shared/devices";
+import type { RemoteControlBootstrap } from "@uurc/shared/remoteBootstrap";
+import type { RuntimeProfile } from "@uurc/shared/runtimeProfile";
+import type { RemoteSignalGatewayEvent } from "@uurc/shared/signalGateway/model";
+import type { RemoteSignalReadinessDiagnostics } from "@uurc/shared/streamer/readiness";
 
 import type { BrowserRemoteDebugEvent, BrowserRemoteSessionState } from "../remote/browserRemoteSessionTypes.js";
 import { DebugEventList } from "./DebugEventList.js";

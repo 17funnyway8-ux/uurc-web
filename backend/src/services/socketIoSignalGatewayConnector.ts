@@ -65,9 +65,16 @@ function isSocketIoLifecycleEvent(event: string): boolean {
 }
 
 class SocketIoSignalGatewayConnection implements SignalGatewayConnection {
+  private readonly pendingAckRejectors = new Set<(error: Error) => void>();
+
   constructor(private readonly socket: Socket) {
     installEngineIoBinaryFrameInterop(this.socket);
     this.socket.on("connect", () => installEngineIoBinaryFrameInterop(this.socket));
+    this.socket.on("disconnect", (reason) => {
+      this.rejectPendingAcks(
+        new Error(`signal socket disconnected before pending ack reason=${formatLifecycleValue(reason)}`),
+      );
+    });
   }
 
   get id(): string | undefined {
@@ -75,6 +82,7 @@ class SocketIoSignalGatewayConnection implements SignalGatewayConnection {
   }
 
   close(): void {
+    this.rejectPendingAcks(new Error("signal socket closed before pending ack"));
     this.socket.disconnect();
   }
 
@@ -83,18 +91,25 @@ class SocketIoSignalGatewayConnection implements SignalGatewayConnection {
     installEngineIoBinaryFrameInterop(this.socket);
     return new Promise((resolve, reject) => {
       let settled = false;
-      const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        reject(new Error(`signal event ${event} ack timed out after ${ackTimeoutMs}ms`));
-      }, ackTimeoutMs);
-
-      this.socket.emit(event, payload, (...ack: unknown[]) => {
+      const finish = (complete: () => void) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        resolve(ack);
-      });
+        this.pendingAckRejectors.delete(rejectPending);
+        complete();
+      };
+      const rejectPending = (error: Error) => finish(() => reject(error));
+      const timer = setTimeout(
+        () => rejectPending(new Error(`signal event ${event} ack timed out after ${ackTimeoutMs}ms`)),
+        ackTimeoutMs,
+      );
+      this.pendingAckRejectors.add(rejectPending);
+
+      try {
+        this.socket.emit(event, payload, (...ack: unknown[]) => finish(() => resolve(ack)));
+      } catch (error) {
+        rejectPending(error instanceof Error ? error : new Error(String(error)));
+      }
     });
   }
 
@@ -110,6 +125,10 @@ class SocketIoSignalGatewayConnection implements SignalGatewayConnection {
 
   private assertConnected(): void {
     if (!this.socket.connected) throw new Error("signal gateway socket is not connected");
+  }
+
+  private rejectPendingAcks(error: Error): void {
+    for (const rejectPending of [...this.pendingAckRejectors]) rejectPending(error);
   }
 }
 
@@ -165,7 +184,7 @@ function installEngineIoBinaryFrameInterop(socket: Socket): void {
 
 function ensureEngineIoBinaryFramePrefix(value: unknown): unknown {
   const buffer = toBinaryFrameBuffer(value);
-  if (!buffer || buffer[0] === engineIoBinaryFramePrefix) return value;
+  if (!buffer) return value;
   return Buffer.concat([Buffer.from([engineIoBinaryFramePrefix]), buffer]);
 }
 

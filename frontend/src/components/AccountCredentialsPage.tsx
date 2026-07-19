@@ -1,4 +1,4 @@
-import type { AuthStatus } from "@uurc/shared/types";
+import type { AuthStatus } from "@uurc/shared/authState";
 
 import { DeviceAccountPanel } from "./DeviceAccountPanel.js";
 import { StatusPill } from "./StatusPill.js";

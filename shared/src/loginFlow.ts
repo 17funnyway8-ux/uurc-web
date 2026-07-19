@@ -34,9 +34,9 @@ export interface AndroidDeviceInitProfile {
   dpi: number;
 }
 
-export const MOBILE_CODE_PATH = "/api/v1/security/mobile/code";
-export const MOBILE_LOGIN_PATH = "/api/v1/login/by_mobile";
-export const ANDROID_DEVICE_INIT_PATH = "/api/v1/device/android/init";
+const MOBILE_CODE_PATH = "/api/v1/security/mobile/code";
+const MOBILE_LOGIN_PATH = "/api/v1/login/by_mobile";
+const ANDROID_DEVICE_INIT_PATH = "/api/v1/device/android/init";
 
 export function buildMobileCodeRequest(input: MobileCodeRequestInput): UuRequest {
   return {
@@ -96,7 +96,7 @@ export function normalizeDeviceInitResult(body: unknown): string {
   return deviceId;
 }
 
-export function unwrapUpstreamData(body: unknown): Record<string, unknown> {
+function unwrapUpstreamData(body: unknown): Record<string, unknown> {
   if (!isRecord(body)) return {};
   const wrappedData = body.data;
   if (isRecord(wrappedData)) return wrappedData;

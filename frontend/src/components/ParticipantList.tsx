@@ -1,6 +1,6 @@
 import { UsersRound } from "lucide-react";
 
-import type { UuDevice } from "@uurc/shared/types";
+import type { UuDevice } from "@uurc/shared/devices";
 
 import { formatParticipantMeta } from "../devices/deviceLabels.js";
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
-import type { UuDeviceGroups } from "@uurc/shared/types";
+import type { UuDeviceGroups } from "@uurc/shared/devices";
 
 export function useCommandPaletteController({
   devices,

@@ -9,7 +9,7 @@ import {
   buildStreamerTextInputMessage,
   buildStreamerWindowsKeyboardInputMessage,
   type StreamerMouseButtonKind,
-} from "@uurc/shared/streamer/input";
+} from "@uurc/shared/streamer/inputDesktop";
 import { STREAMER_MAX_DATA_BUFFER_BYTES } from "@uurc/shared/streamer/transport";
 import type {
   BrowserRemoteDataChannel,

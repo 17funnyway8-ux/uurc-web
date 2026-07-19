@@ -37,7 +37,7 @@ describe("SocketIoSignalGatewayConnector", () => {
 
     expect(rawSentFrames.map((frame) => Buffer.from(frame as Buffer))).toEqual([
       Buffer.from([0x04, 0x08, 0x01]),
-      Buffer.from([0x04, 0x08, 0x01]),
+      Buffer.from([0x04, 0x04, 0x08, 0x01]),
     ]);
     expect(rawInboundFrames.map((frame) => Buffer.from(frame as Buffer))).toEqual([Buffer.from([0x08, 0x01])]);
   });
@@ -76,5 +76,29 @@ describe("SocketIoSignalGatewayConnector", () => {
         payload: [{ reason: "not in allowed list" }],
       },
     ]);
+  });
+
+  it("rejects a pending acknowledgement immediately when the connection closes", async () => {
+    const socket = new FakeSocketIoClient();
+    const connector = new SocketIoSignalGatewayConnector(() => socket as never);
+    const connection = await connector.connect({
+      signalServer: "wss://signal-a.example",
+      signalServers: ["wss://signal-a.example"],
+      headers: {},
+      inboundEvents: [],
+      socketEvents: {
+        control: "control",
+        leave: "leave",
+        bmsgPush: "bmsg_push",
+        publisherDisconnect: "publisher_disconnect",
+      },
+      controlEvent: "control",
+      onSignalEvent: () => {},
+    });
+    const pendingAck = connection.emitWithAck("control", {}, 10_000);
+
+    connection.close();
+
+    await expect(pendingAck).rejects.toThrow("signal socket closed before pending ack");
   });
 });

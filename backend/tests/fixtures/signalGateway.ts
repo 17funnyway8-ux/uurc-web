@@ -1,4 +1,5 @@
-import type { RemoteRoomJoinContext, RoomJoinUpstreamSummary, StreamerRoomConfig } from "@uurc/shared/types";
+import type { StreamerRoomConfig } from "@uurc/shared/roomConfig";
+import type { RemoteRoomJoinContext, RoomJoinUpstreamSummary } from "@uurc/shared/roomSession";
 
 import type { SignalGatewayConnectOptions, SignalGatewayConnector } from "../../src/services/signalGateway.js";
 

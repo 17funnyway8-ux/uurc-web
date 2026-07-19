@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { RequestHandler } from "express";
-import { REMOTE_SESSION_HEADER, isRemoteSessionId } from "@uurc/shared";
+import { REMOTE_SESSION_HEADER, isRemoteSessionId } from "@uurc/shared/remoteSession";
 
 export const requestLogger: RequestHandler = (req, res, next) => {
   const startedAt = process.hrtime.bigint();

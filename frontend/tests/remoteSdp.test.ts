@@ -19,19 +19,18 @@ describe("applyOpusReceiverPreferencesToSdp", () => {
         "a=fmtp:63 109/109",
       ].join("\r\n") + "\r\n";
 
-    const expected =
-      [
-        "v=0",
-        "m=video 9 UDP/TLS/RTP/SAVPF 111",
-        "a=rtpmap:111 H264/90000",
-        "a=fmtp:111 profile-level-id=42e01f",
-        "m=audio 9 UDP/TLS/RTP/SAVPF 109 63",
-        "a=rtpmap:109 opus/48000/2",
-        `a=fmtp:109 ${OPUS_RECEIVER_FMTP};x-google-min-bitrate=32`,
-        "a=rtpmap:63 red/48000/2",
-        "a=fmtp:63 109/109",
-        "",
-      ].join("\r\n");
+    const expected = [
+      "v=0",
+      "m=video 9 UDP/TLS/RTP/SAVPF 111",
+      "a=rtpmap:111 H264/90000",
+      "a=fmtp:111 profile-level-id=42e01f",
+      "m=audio 9 UDP/TLS/RTP/SAVPF 109 63",
+      "a=rtpmap:109 opus/48000/2",
+      `a=fmtp:109 ${OPUS_RECEIVER_FMTP};x-google-min-bitrate=32`,
+      "a=rtpmap:63 red/48000/2",
+      "a=fmtp:63 109/109",
+      "",
+    ].join("\r\n");
 
     expect(applyOpusReceiverPreferencesToSdp(input)).toBe(expected);
     expect(applyOpusReceiverPreferencesToSdp(expected)).toBe(expected);

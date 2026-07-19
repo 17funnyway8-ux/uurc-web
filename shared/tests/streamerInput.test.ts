@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  STREAMER_INPUT_MANAGER_IME_CONTROL_CODES,
-  STREAMER_MUMU_SYSTEM_KEY_CODES,
-  buildStreamerImeControlInputMessage,
-  buildStreamerImeTextInputMessage,
   buildStreamerKeyboardInputMessage,
   buildStreamerMacKeyboardInputMessage,
   buildStreamerMacMouseMoveAbsoluteInputMessage,
@@ -14,12 +10,16 @@ import {
   buildStreamerMouseButtonInputMessage,
   buildStreamerMouseMoveAbsoluteInputMessage,
   buildStreamerMouseScrollInputMessage,
+} from "../src/streamer/inputDesktop.js";
+import {
+  STREAMER_INPUT_MANAGER_IME_CONTROL_CODES,
+  STREAMER_INPUT_MANAGER_TOUCH_SLOTS,
+  STREAMER_MUMU_SYSTEM_KEY_CODES,
+  buildStreamerImeControlInputMessage,
+  buildStreamerImeTextInputMessage,
   buildStreamerSystemKeyInputMessages,
   createStreamerTouchInputTracker,
-  STREAMER_INPUT_MANAGER_TOUCH_SLOTS,
-  STREAMER_MOUSE_BUTTON_CODES,
-  STREAMER_DESKTOP_INPUT_EVENT_TYPES,
-} from "../src/streamer/input.js";
+} from "../src/streamer/internal/inputLegacy.js";
 
 describe("streamer input", () => {
   it("builds recovered InputManagerStub IME and system-key input messages", () => {
@@ -43,26 +43,22 @@ describe("streamer input", () => {
   });
 
   it("builds recovered desktop InputManager JSON input messages", () => {
-    expect(STREAMER_DESKTOP_INPUT_EVENT_TYPES).toMatchObject({
-      mousePress: "mouse_press",
-      mouseRelease: "mouse_release",
-      mouseClick: "mouse_click",
-      mouseMoveAbsolute: "mouse_move_absolute",
-      mouseScroll: "mouse_scroll",
-      keyboardPress: "kbd_press",
-      keyboardRelease: "kbd_release",
-      keyboardClick: "kbd_click",
-    });
-    expect(STREAMER_MOUSE_BUTTON_CODES).toMatchObject({
-      primary: 1,
-      secondary: 2,
-      tertiary: 4,
-      back: 8,
-      forward: 16,
-    });
-
     expect(buildStreamerMouseButtonInputMessage({ action: "mousePress", button: "primary" })).toBe(
       '{"action":"mouse_press","button":1}',
+    );
+    expect(
+      (["primary", "secondary", "tertiary", "back", "forward"] as const).map((button) =>
+        buildStreamerMouseButtonInputMessage({ action: "mouseClick", button }),
+      ),
+    ).toEqual([
+      '{"action":"mouse_click","button":1}',
+      '{"action":"mouse_click","button":2}',
+      '{"action":"mouse_click","button":4}',
+      '{"action":"mouse_click","button":8}',
+      '{"action":"mouse_click","button":16}',
+    ]);
+    expect(buildStreamerMouseButtonInputMessage({ action: "mouseRelease", button: "primary" })).toBe(
+      '{"action":"mouse_release","button":1}',
     );
     expect(buildStreamerMouseMoveAbsoluteInputMessage({ absX: 320, absY: 240 })).toBe(
       '{"action":"mouse_move_absolute","abs_x":320,"abs_y":240}',
@@ -72,6 +68,12 @@ describe("streamer input", () => {
     );
     expect(buildStreamerKeyboardInputMessage({ action: "keyboardClick", value: "A" })).toBe(
       '{"action":"kbd_click","key":"A"}',
+    );
+    expect(buildStreamerKeyboardInputMessage({ action: "keyboardPress", value: "A" })).toBe(
+      '{"action":"kbd_press","key":"A"}',
+    );
+    expect(buildStreamerKeyboardInputMessage({ action: "keyboardRelease", value: "A" })).toBe(
+      '{"action":"kbd_release","key":"A"}',
     );
   });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatAudioElement, formatInboundAudioStats } from "../src/remote/remoteControlUiModel.js";
+import { formatAudioElement, formatInboundAudioStats } from "../src/remote/remoteSessionUiModel.js";
 
 describe("remote audio diagnostics", () => {
   it("formats inbound Opus transport and jitter-buffer stats", () => {

@@ -1,55 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import type {
-  RemoteSignalControlRequest,
-  RemoteSignalControlResult,
-  RemoteSignalGatewayEvent,
-  RemoteSignalSoacRequest,
-  RemoteSignalSoacResult,
-} from "@uurc/shared/types";
-import {
-  STREAMER_CAPTURE_CHANGE_TYPES,
-  encodeStreamerEchoResponseMessage,
-  encodeStreamerEchoRequestMessage,
-  encodeStreamerInputMessage,
-  encodeStreamerTextMessage,
-  type DecodedStreamerCursorShape,
-} from "@uurc/shared/streamer/controlChannel";
-import {
-  STREAMER_CLIPBOARD_FORMAT_NAMES,
-  STREAMER_CLIPBOARD_RESULTS,
-  decodeStreamerClipboardV4Message,
-  decodeStreamerClipboardTextChangeRequest,
-  encodeStreamerClipboardFormatDataAskRequest,
-} from "@uurc/shared/streamer/clipboard";
+import { encodeStreamerInputMessage } from "@uurc/shared/streamer/controlChannelEncode";
 import {
   buildStreamerKeyboardInputMessage,
   buildStreamerMacKeyboardInputMessage,
   buildStreamerMacMouseMoveAbsoluteInputMessage,
   buildStreamerMacMouseScrollInputMessage,
   buildStreamerMouseButtonInputMessage,
-  buildStreamerMouseMoveAbsoluteInputMessage,
-  buildStreamerMouseScrollInputMessage,
   buildStreamerTextInputMessage,
   buildStreamerWindowsKeyboardInputMessage,
-} from "@uurc/shared/streamer/input";
-import { STREAMER_ICE_NETWORK_TYPES } from "@uurc/shared/streamer/signal";
-import { STREAMER_DATA_CHANNEL_LABELS, STREAMER_MAX_DATA_BUFFER_BYTES } from "@uurc/shared/streamer/transport";
+} from "@uurc/shared/streamer/inputDesktop";
+import { STREAMER_DATA_CHANNEL_LABELS } from "@uurc/shared/streamer/transport";
 import { BrowserRemoteSession } from "../src/remote/browserRemoteSession.js";
-import {
-  FakeDataChannel,
-  FakePeerConnection,
-  FakeRemoteApi,
-  blobFromBytes,
-  clipboardDataBlockRequest,
-  cursorShapeControlMessage,
-  deferred,
-  encodeUtf8,
-  flushMicrotasks,
-  makeInboundVideoStats,
-  soacEvent,
-  startClipboardSession,
-} from "./browserRemoteSessionTestHarness.js";
+import { FakePeerConnection, FakeRemoteApi } from "./browserRemoteSessionTestHarness.js";
 
 describe("BrowserRemoteSession", () => {
   it("transforms browser input through the Mac server keymap shape for Mac targets", async () => {
@@ -313,10 +276,7 @@ describe("BrowserRemoteSession", () => {
     });
 
     const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control);
-    control?.emitMessage(
-      new Uint8Array([0x08, 0x01, 0x10, 0x02, 0x42, 0x04, 0x08, STREAMER_CAPTURE_CHANGE_TYPES.CT_MUMU, 0x10, 0x05])
-        .buffer,
-    );
+    control?.emitMessage(new Uint8Array([0x08, 0x01, 0x10, 0x02, 0x42, 0x04, 0x08, 2, 0x10, 0x05]).buffer);
     session.sendMouseButton({ action: "mousePress", button: "primary" });
 
     expect(session.getState().remoteInputDisplayId).toBe(5);

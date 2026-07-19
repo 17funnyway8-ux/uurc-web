@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest";
 
+import { buildDefaultStreamerConnectOptionsBase64 } from "../src/streamer/connectOptions.js";
+import { STREAMER_CLIENT_TYPES, STREAMER_CONTROL_CONNECT_TYPES } from "../src/streamer/connectOptionsModel.js";
+import {
+  buildDefaultStreamerDecoderCap,
+  encodeStreamerConnectOptions,
+  encodeStreamerDecoderCap,
+} from "../src/streamer/internal/connectOptionsCodec.js";
 import {
   STREAMER_CONNECT_OPTIONS_FIELDS,
-  STREAMER_CONTROL_CONNECT_TYPES,
   STREAMER_CAPTURE_TYPES,
   STREAMER_APP_CLIENT_VERSION,
   STREAMER_CAPTURE_PARAM_FIELDS,
   STREAMER_CAPTURE_PARAM_DEFAULTS,
   STREAMER_CHOOSE_RESOLUTION_TYPES,
   STREAMER_CHROMA_FORMATS,
-  STREAMER_CLIENT_TYPES,
   STREAMER_DECODER_CAP_FIELDS,
   STREAMER_DECODER_CHROMA_FORMATS,
   STREAMER_DECODER_CODEC_TYPES,
@@ -19,11 +24,7 @@ import {
   STREAMER_SCREEN_RESOLUTION_FIELDS,
   STREAMER_VIDEO_QUALITY_VALUES,
   STREAMER_ROOM_CONFIG_FIELDS,
-  buildDefaultStreamerConnectOptionsBase64,
-  buildDefaultStreamerDecoderCap,
-  encodeStreamerConnectOptions,
-  encodeStreamerDecoderCap,
-} from "../src/streamer/connectOptions.js";
+} from "../src/streamer/internal/connectOptionsSchema.js";
 
 describe("streamer connect options", () => {
   it("captures the ConnectOptions wire field tags recovered from the App", () => {

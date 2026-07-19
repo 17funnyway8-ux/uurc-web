@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { STREAMER_VIDEO_CODECS } from "../src/streamer/connectOptions.js";
+import { STREAMER_VIDEO_CODECS } from "../src/streamer/internal/connectOptionsSchema.js";
 import {
   STREAMER_CONTROL_STREAMER_DATA_JSON_KEYS,
   STREAMER_DEFAULT_BROWSER_DEVICE_CAPABILITY,
@@ -8,8 +8,8 @@ import {
   STREAMER_DISPLAY_INFO_KEYS,
   STREAMER_VIDEO_CODEC_CAPABILITY_KEYS,
   buildStreamerBrowserDeviceCapability,
-  buildStreamerControlStreamerDataJson,
-} from "../src/streamer/controlConfig.js";
+} from "../src/streamer/internal/controlConfigSchema.js";
+import { buildStreamerControlStreamerDataJson } from "../src/streamer/controlConfig.js";
 
 describe("streamer control config", () => {
   it("builds the StreamerControlConfig JSON carried by control streamer_data", () => {

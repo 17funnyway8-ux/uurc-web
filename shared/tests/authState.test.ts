@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeJwtPayload, summarizeAuthState, validateLoginState } from "../src/index.js";
+import { decodeJwtPayload, summarizeAuthState } from "../src/authState.js";
 
 function fakeJwt(payload: Record<string, unknown>): string {
   const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
@@ -44,7 +44,6 @@ describe("auth state helpers", () => {
       deviceId: "",
     };
 
-    expect(validateLoginState(state)).toEqual(["token", "deviceId"]);
     expect(summarizeAuthState(state)).toMatchObject({
       hasState: false,
       missingFields: ["token", "deviceId"],

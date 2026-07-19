@@ -1,4 +1,8 @@
-import { buildDefaultStreamerDecoderCap, encodeBase64, encodeStreamerConnectOptions } from "./internal/connectOptionsCodec.js";
+import {
+  buildDefaultStreamerDecoderCap,
+  encodeBase64,
+  encodeStreamerConnectOptions,
+} from "./internal/connectOptionsCodec.js";
 import {
   STREAMER_APP_CLIENT_VERSION,
   STREAMER_CAPTURE_TYPES,
@@ -10,29 +14,12 @@ import {
   STREAMER_FPS_VALUES,
   STREAMER_VIDEO_QUALITY_VALUES,
 } from "./internal/connectOptionsSchema.js";
-
-export const STREAMER_CONTROL_CONNECT_TYPES = {
-  ControlConnectType_UNKNOWN: 0,
-  ControlConnectType_Normal: 1,
-  ControlConnectType_Assistance: 2,
-} as const;
-
-export const STREAMER_CLIENT_TYPES = {
-  Client_UNSPECIFIED: 0,
-  Client_IOS: 1,
-  Client_ANDROID: 2,
-  Client_WINDOWS: 3,
-  Client_MAC: 4,
-} as const;
-
-export interface StreamerScreenResolutionInput {
-  width: number;
-  height: number;
-}
-
-export interface StreamerVirtualDisplayModeInput extends StreamerScreenResolutionInput {
-  fps?: number;
-}
+import {
+  STREAMER_CLIENT_TYPES,
+  STREAMER_CONTROL_CONNECT_TYPES,
+  type StreamerScreenResolutionInput,
+  type StreamerVirtualDisplayModeInput,
+} from "./connectOptionsModel.js";
 
 export interface BuildDefaultStreamerConnectOptionsBase64Input {
   deviceId: string;

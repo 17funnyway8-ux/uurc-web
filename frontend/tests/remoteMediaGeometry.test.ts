@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  clientPointToRemoteMedia,
-  computeRemoteMediaGeometry,
-  remoteMediaPointToClient,
-} from "../src/remote/remoteMediaGeometry.js";
+import { clientPointToRemoteMedia, computeRemoteMediaGeometry } from "../src/remote/remoteMediaGeometry.js";
 
 describe("remote media geometry", () => {
   it("centers a contained image and maps client coordinates", () => {
@@ -69,20 +65,6 @@ describe("remote media geometry", () => {
       y: 5 / 6,
       insideVisibleMedia: true,
     });
-  });
-
-  it("maps normalized media points back to the same display geometry for overlays", () => {
-    const geometry = computeRemoteMediaGeometry({
-      containerRect: { left: 25, top: 40, width: 600, height: 800 },
-      mediaWidth: 1920,
-      mediaHeight: 1080,
-      objectFit: "cover",
-    })!;
-
-    const clientPoint = remoteMediaPointToClient(geometry, { x: 0.25, y: 0.75 });
-    const normalizedPoint = clientPointToRemoteMedia(geometry, clientPoint, { clamp: false });
-    expect(normalizedPoint.x).toBeCloseTo(0.25);
-    expect(normalizedPoint.y).toBeCloseTo(0.75);
   });
 
   it("rejects non-finite and zero-sized geometry", () => {

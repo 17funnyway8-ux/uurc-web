@@ -1,10 +1,27 @@
-import type { RemoteControlPageProps } from "./RemoteControlPage.js";
-import { RemoteClipboardPanel } from "./RemoteClipboardPanel.js";
-import { RemoteConnectionQualityPanel } from "./RemoteConnectionQualityPanel.js";
-import { RemoteControlDiagnosticsDrawer } from "./RemoteControlDiagnosticsDrawer.js";
-import { RemoteControlSettingsDrawer } from "./RemoteControlSettingsDrawer.js";
-import { RemoteVideoSourcePanel } from "./RemoteVideoSourcePanel.js";
+import { RemoteClipboardPanel, type RemoteClipboardPanelProps } from "./RemoteClipboardPanel.js";
+import {
+  RemoteConnectionQualityPanel,
+  type RemoteConnectionQualityPanelProps,
+} from "./RemoteConnectionQualityPanel.js";
+import {
+  RemoteControlDiagnosticsDrawer,
+  type RemoteControlDiagnosticsDrawerProps,
+} from "./RemoteControlDiagnosticsDrawer.js";
+import { RemoteControlSettingsDrawer, type RemoteControlSettingsDrawerProps } from "./RemoteControlSettingsDrawer.js";
+import { RemoteVideoSourcePanel, type RemoteVideoSourcePanelProps } from "./RemoteVideoSourcePanel.js";
 import { Tabs } from "./ui/Tabs.js";
+
+interface RemoteControlSidePanelProps {
+  tab: string;
+  onTabChange: (value: string) => void;
+  insights: {
+    quality: RemoteConnectionQualityPanelProps;
+    clipboard: RemoteClipboardPanelProps;
+    videoSources: RemoteVideoSourcePanelProps;
+  };
+  settings: RemoteControlSettingsDrawerProps;
+  diagnostics: RemoteControlDiagnosticsDrawerProps;
+}
 
 export function RemoteControlSidePanel({
   tab,
@@ -12,13 +29,7 @@ export function RemoteControlSidePanel({
   insights,
   settings,
   diagnostics,
-}: {
-  tab: string;
-  onTabChange: (value: string) => void;
-  insights: RemoteControlPageProps["insights"];
-  settings: RemoteControlPageProps["settings"];
-  diagnostics: RemoteControlPageProps["diagnostics"];
-}) {
+}: RemoteControlSidePanelProps) {
   return (
     <aside className="control-side-panel" aria-label="会话面板">
       <Tabs

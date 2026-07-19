@@ -1,3 +1,4 @@
+import { STREAMER_CLIENT_TYPES, STREAMER_CONTROL_CONNECT_TYPES } from "./streamer/connectOptionsModel.js";
 import {
   STREAMER_APP_CLIENT_VERSION,
   STREAMER_CAPTURE_PARAM_DEFAULTS,
@@ -5,36 +6,38 @@ import {
   STREAMER_CAPTURE_TYPES,
   STREAMER_CHOOSE_RESOLUTION_TYPES,
   STREAMER_CHROMA_FORMATS,
-  STREAMER_CLIENT_TYPES,
   STREAMER_CONNECT_OPTIONS_FIELDS,
-  STREAMER_CONTROL_CONNECT_TYPES,
   STREAMER_DEFAULT_FEATURE_FLAGS,
   STREAMER_FPS_VALUES,
   STREAMER_SCREEN_RESOLUTION_FIELDS,
   STREAMER_VIDEO_QUALITY_VALUES,
-} from "./streamer/connectOptions.js";
-import { STREAMER_CONTROL_STREAMER_DATA_JSON_KEYS } from "./streamer/controlConfig.js";
-import { STREAMER_SEND_TO_ROM_WIRE_FIELDS } from "./streamer/controlChannel.js";
+} from "./streamer/internal/connectOptionsSchema.js";
+import { STREAMER_CONTROL_STREAMER_DATA_JSON_KEYS } from "./streamer/internal/controlConfigSchema.js";
+import { STREAMER_SEND_TO_ROM_WIRE_FIELDS } from "./streamer/internal/controlChannelSchema.js";
 import {
   STREAMER_INPUT_MANAGER_IME_CONTROL_CODES,
   STREAMER_INPUT_MANAGER_TOUCH_SLOTS,
   STREAMER_MUMU_SYSTEM_KEY_CODES,
-} from "./streamer/input.js";
+} from "./streamer/internal/inputLegacy.js";
 import {
-  STREAMER_CONTROLLER_INBOUND_SOAC_TYPES,
-  STREAMER_CONTROLLER_OUTBOUND_SOAC_TYPES,
-  STREAMER_CONTROLLER_SIGNAL_EVENTS,
-  STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS,
-  STREAMER_CONTROL_EVENT_NAME,
   STREAMER_CONTROL_EVENT_PAYLOAD_KEYS,
   STREAMER_CONTROL_EVENT_PAYLOAD_TYPES,
   STREAMER_CONTROL_EVENT_WIRE_ARGUMENT_ORDER,
-  STREAMER_SIGNAL_SOCKET_EVENTS,
-  STREAMER_SOAC_EVENT,
+  STREAMER_CONTROLLER_OUTBOUND_SOAC_TYPES,
   STREAMER_SOAC_PAYLOAD_KEYS,
+} from "./streamer/internal/signalSchema.js";
+import {
+  STREAMER_CONTROLLER_INBOUND_SOAC_TYPES,
+  STREAMER_SOAC_EVENT,
   STREAMER_SOAC_TYPES,
+} from "./streamer/signalSoac.js";
+import {
+  STREAMER_CONTROLLER_SIGNAL_EVENTS,
+  STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS,
+  STREAMER_CONTROL_EVENT_NAME,
+  STREAMER_SIGNAL_SOCKET_EVENTS,
   buildStreamerSignalHeaders,
-} from "./streamer/signal.js";
+} from "./streamer/signalSession.js";
 import { STREAMER_DATA_CHANNEL_LABELS } from "./streamer/transport.js";
 import { summarizeStreamerRoomConfig, type StreamerRoomConfig, type StreamerRoomConfigSummary } from "./roomConfig.js";
 import type { RemoteRoomJoinContext } from "./roomSession.js";

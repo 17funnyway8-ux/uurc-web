@@ -1,55 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-  RemoteSignalControlRequest,
-  RemoteSignalControlResult,
-  RemoteSignalGatewayEvent,
-  RemoteSignalSoacRequest,
-  RemoteSignalSoacResult,
-} from "@uurc/shared/types";
 import {
-  STREAMER_CAPTURE_CHANGE_TYPES,
-  encodeStreamerEchoResponseMessage,
   encodeStreamerEchoRequestMessage,
   encodeStreamerInputMessage,
-  encodeStreamerTextMessage,
-  type DecodedStreamerCursorShape,
-} from "@uurc/shared/streamer/controlChannel";
+} from "@uurc/shared/streamer/controlChannelEncode";
 import {
-  STREAMER_CLIPBOARD_FORMAT_NAMES,
-  STREAMER_CLIPBOARD_RESULTS,
-  decodeStreamerClipboardV4Message,
-  decodeStreamerClipboardTextChangeRequest,
-  encodeStreamerClipboardFormatDataAskRequest,
-} from "@uurc/shared/streamer/clipboard";
-import {
-  buildStreamerKeyboardInputMessage,
-  buildStreamerMacKeyboardInputMessage,
-  buildStreamerMacMouseMoveAbsoluteInputMessage,
-  buildStreamerMacMouseScrollInputMessage,
   buildStreamerMouseButtonInputMessage,
   buildStreamerMouseMoveAbsoluteInputMessage,
   buildStreamerMouseScrollInputMessage,
-  buildStreamerTextInputMessage,
-  buildStreamerWindowsKeyboardInputMessage,
-} from "@uurc/shared/streamer/input";
-import { STREAMER_ICE_NETWORK_TYPES } from "@uurc/shared/streamer/signal";
+} from "@uurc/shared/streamer/inputDesktop";
 import { STREAMER_DATA_CHANNEL_LABELS, STREAMER_MAX_DATA_BUFFER_BYTES } from "@uurc/shared/streamer/transport";
 import { BrowserRemoteSession } from "../src/remote/browserRemoteSession.js";
-import {
-  FakeDataChannel,
-  FakePeerConnection,
-  FakeRemoteApi,
-  blobFromBytes,
-  clipboardDataBlockRequest,
-  cursorShapeControlMessage,
-  deferred,
-  encodeUtf8,
-  flushMicrotasks,
-  makeInboundVideoStats,
-  soacEvent,
-  startClipboardSession,
-} from "./browserRemoteSessionTestHarness.js";
+import { FakePeerConnection, FakeRemoteApi } from "./browserRemoteSessionTestHarness.js";
 
 describe("BrowserRemoteSession", () => {
   it("sends desktop mouse input on the App control channel", async () => {
@@ -412,5 +374,4 @@ describe("BrowserRemoteSession", () => {
       }),
     ]);
   });
-
 });

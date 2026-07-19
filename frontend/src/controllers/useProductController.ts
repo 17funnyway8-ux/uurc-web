@@ -1,40 +1,39 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
-import type {
-  RemoteAssistanceJoinResult,
-} from "@uurc/shared/types";
+import type { RemoteAssistanceJoinResult } from "@uurc/shared/roomSession";
 
 import type { BusyAction, RemoteControlContext, RoomJoinContext } from "../app/remoteControlTypes.js";
 import {
-  cancelRemoteAssistance,
   clearAuthState,
   createMobileDevice,
   exportAuthState,
   getAuthStatus,
-  getDeviceGroups,
-  getRemoteAssistanceControlMode,
-  getRemoteBootstrap,
   importAuthState,
-  joinRemoteAssistanceByCode,
-  joinRemoteAssistanceByConfirmation,
   loginByMobile,
   sendMobileCode,
-  stopRemoteSignalGateway,
-} from "../api/client.js";
+} from "../uu/accountApi.js";
+import { getDeviceGroups, getRemoteBootstrap } from "../uu/roomApi.js";
+import {
+  cancelRemoteAssistance,
+  getRemoteAssistanceControlMode,
+  joinRemoteAssistanceByCode,
+  joinRemoteAssistanceByConfirmation,
+} from "../uu/remoteAssistanceApi.js";
+import { stopRemoteSignalGateway } from "../api/remoteSignalApi.js";
 import { writeLocalClipboardText } from "../browser/clipboard.js";
 import { pickControllableDesktop } from "../devices/deviceSummary.js";
-import { formatRemoteAssistanceMode } from "../remote/remoteControlUiModel.js";
+import { formatRemoteAssistanceMode } from "../remote/remoteRoomUiModel.js";
 import { useAccountController } from "./useAccountController.js";
 import { useAutoLoadDevices } from "./useAutoLoadDevices.js";
+import { useBusyAction } from "./useBusyAction.js";
 import { useDeviceController } from "./useDeviceController.js";
 import { useToastController } from "./useToastController.js";
 
 export function useProductController() {
   const accountState = useAccountController();
   const deviceState = useDeviceController();
-  const [busy, setBusy] = useState<BusyAction>("status");
-  const [error, setError] = useState("");
+  const { busy, error, run, setError } = useBusyAction("status");
   const [controlHandoff, setControlHandoff] = useState<RemoteControlContext["handoff"]>(null);
   const { toast, showToast, dismissToast } = useToastController();
   const navigate = useNavigate();
@@ -57,27 +56,19 @@ export function useProductController() {
     loadDevices: () => void loadDevices(),
   });
 
-  async function run(action: BusyAction, task: () => Promise<void>) {
-    setBusy(action);
-    setError("");
-    try {
-      await task();
-    } catch (caught) {
-      setError(toFriendlyError(caught instanceof Error ? caught.message : String(caught)));
-      if (action === "assistance") deviceState.setAssistanceNotice("");
-    } finally {
-      setBusy(null);
-    }
+  async function runProductAction(action: Exclude<BusyAction, null>, task: () => Promise<void>) {
+    const succeeded = await run(action, task);
+    if (!succeeded && action === "assistance") deviceState.setAssistanceNotice("");
   }
 
   async function loadStatus() {
-    await run("status", async () => {
+    await runProductAction("status", async () => {
       accountState.setAuthStatus(await getAuthStatus());
     });
   }
 
   async function handleImport() {
-    await run("import", async () => {
+    await runProductAction("import", async () => {
       const status = await importAuthState(accountState.authJson);
       accountState.setAuthStatus(status);
       if (!status.hasState) {
@@ -92,7 +83,7 @@ export function useProductController() {
   }
 
   async function handleExport() {
-    await run("export", async () => {
+    await runProductAction("export", async () => {
       const exportedAuthJson = JSON.stringify(await exportAuthState(), null, 2);
       accountState.setAuthJson(exportedAuthJson);
       try {
@@ -121,7 +112,7 @@ export function useProductController() {
     ) {
       return;
     }
-    await run("logout", async () => {
+    await runProductAction("logout", async () => {
       await stopRemoteSignalGateway().catch(() => undefined);
       if (controlHandoff?.roomJoinContext.kind === "remote_assistance") {
         await cancelRemoteAssistance(
@@ -146,7 +137,7 @@ export function useProductController() {
   }
 
   async function handleSendMobileCode() {
-    await run("send-mobile-code", async () => {
+    await runProductAction("send-mobile-code", async () => {
       if (!isValidMobileNumber(accountState.regionCode, accountState.mobile)) {
         throw new Error(
           accountState.regionCode.trim() === "86" || !accountState.regionCode.trim()
@@ -167,7 +158,7 @@ export function useProductController() {
   }
 
   async function handleMobileLogin() {
-    await run("mobile-login", async () => {
+    await runProductAction("mobile-login", async () => {
       await ensureMobileDevice();
       const result = await loginByMobile({
         regionCode: accountState.regionCode.trim() || "86",
@@ -182,7 +173,7 @@ export function useProductController() {
   }
 
   async function loadDevices() {
-    await run("devices", async () => {
+    await runProductAction("devices", async () => {
       const devices = await getDeviceGroups();
       deviceState.setDevices(devices);
       deviceState.setDevicesLoaded(true);
@@ -205,7 +196,7 @@ export function useProductController() {
     }
 
     deviceState.setAssistanceNotice("");
-    await run("assistance", async () => {
+    await runProductAction("assistance", async () => {
       const connectId = deviceState.assistanceConnectId.trim();
       const connectCode = deviceState.assistanceConnectCode.trim();
       const modeResult = await getRemoteAssistanceControlMode(connectId);
@@ -338,20 +329,6 @@ export function useProductController() {
       onControlLeave: () => setControlHandoff(null),
     } satisfies RemoteControlContext,
   };
-}
-
-function toFriendlyError(message: string): string {
-  const text = message || "";
-  if (/Unexpected token|not valid JSON|Unexpected end of JSON|JSON at position/i.test(text))
-    return "账号凭证 JSON 格式不正确，请检查是否完整复制。";
-  if (/Join a room before starting remote control|请先加入房间/i.test(text)) return "请先加入设备房间再开始远控。";
-  if (/ack timed out|timed out|timeout/i.test(text)) return "连接超时，请稍后重试。";
-  if (/signal control ack failed/i.test(text)) return "对端拒绝了本次连接，请稍后重试或更换网络。";
-  if (/did not include a ControlResult/i.test(text)) return "未收到对端的连接许可，请重试。";
-  if (/socket is not connected|is not connected|not open/i.test(text)) return "连接服务未就绪，请重新连接。";
-  if (/Failed to fetch|NetworkError|ERR_NETWORK|network error/i.test(text)) return "网络异常，请检查网络后重试。";
-  if (/Missing required login state/i.test(text)) return "账号凭证不完整，请重新登录。";
-  return text;
 }
 
 function isValidMobileNumber(regionCode: string, mobile: string): boolean {

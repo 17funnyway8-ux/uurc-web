@@ -41,7 +41,7 @@ export function PageMetadata() {
   return null;
 }
 
-export function getPageMetadata(pathname: string): Metadata {
+function getPageMetadata(pathname: string): Metadata {
   if (pathname === "/") {
     return {
       title: `UU 远程桌面网页版（Web 版）- ${SITE_NAME}`,

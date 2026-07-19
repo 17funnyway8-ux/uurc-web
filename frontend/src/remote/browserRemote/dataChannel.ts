@@ -1,7 +1,7 @@
 import type {
   DecodedStreamerControlMessage,
   DecodedStreamerCursorShape,
-} from "@uurc/shared/streamer/controlChannel";
+} from "@uurc/shared/streamer/controlChannelDecode";
 import { dropUndefinedFields } from "./utils.js";
 
 export function dataChannelPayloadByteLength(data: string | ArrayBufferView | ArrayBuffer): number {

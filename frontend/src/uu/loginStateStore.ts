@@ -1,5 +1,5 @@
 import { summarizeAuthState } from "@uurc/shared/authState";
-import type { AuthStatus, LoginState } from "@uurc/shared/types";
+import type { AuthStatus, LoginState } from "@uurc/shared/authState";
 
 const LOGIN_STATE_KEY = "uurc.loginState";
 

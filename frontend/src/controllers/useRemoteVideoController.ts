@@ -2,8 +2,11 @@ import { useCallback, useMemo, useState, type RefObject } from "react";
 
 import type { RemoteVideoSamplesById, RemoteVideoSourceInfo, RemoteVideoStream } from "../app/remoteControlTypes.js";
 import type { BrowserRemoteSession } from "../remote/browserRemoteSession.js";
-import type { BrowserRemoteSessionState, BrowserRemoteVideoElementSample } from "../remote/browserRemoteSessionTypes.js";
-import { createSingleTrackMediaStream, resolvePrimaryRemoteVideoId } from "../remote/remoteControlUiModel.js";
+import type {
+  BrowserRemoteSessionState,
+  BrowserRemoteVideoElementSample,
+} from "../remote/browserRemoteSessionTypes.js";
+import { createSingleTrackMediaStream, resolvePrimaryRemoteVideoId } from "../remote/remoteVideoModel.js";
 
 export function useRemoteVideoController({
   browserSessionRef,

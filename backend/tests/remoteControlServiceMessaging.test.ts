@@ -1,10 +1,10 @@
 import { gunzipSync } from "node:zlib";
 
-import { describe, expect, it } from "vitest";
-import { STREAMER_ICE_NETWORK_TYPES } from "@uurc/shared/streamer/signal";
+import { describe, expect, it, vi } from "vitest";
+import { STREAMER_ICE_NETWORK_TYPES } from "@uurc/shared/streamer/signalSoac";
 
 import { RemoteControlService } from "../src/services/remoteControlService.js";
-import { FakeSignalGatewayConnector, createRoomConfigSource } from "./fixtures/signalGateway.js";
+import { FakeSignalGatewayConnector, createRoomConfigSource, roomConfigFor } from "./fixtures/signalGateway.js";
 
 describe("RemoteControlService outbound messages", () => {
   it("emits the App control event with binary app_data and string streamer_data and returns the ack", async () => {
@@ -131,6 +131,40 @@ describe("RemoteControlService outbound messages", () => {
     });
   });
 
+  it("drops a control acknowledgement from a superseded connection", async () => {
+    const connector = new FakeSignalGatewayConnector();
+    const service = new RemoteControlService(undefined, connector);
+    await service.startSignalGateway({ roomConfig: roomConfigFor("wss://signal-a.example") });
+    const ack = deferred<unknown[]>();
+    connector.connections[0].emitWithAck = vi.fn(async () => ack.promise);
+
+    const pendingControl = service.sendSignalControl({ appControlId: "control-1" });
+    await vi.waitFor(() => expect(connector.connections[0].emitWithAck).toHaveBeenCalledOnce());
+    await service.startSignalGateway({ roomConfig: roomConfigFor("wss://signal-b.example") });
+    ack.resolve(["success", { code: 0 }]);
+
+    await expect(pendingControl).resolves.toBeNull();
+    expect(service.getSignalGatewayEvents().map((event) => event.event)).not.toContain("control:ack");
+  });
+
+  it("drops an optional SOAC acknowledgement from a superseded connection", async () => {
+    const connector = new FakeSignalGatewayConnector();
+    const service = new RemoteControlService(undefined, connector);
+    await service.startSignalGateway({ roomConfig: roomConfigFor("wss://signal-a.example") });
+    await service.sendSignalSoac({
+      type: "candidate",
+      clientId: "controlled-1",
+      appControlId: "control-1",
+      candidate: { candidate: "candidate:1 1 udp 1 192.0.2.1 10000 typ host" },
+    });
+    const staleAck = connector.connections[0].emitWithOptionalAckCalls[0].onAck;
+
+    await service.startSignalGateway({ roomConfig: roomConfigFor("wss://signal-b.example") });
+    staleAck(["success", { code: 0 }]);
+
+    expect(service.getSignalGatewayEvents().map((event) => event.event)).not.toContain("soac:ack");
+  });
+
   it("emits wire-shaped candidate SOAC messages without ice_network_type", async () => {
     const connector = new FakeSignalGatewayConnector();
     const service = new RemoteControlService(createRoomConfigSource(), connector);
@@ -218,3 +252,11 @@ describe("RemoteControlService outbound messages", () => {
     });
   });
 });
+
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}

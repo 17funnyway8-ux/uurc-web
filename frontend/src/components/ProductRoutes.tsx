@@ -6,9 +6,7 @@ import { Toast } from "./Toast.js";
 
 const LoginPage = lazy(() => import("./LoginPage.js").then((module) => ({ default: module.LoginPage })));
 const AppShell = lazy(() => import("./AppShell.js").then((module) => ({ default: module.AppShell })));
-const DeviceListPage = lazy(() =>
-  import("./DeviceListPage.js").then((module) => ({ default: module.DeviceListPage })),
-);
+const DeviceListPage = lazy(() => import("./DeviceListPage.js").then((module) => ({ default: module.DeviceListPage })));
 const RemoteAssistancePage = lazy(() =>
   import("./RemoteAssistancePage.js").then((module) => ({ default: module.RemoteAssistancePage })),
 );

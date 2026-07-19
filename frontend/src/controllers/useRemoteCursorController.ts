@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, type RefObject } from "react";
 
-import type { DecodedStreamerCursorShape } from "@uurc/shared/streamer/controlChannel";
+import type { DecodedStreamerCursorShape } from "@uurc/shared/streamer/controlChannelDecode";
 
 import type { RemoteMediaGeometry } from "../remote/remoteMediaGeometry.js";
 import {

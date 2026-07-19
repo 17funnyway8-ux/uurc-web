@@ -1,6 +1,6 @@
 import { ChevronLeft, CircleStop, LoaderCircle, PanelRight } from "lucide-react";
 
-import type { UuDevice } from "@uurc/shared/types";
+import type { UuDevice } from "@uurc/shared/devices";
 
 import type { BusyAction } from "../app/remoteControlTypes.js";
 import type { BrowserRemoteSessionState } from "../remote/browserRemoteSessionTypes.js";

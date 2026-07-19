@@ -14,16 +14,3 @@ export function redact(value: unknown): unknown {
   }
   return text.replace(/\d{6,}/g, "<num>");
 }
-
-export function redactObject<T>(value: T, key = ""): unknown {
-  if (Array.isArray(value)) return value.map((item) => redactObject(item, key));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([childKey, item]) => [childKey, redactObject(item, childKey)]),
-    );
-  }
-  if (/^(alias|phone_number|wallpaper_url)$/i.test(key) && value) {
-    return `<redacted ${key} len=${String(value).length}>`;
-  }
-  return redact(value);
-}

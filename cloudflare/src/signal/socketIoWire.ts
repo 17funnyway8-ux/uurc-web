@@ -93,8 +93,7 @@ export function reconstructBinaryPlaceholders(value: unknown, buffers: Uint8Arra
   return value;
 }
 
-export function ensureEngineIoBinaryFramePrefix(value: Uint8Array): Uint8Array {
-  if (value[0] === ENGINE_IO_BINARY_FRAME_PREFIX) return value;
+export function prefixEngineIoBinaryFrame(value: Uint8Array): Uint8Array {
   const prefixed = new Uint8Array(value.byteLength + 1);
   prefixed[0] = ENGINE_IO_BINARY_FRAME_PREFIX;
   prefixed.set(value, 1);
@@ -114,9 +113,7 @@ function deconstructBinaryValue(value: unknown, buffers: Uint8Array[]): unknown 
   }
   if (Array.isArray(value)) return value.map((item) => deconstructBinaryValue(item, buffers));
   if (isRecord(value)) {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, deconstructBinaryValue(item, buffers)]),
-    );
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, deconstructBinaryValue(item, buffers)]));
   }
   return value;
 }

@@ -19,12 +19,12 @@ type RemoteShortcutDefinition = {
   keys: number[];
 };
 
-export type RemoteShortcutGroup = {
+type RemoteShortcutGroup = {
   title: string;
   shortcuts: RemoteShortcutDefinition[];
 };
 
-export type RemoteKeyboardSender = {
+type RemoteKeyboardSender = {
   sendKeyboardInput(input: { action: "keyboardPress" | "keyboardRelease"; value: string | number }): void;
 };
 
@@ -45,7 +45,7 @@ const KEY = {
   l: 40,
 } as const;
 
-export const REMOTE_SHORTCUT_GROUPS: RemoteShortcutGroup[] = [
+const REMOTE_SHORTCUT_GROUPS: RemoteShortcutGroup[] = [
   {
     title: "Windows",
     shortcuts: [

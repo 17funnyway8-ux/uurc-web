@@ -25,10 +25,7 @@ import type {
 import { createRemoteControlBootstrap, type RemoteControlBootstrap } from "@uurc/shared/remoteBootstrap";
 import { redact } from "@uurc/shared/redact";
 import type { RemoteRoomJoinContext, RoomJoinUpstreamSummary } from "@uurc/shared/roomSession";
-import {
-  analyzeRemoteSignalReadiness,
-  type RemoteSignalReadinessDiagnostics,
-} from "@uurc/shared/streamer/readiness";
+import { analyzeRemoteSignalReadiness, type RemoteSignalReadinessDiagnostics } from "@uurc/shared/streamer/readiness";
 import {
   STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS,
   STREAMER_CONTROL_EVENT_NAME,
@@ -37,10 +34,7 @@ import {
   buildStreamerSignalHeaders,
 } from "@uurc/shared/streamer/signalSession";
 import { normalizeStreamerSignalControlAck } from "@uurc/shared/streamer/signalControl";
-import {
-  STREAMER_CONTROLLER_INBOUND_SOAC_TYPES,
-  STREAMER_SOAC_EVENT,
-} from "@uurc/shared/streamer/signalSoac";
+import { STREAMER_CONTROLLER_INBOUND_SOAC_TYPES, STREAMER_SOAC_EVENT } from "@uurc/shared/streamer/signalSoac";
 import type { StreamerRoomConfig } from "@uurc/shared/roomConfig";
 
 import { nodeSignalGatewayBinary } from "./nodeSignalGatewayBinaryCodec.js";
@@ -64,7 +58,9 @@ export class RemoteControlService {
   private signalEvents: RemoteSignalGatewayEvent[] = [];
   private nextSignalEventId = 1;
   private activeJoinContext: RemoteRoomJoinContext | null = null;
-  private signalGeneration = 0;
+  private nextSignalRequestSequence = 0;
+  private authoritativeSignalRequestSequence = 0;
+  private activeSignalGeneration = 0;
 
   constructor(
     private readonly roomConfigSource?: RoomConfigSource,
@@ -98,11 +94,13 @@ export class RemoteControlService {
   }
 
   async startSignalGateway(input: RemoteSignalGatewayStartRequest = {}): Promise<RemoteSignalGatewayStatus | null> {
-    const generation = ++this.signalGeneration;
+    const requestSequence = ++this.nextSignalRequestSequence;
     const roomConfig = input.roomConfig ?? (await this.roomConfigSource?.getLatestRoomConfig());
     if (!roomConfig) return null;
     const joinContext = input.joinContext ?? (await this.roomConfigSource?.getLatestJoinContext?.()) ?? null;
-    if (generation !== this.signalGeneration) return this.signalStatus;
+    if (requestSequence < this.authoritativeSignalRequestSequence) return this.signalStatus;
+    this.authoritativeSignalRequestSequence = requestSequence;
+    const generation = ++this.activeSignalGeneration;
     this.activeJoinContext = joinContext;
 
     this.signalConnection?.close();
@@ -137,7 +135,7 @@ export class RemoteControlService {
           socketEvents: STREAMER_SIGNAL_SOCKET_EVENTS,
           controlEvent: STREAMER_CONTROL_EVENT_NAME,
           onSignalEvent: (event, payload) => {
-            if (generation !== this.signalGeneration) return;
+            if (generation !== this.activeSignalGeneration) return;
             for (const normalized of normalizeSignalGatewayInboundEvents(event, payload, nodeSignalGatewayBinary)) {
               this.recordSignalEvent({
                 direction: "inbound",
@@ -157,7 +155,7 @@ export class RemoteControlService {
             });
           },
         });
-        if (generation !== this.signalGeneration) {
+        if (generation !== this.activeSignalGeneration) {
           connection.close();
           return this.signalStatus;
         }
@@ -173,12 +171,12 @@ export class RemoteControlService {
         this.logLifecycle("signal_start", generation, "connected");
         return this.signalStatus;
       } catch (error) {
-        if (generation !== this.signalGeneration) return this.signalStatus;
+        if (generation !== this.activeSignalGeneration) return this.signalStatus;
         lastError = error;
       }
     }
 
-    if (generation !== this.signalGeneration) return this.signalStatus;
+    if (generation !== this.activeSignalGeneration) return this.signalStatus;
     this.signalStatus = createSignalGatewayStatus({
       status: "error",
       roomConfig,
@@ -194,7 +192,9 @@ export class RemoteControlService {
   }
 
   async sendSignalControl(input: RemoteSignalControlRequest): Promise<RemoteSignalControlResult | null> {
-    if (!this.signalConnection) return null;
+    const connection = this.signalConnection;
+    const generation = this.activeSignalGeneration;
+    if (!connection) return null;
 
     const emittedAt = new Date().toISOString();
     const payload = buildSignalGatewayControlPayload(input, nodeSignalGatewayBinary);
@@ -203,11 +203,14 @@ export class RemoteControlService {
       event: STREAMER_CONTROL_EVENT_NAME,
       payload,
     });
-    const ack = await this.signalConnection.emitWithAck(
-      STREAMER_CONTROL_EVENT_NAME,
-      payload,
-      STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS,
-    );
+    let ack: unknown[];
+    try {
+      ack = await connection.emitWithAck(STREAMER_CONTROL_EVENT_NAME, payload, STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS);
+    } catch (error) {
+      if (!this.isCurrentSignalConnection(connection, generation)) return null;
+      throw error;
+    }
+    if (!this.isCurrentSignalConnection(connection, generation)) return null;
     const normalizedAck = normalizeSignalGatewayPayload(ack, nodeSignalGatewayBinary);
     const ackStatus =
       Array.isArray(normalizedAck) && typeof normalizedAck[0] === "string" ? normalizedAck[0] : undefined;
@@ -228,7 +231,9 @@ export class RemoteControlService {
   }
 
   async sendSignalSoac(input: RemoteSignalSoacRequest): Promise<RemoteSignalSoacResult | null> {
-    if (!this.signalConnection) return null;
+    const connection = this.signalConnection;
+    const generation = this.activeSignalGeneration;
+    if (!connection) return null;
 
     const emittedAt = new Date().toISOString();
     const payload = buildSignalGatewaySoacPayload(input, nodeSignalGatewayBinary);
@@ -237,13 +242,15 @@ export class RemoteControlService {
       event: STREAMER_SOAC_EVENT,
       payload,
     });
-    await this.signalConnection.emitWithOptionalAck(STREAMER_SOAC_EVENT, payload, (ack) => {
+    await connection.emitWithOptionalAck(STREAMER_SOAC_EVENT, payload, (ack) => {
+      if (!this.isCurrentSignalConnection(connection, generation)) return;
       this.recordSignalEvent({
         direction: "inbound",
         event: `${STREAMER_SOAC_EVENT}:ack`,
         payload: ack,
       });
     });
+    if (!this.isCurrentSignalConnection(connection, generation)) return null;
     return {
       event: STREAMER_SOAC_EVENT,
       payload: normalizeSignalGatewayPayload(payload, nodeSignalGatewayBinary),
@@ -252,7 +259,9 @@ export class RemoteControlService {
   }
 
   async stopSignalGateway(): Promise<RemoteSignalGatewayStatus> {
-    const generation = ++this.signalGeneration;
+    const requestSequence = ++this.nextSignalRequestSequence;
+    this.authoritativeSignalRequestSequence = requestSequence;
+    const generation = ++this.activeSignalGeneration;
     const activeJoinContext = this.activeJoinContext;
     this.signalConnection?.close();
     this.signalConnection = null;
@@ -268,15 +277,18 @@ export class RemoteControlService {
     };
     this.logLifecycle("signal_stop", generation, "closed");
     const joinContext = activeJoinContext ?? (await this.roomConfigSource?.getLatestJoinContext?.());
-    if (generation !== this.signalGeneration) return this.signalStatus;
+    if (generation !== this.activeSignalGeneration) return this.signalStatus;
     if (joinContext?.deviceId && this.roomConfigSource?.clearByDevice) {
       try {
+        const roomClear = await this.roomConfigSource.clearByDevice({ deviceId: joinContext.deviceId });
+        if (generation !== this.activeSignalGeneration) return this.signalStatus;
         this.signalStatus = {
           ...this.signalStatus,
-          roomClear: await this.roomConfigSource.clearByDevice({ deviceId: joinContext.deviceId }),
+          roomClear,
           updatedAt: new Date().toISOString(),
         };
       } catch (error) {
+        if (generation !== this.activeSignalGeneration) return this.signalStatus;
         this.signalStatus = {
           ...this.signalStatus,
           roomClearError: String(redact(error instanceof Error ? error.message : error)),
@@ -295,7 +307,7 @@ export class RemoteControlService {
     startedAt: string;
     signalServer: string;
   }): void {
-    if (input.generation !== this.signalGeneration) return;
+    if (input.generation !== this.activeSignalGeneration) return;
 
     if (input.update.status === "connected") {
       this.signalStatus = createSignalGatewayStatus({
@@ -320,6 +332,10 @@ export class RemoteControlService {
       this.signalConnection = null;
     }
     this.logLifecycle("signal_connection_state", input.generation, input.update.status, this.signalStatus.error);
+  }
+
+  private isCurrentSignalConnection(connection: SignalGatewayConnection, generation: number): boolean {
+    return generation === this.activeSignalGeneration && connection === this.signalConnection;
   }
 
   private logLifecycle(event: string, generation: number, status: string, reason?: string): void {

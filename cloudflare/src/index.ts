@@ -2,6 +2,13 @@ import { RemoteSignalSession } from "./signalSession";
 import type { RemoteSignalSession as RemoteSignalSessionClass } from "./signalSession";
 import { createRuntimeProfile } from "@uurc/shared/runtimeProfile";
 import { REMOTE_SESSION_HEADER, isRemoteSessionId } from "@uurc/shared/remoteSession";
+import {
+  ValidationError,
+  parseOptionalEventId,
+  parseSignalControlRequest,
+  parseSignalGatewayStartRequest,
+  parseSignalSoacRequest,
+} from "@uurc/shared/signalGateway/requests";
 import { assertAllowedUuApiPath, parseMaybeJsonBody, sanitizeUuProxyHeaders } from "@uurc/shared/uuProxy";
 
 const API_BASE = "https://api.nrd.nie.163.com";
@@ -37,7 +44,8 @@ export default {
 
 async function handleUuProxy(request: Request): Promise<Response> {
   try {
-    const body = await readJson(request);
+    const parsedBody = await readJson(request);
+    const body = isRecord(parsedBody) ? parsedBody : {};
     const method = typeof body.method === "string" ? body.method : "";
     const path = typeof body.path === "string" ? body.path : "";
     if (!method || !path) {
@@ -71,6 +79,15 @@ async function handleUuProxy(request: Request): Promise<Response> {
 }
 
 async function handleRemoteApi(request: Request, env: Env): Promise<Response> {
+  try {
+    return await routeRemoteApi(request, env);
+  } catch (error) {
+    if (error instanceof ValidationError) return json({ error: error.message }, { status: 400 });
+    throw error;
+  }
+}
+
+async function routeRemoteApi(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const sessionId = request.headers.get(REMOTE_SESSION_HEADER);
   if (!isRemoteSessionId(sessionId)) {
@@ -88,14 +105,14 @@ async function handleRemoteApi(request: Request, env: Env): Promise<Response> {
     );
   }
   if (url.pathname === "/api/remote/signal/start" && request.method === "POST") {
-    return json(await session.start(await readJson(request)));
+    return json(await session.start(parseSignalGatewayStartRequest(await readJson(request))));
   }
   if (url.pathname === "/api/remote/signal/status" && request.method === "GET") {
     return json(await session.getStatus());
   }
   if (url.pathname === "/api/remote/signal/events" && request.method === "GET") {
-    const afterEventId = parseOptionalEventId(url.searchParams.get("after"));
-    if (afterEventId instanceof Response) return afterEventId;
+    const after = url.searchParams.get("after");
+    const afterEventId = parseOptionalEventId(after ?? undefined);
     return json(await session.getEvents(afterEventId));
   }
   if (url.pathname === "/api/remote/signal/diagnostics" && request.method === "GET") {
@@ -105,29 +122,26 @@ async function handleRemoteApi(request: Request, env: Env): Promise<Response> {
     return json(await session.stop());
   }
   if (url.pathname === "/api/remote/signal/control" && request.method === "POST") {
-    const result = await session.sendControl(await readJson(request));
+    const result = await session.sendControl(parseSignalControlRequest(await readJson(request)));
     if (!result) return json({ error: "Start the signal gateway before sending control" }, { status: 409 });
     return json(result);
   }
   if (url.pathname === "/api/remote/signal/soac" && request.method === "POST") {
-    const result = await session.sendSoac(await readJson(request));
+    const result = await session.sendSoac(parseSignalSoacRequest(await readJson(request)));
     if (!result) return json({ error: "Start the signal gateway before sending SOAC" }, { status: 409 });
     return json(result);
   }
   return json({ error: "Not found" }, { status: 404 });
 }
 
-function parseOptionalEventId(value: string | null): number | undefined | Response {
-  if (value === null) return undefined;
-  if (!/^\d+$/.test(value)) {
-    return json({ error: "after must be a non-negative integer" }, { status: 400 });
+async function readJson(request: Request): Promise<unknown> {
+  const body = await request.text();
+  if (body.trim().length === 0) return undefined;
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new ValidationError("Expected a valid JSON payload");
   }
-  return Number.parseInt(value, 10);
-}
-
-async function readJson(request: Request): Promise<JsonRecord> {
-  const body = await request.json().catch(() => ({}));
-  return isRecord(body) ? body : {};
 }
 
 function json(body: unknown, init: ResponseInit = {}): Response {

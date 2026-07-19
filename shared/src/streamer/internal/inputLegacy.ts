@@ -38,7 +38,10 @@ export function buildStreamerImeControlInputMessage(kind: StreamerImeControlKind
   return `TEXT_CONTROL:${kind}`;
 }
 
-export function buildStreamerSystemKeyInputMessages(input: { displayId: number; key: StreamerMumuSystemKey }): string[] {
+export function buildStreamerSystemKeyInputMessages(input: {
+  displayId: number;
+  key: StreamerMumuSystemKey;
+}): string[] {
   const keyCode = STREAMER_MUMU_SYSTEM_KEY_CODES[input.key];
   return [`${input.displayId}:KBDPR:${keyCode}:1\n`, `${input.displayId}:KBDRL:${keyCode}:0\n`];
 }
@@ -67,7 +70,8 @@ class TouchInputTracker implements StreamerTouchInputTracker {
       });
 
     const messages: string[] = [];
-    if (releaseSlots.length > 0) messages.push(cook(this.surface.displayId, `SLOTMULTIRELEASE:${releaseSlots.join(":")}`));
+    if (releaseSlots.length > 0)
+      messages.push(cook(this.surface.displayId, `SLOTMULTIRELEASE:${releaseSlots.join(":")}`));
     const pressParts: string[] = [];
     for (const point of points) {
       const slot = this.slotForTouch(point.id);

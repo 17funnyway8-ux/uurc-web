@@ -3,7 +3,7 @@ import path from "node:path";
 
 import express from "express";
 import compression from "compression";
-import { createRuntimeProfile } from "@uurc/shared";
+import { createRuntimeProfile } from "@uurc/shared/runtimeProfile";
 
 import { createConfig, type BackendConfigOverrides } from "./config.js";
 import { errorHandler } from "./middleware/errorHandler.js";

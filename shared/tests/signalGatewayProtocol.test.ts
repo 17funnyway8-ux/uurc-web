@@ -5,13 +5,12 @@ import { describe, expect, it } from "vitest";
 import {
   buildSignalGatewayControlPayload,
   buildSignalGatewaySoacPayload,
-  createSignalGatewayStatus,
-  normalizeSignalGatewayInboundEvents,
   normalizeSignalGatewayPayload,
-  orderSignalGatewayServers,
   type SignalGatewayBinaryCodec,
-} from "../src/signalGatewayProtocol.js";
-import type { StreamerRoomConfig } from "../src/types.js";
+} from "../src/signalGateway/payload.js";
+import { normalizeSignalGatewayInboundEvents } from "../src/signalGateway/events.js";
+import { createSignalGatewayStatus, orderSignalGatewayServers } from "../src/signalGateway/status.js";
+import type { StreamerRoomConfig } from "../src/roomConfig.js";
 
 const binaryCodec: SignalGatewayBinaryCodec<Buffer> = {
   decodeBase64: (value) => Buffer.from(value ?? "", "base64"),

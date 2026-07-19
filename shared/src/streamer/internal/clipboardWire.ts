@@ -19,7 +19,9 @@ export interface ClipboardEnvelopeMetadata {
   requestId: bigint;
 }
 
-export interface ClipboardRpcEnvelope extends ClipboardEnvelopeMetadata {
+export interface ClipboardRpcEnvelope {
+  sequence: bigint;
+  timestampMs: bigint;
   rpcTag: number;
   rpcBytes: Uint8Array;
 }
@@ -69,7 +71,8 @@ export function encodeClipboardRpcEnvelope(input: {
   pushMessageField(rpc, input.bodyTag, input.body);
   const envelope: number[] = [];
   if (sequence !== 0n) pushVarintField(envelope, STREAMER_CLIPBOARD_RPC_WIRE_FIELDS.envelope.sequenceTag, sequence);
-  if (timestampMs !== 0n) pushVarintField(envelope, STREAMER_CLIPBOARD_RPC_WIRE_FIELDS.envelope.timestampMsTag, timestampMs);
+  if (timestampMs !== 0n)
+    pushVarintField(envelope, STREAMER_CLIPBOARD_RPC_WIRE_FIELDS.envelope.timestampMsTag, timestampMs);
   pushMessageField(envelope, input.rpcTag, new Uint8Array(rpc));
   const encoded = new Uint8Array(envelope);
   if (encoded.byteLength > STREAMER_CLIPBOARD_DECODE_LIMITS.maxMessageBytes) {
@@ -97,7 +100,8 @@ export function readSingleMessageField(
 
 export function readInt64(fields: readonly ProtobufField[], tag: number): bigint | undefined {
   const matching = fields.filter((field) => field.tag === tag);
-  if (matching.some((field) => field.wireType !== protobufWireType.varint || field.varint === undefined)) return undefined;
+  if (matching.some((field) => field.wireType !== protobufWireType.varint || field.varint === undefined))
+    return undefined;
   const value = matching.at(-1)?.varint ?? 0n;
   return value <= MAX_SIGNED_INT64 ? value : undefined;
 }
@@ -141,7 +145,8 @@ function readLengthDelimitedValue(
   if (matching.some((field) => field.wireType !== protobufWireType.lengthDelimited)) return undefined;
   const field = matching.at(-1);
   if (!field) return new Uint8Array();
-  if (field.byteLength === undefined || field.byteLength > STREAMER_CLIPBOARD_DECODE_LIMITS.maxTextBytes) return undefined;
+  if (field.byteLength === undefined || field.byteLength > STREAMER_CLIPBOARD_DECODE_LIMITS.maxTextBytes)
+    return undefined;
   return protobufLengthDelimitedFieldBytes(bytes, field);
 }
 
@@ -150,10 +155,13 @@ function checkedInt64(value: number | bigint, name: string): bigint {
     throw new RangeError(`${name} must be a non-negative safe integer or bigint`);
   }
   const normalized = BigInt(value);
-  if (normalized < 0n || normalized > MAX_SIGNED_INT64) throw new RangeError(`${name} must fit in a non-negative int64`);
+  if (normalized < 0n || normalized > MAX_SIGNED_INT64)
+    throw new RangeError(`${name} must fit in a non-negative int64`);
   return normalized;
 }
 
 function toUint8Array(data: ArrayBuffer | ArrayBufferView): Uint8Array {
-  return data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  return data instanceof ArrayBuffer
+    ? new Uint8Array(data)
+    : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
 }

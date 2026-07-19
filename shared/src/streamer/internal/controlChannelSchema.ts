@@ -43,7 +43,13 @@ export const STREAMER_ROM_MESSAGE_TYPES = {
   RomMsg_Volume: 5,
 } as const;
 
-export const STREAMER_CAPTURE_CHANGE_TYPES = { CT_DESKTOP: 0, CT_WINDOW: 1, CT_MUMU: 2, CT_HOOK: 3, CT_NONE: 99 } as const;
+export const STREAMER_CAPTURE_CHANGE_TYPES = {
+  CT_DESKTOP: 0,
+  CT_WINDOW: 1,
+  CT_MUMU: 2,
+  CT_HOOK: 3,
+  CT_NONE: 99,
+} as const;
 
 export const STREAMER_SIMPLE_ACTION_FEATURE_FLAG_FIELDS = [
   { tag: 1, name: "useClipboard" },

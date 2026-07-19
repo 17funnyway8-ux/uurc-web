@@ -1,4 +1,4 @@
-import type { RemoteSignalGatewayEvent } from "@uurc/shared/types";
+import type { RemoteSignalGatewayEvent } from "@uurc/shared/signalGateway/model";
 
 export function summarizeSignalEventForLog(record: RemoteSignalGatewayEvent): string {
   const segments: string[] = [`#${record.id}`, record.direction, record.event];

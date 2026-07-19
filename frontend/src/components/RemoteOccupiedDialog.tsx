@@ -1,6 +1,6 @@
 import { TriangleAlert } from "lucide-react";
 
-import type { UuParticipantInfo } from "@uurc/shared/types";
+import type { UuParticipantInfo } from "@uurc/shared/devices";
 
 import { ParticipantList } from "./ParticipantList.js";
 import { Dialog } from "./ui/Dialog.js";

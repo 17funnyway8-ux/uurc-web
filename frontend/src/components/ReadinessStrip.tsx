@@ -1,4 +1,4 @@
-import type { RemoteSignalReadinessDiagnostics } from "@uurc/shared/types";
+import type { RemoteSignalReadinessDiagnostics } from "@uurc/shared/streamer/readiness";
 
 export function ReadinessStrip({ diagnostics }: { diagnostics: RemoteSignalReadinessDiagnostics }) {
   return (

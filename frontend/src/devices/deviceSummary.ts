@@ -1,4 +1,4 @@
-import type { UuDevice, UuDeviceGroups, UuParticipantInfo } from "@uurc/shared";
+import type { UuDevice, UuDeviceGroups, UuParticipantInfo } from "@uurc/shared/devices";
 
 type UnknownRecord = Record<string, unknown>;
 

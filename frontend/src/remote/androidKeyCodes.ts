@@ -1,4 +1,4 @@
-export type DomKeyboardEventLike = {
+type DomKeyboardEventLike = {
   code: string;
   key: string;
   location?: number;

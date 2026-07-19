@@ -32,7 +32,7 @@ export function decodeJwtPayload(token: string | undefined): Record<string, unkn
   }
 }
 
-export function validateLoginState(state: Partial<LoginState> | null | undefined): string[] {
+function validateLoginState(state: Partial<LoginState> | null | undefined): string[] {
   return REQUIRED_LOGIN_FIELDS.filter((field) => !state?.[field]);
 }
 

@@ -1,6 +1,6 @@
 import { gzipSync, gunzipSync } from "node:zlib";
 
-import type { SignalGatewayBinaryCodec } from "@uurc/shared/signalGatewayProtocol";
+import type { SignalGatewayBinaryCodec } from "@uurc/shared/signalGateway/payload";
 
 export const nodeSignalGatewayBinary: SignalGatewayBinaryCodec<Buffer> = {
   decodeBase64: (value) => Buffer.from(value ?? "", "base64"),

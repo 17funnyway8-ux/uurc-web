@@ -1,6 +1,6 @@
 import { Copy, Download, LoaderCircle, LogOut } from "lucide-react";
 
-import type { AuthStatus } from "@uurc/shared/types";
+import type { AuthStatus } from "@uurc/shared/authState";
 
 import { StatusRow } from "./Panel.js";
 

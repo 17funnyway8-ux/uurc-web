@@ -1,15 +1,16 @@
-import type { DecodedStreamerCursorShape } from "@uurc/shared/streamer/controlChannel";
-import type { StreamerMouseButtonKind } from "@uurc/shared/streamer/input";
-import type { StreamerIceNetworkType, StreamerSignalControlResult } from "@uurc/shared/streamer/signal";
+import type { DecodedStreamerCursorShape } from "@uurc/shared/streamer/controlChannelDecode";
+import type { StreamerMouseButtonKind } from "@uurc/shared/streamer/inputDesktop";
+import type { StreamerSignalControlResult } from "@uurc/shared/streamer/signalControl";
+import type { StreamerIceNetworkType } from "@uurc/shared/streamer/signalSoac";
 import type { StreamerConnectionPath, StreamerDataChannelLabel } from "@uurc/shared/streamer/transport";
 import type {
   RemoteSignalControlRequest,
   RemoteSignalControlResult,
   RemoteSignalSoacRequest,
   RemoteSignalSoacResult,
-} from "@uurc/shared/types";
+} from "@uurc/shared/signalGateway/model";
 
-export interface BrowserRemoteSessionApi {
+interface BrowserRemoteSessionApi {
   sendSignalControl(input: RemoteSignalControlRequest): Promise<RemoteSignalControlResult>;
   sendSignalSoac(input: RemoteSignalSoacRequest): Promise<RemoteSignalSoacResult>;
 }
@@ -215,14 +216,7 @@ export interface BrowserRemoteVideoFlowDiagnostics {
 }
 
 export type BrowserRemoteDebugEventKind =
-  | "session"
-  | "signal"
-  | "data_channel"
-  | "data_send"
-  | "data_recv"
-  | "stats"
-  | "video_element"
-  | "audio_element";
+  "session" | "signal" | "data_channel" | "data_send" | "data_recv" | "stats" | "video_element" | "audio_element";
 
 export interface BrowserRemoteDebugEvent {
   id: number;

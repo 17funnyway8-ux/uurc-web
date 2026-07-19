@@ -5,17 +5,35 @@ import {
   STREAMER_CLIPBOARD_FORMAT_NAMES,
   STREAMER_CLIPBOARD_FORMATS,
   STREAMER_CLIPBOARD_RESULTS,
-  STREAMER_CLIPBOARD_RPC_WIRE_FIELDS,
-  STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS,
+} from "../src/streamer/clipboardProtocol.js";
+import {
   decodeStreamerClipboardMessage,
-  decodeStreamerClipboardTextChangeRequest,
-  decodeStreamerClipboardTextChangeResponse,
-  decodeStreamerClipboardTextChangedNotification,
+  encodeStreamerClipboardTextChangeRequest,
+} from "../src/streamer/clipboardV3.js";
+import {
   decodeStreamerClipboardV4Message,
   encodeStreamerClipboardDataBlockConfirmResponse,
   encodeStreamerClipboardFormatDataAskRequest,
-  encodeStreamerClipboardTextChangeRequest,
-} from "../src/streamer/clipboard.js";
+} from "../src/streamer/clipboardV4.js";
+import {
+  STREAMER_CLIPBOARD_RPC_WIRE_FIELDS,
+  STREAMER_CLIPBOARD_V4_RPC_WIRE_FIELDS,
+} from "../src/streamer/internal/clipboardSchema.js";
+
+function decodeStreamerClipboardTextChangeRequest(data: Uint8Array) {
+  const decoded = decodeStreamerClipboardMessage(data);
+  return decoded?.type === "text-change-request" ? decoded : undefined;
+}
+
+function decodeStreamerClipboardTextChangeResponse(data: Uint8Array) {
+  const decoded = decodeStreamerClipboardMessage(data);
+  return decoded?.type === "text-change-response" ? decoded : undefined;
+}
+
+function decodeStreamerClipboardTextChangedNotification(data: Uint8Array) {
+  const decoded = decodeStreamerClipboardTextChangeRequest(data);
+  return decoded ? ({ ...decoded, type: "text-changed-notification" } as const) : undefined;
+}
 
 describe("streamer clipboard v3 RPC", () => {
   it("captures the Android v3 protobuf tags and enum values", () => {

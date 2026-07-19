@@ -1,20 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  REMOTE_CURSOR_IMAGE_LIMITS,
-  createRemoteCursorPresentation,
-  remoteCursorKind,
-} from "../src/remote/remoteCursor.js";
+import { REMOTE_CURSOR_IMAGE_LIMITS, createRemoteCursorPresentation } from "../src/remote/remoteCursor.js";
 
 describe("remote cursor presentation", () => {
   it("maps native cursor types to browser cursor kinds", () => {
-    expect(remoteCursorKind(0x7f00)).toBe("default");
-    expect(remoteCursorKind(0x7f01)).toBe("text");
-    expect(remoteCursorKind(0x7f03)).toBe("crosshair");
-    expect(remoteCursorKind(0x7f82)).toBe("nwse-resize");
-    expect(remoteCursorKind(0x7f84)).toBe("ew-resize");
-    expect(remoteCursorKind(0x7f89)).toBe("pointer");
-    expect(remoteCursorKind(123)).toBe("default");
+    expect(createRemoteCursorPresentation({ cursorType: 0x7f00 }).kind).toBe("default");
+    expect(createRemoteCursorPresentation({ cursorType: 0x7f01 }).kind).toBe("text");
+    expect(createRemoteCursorPresentation({ cursorType: 0x7f03 }).kind).toBe("crosshair");
+    expect(createRemoteCursorPresentation({ cursorType: 0x7f82 }).kind).toBe("nwse-resize");
+    expect(createRemoteCursorPresentation({ cursorType: 0x7f84 }).kind).toBe("ew-resize");
+    expect(createRemoteCursorPresentation({ cursorType: 0x7f89 }).kind).toBe("pointer");
+    expect(createRemoteCursorPresentation({ cursorType: 123 }).kind).toBe("default");
   });
 
   it("preserves the hidden cursor sentinel", () => {

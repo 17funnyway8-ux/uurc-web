@@ -1,9 +1,7 @@
-import { STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS } from "@uurc/shared/streamer/signal";
-import {
-  normalizeSignalGatewayInboundEventsAsync,
-  normalizeSignalGatewayPayload,
-} from "@uurc/shared/signalGatewayProtocol";
-import type { RemoteSignalGatewayEvent } from "@uurc/shared/types";
+import { STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS } from "@uurc/shared/streamer/signalSession";
+import { normalizeSignalGatewayInboundEventsAsync } from "@uurc/shared/signalGateway/events";
+import { normalizeSignalGatewayPayload } from "@uurc/shared/signalGateway/payload";
+import type { RemoteSignalGatewayEvent } from "@uurc/shared/signalGateway/model";
 
 import {
   ENGINE_IO_CLOSE,
@@ -15,9 +13,9 @@ import {
   buildEngineIoWebSocketUrl,
   deconstructBinary,
   encodeSocketIoPacket,
-  ensureEngineIoBinaryFramePrefix,
   parseEngineOpenPacket,
   parseSocketIoPacket,
+  prefixEngineIoBinaryFrame,
   reconstructBinaryPlaceholders,
   stripEngineIoBinaryFramePrefix,
   type SocketIoPacket,
@@ -44,12 +42,19 @@ interface WorkerSignalSocketCallbacks {
   onError(reason: string): void;
 }
 
+interface HandshakeCallbacks {
+  onConnected(): void;
+  onConnectError(error: Error): void;
+}
+
 export class WorkerSignalSocket {
   private socket: WebSocket | null = null;
+  private connectAbortController: AbortController | null = null;
+  private handshakeCallbacks: HandshakeCallbacks | null = null;
+  private messageQueue: Promise<void> = Promise.resolve();
   private nextAckId = 0;
   private pendingAcks = new Map<number, PendingAck>();
   private pendingBinaryPacket: PendingBinaryPacket | null = null;
-  private manualClose = false;
   private namespaceConnected = false;
 
   connectionId: string | undefined;
@@ -61,26 +66,32 @@ export class WorkerSignalSocket {
   }
 
   async connect(signalServer: string, headers: Record<string, string>, timeoutMs = 10_000): Promise<void> {
-    const socket = await openSignalWebSocket(signalServer, headers, timeoutMs);
-    this.socket = socket;
-    this.manualClose = false;
+    if (this.socket || this.connectAbortController) throw new Error("signal socket is already connecting or connected");
 
-    await this.completeHandshake(socket, timeoutMs);
-    if (socket !== this.socket) return;
+    const controller = new AbortController();
+    this.connectAbortController = controller;
+    let socket: WebSocket | null = null;
+    try {
+      socket = await openSignalWebSocket(signalServer, headers, controller, timeoutMs);
+      if (controller !== this.connectAbortController || controller.signal.aborted) {
+        closeWebSocket(socket, "gateway superseded");
+        throw new Error("signal gateway start was superseded");
+      }
 
-    socket.addEventListener("message", (event) => {
-      if (socket !== this.socket) return;
-      void this.handleSocketMessage(event.data);
-    });
-    socket.addEventListener("close", (event) => {
-      if (socket !== this.socket) return;
-      this.handleSocketClose(event);
-    });
-    socket.addEventListener("error", () => {
-      if (socket !== this.socket) return;
-      console.log("[uurc-do] upstream socket error");
-      this.callbacks.onError("signal socket error");
-    });
+      this.socket = socket;
+      this.messageQueue = Promise.resolve();
+      this.installSocketListeners(socket);
+      await this.completeHandshake(socket, timeoutMs);
+      if (socket !== this.socket || !this.namespaceConnected) {
+        throw new Error("signal gateway start was superseded");
+      }
+    } catch (error) {
+      if (socket && socket === this.socket)
+        this.releaseSocket(socket, "signal socket connect failed", "connect failed");
+      throw error;
+    } finally {
+      if (this.connectAbortController === controller) this.connectAbortController = null;
+    }
   }
 
   emitWithAck(event: string, payload: JsonRecord, ackTimeoutMs: number): Promise<unknown[]> {
@@ -105,84 +116,86 @@ export class WorkerSignalSocket {
     });
   }
 
-  async close(): Promise<void> {
-    this.manualClose = true;
-    this.rejectPendingAcks("signal socket closed");
+  close(): void {
+    this.cancelPendingConnect();
+    this.rejectHandshake(new Error("signal gateway start was superseded"));
     const socket = this.socket;
     const wasConnected = this.namespaceConnected;
-    this.socket = null;
-    this.connectionId = undefined;
-    this.namespaceConnected = false;
-    this.pendingBinaryPacket = null;
-    this.nextAckId = 0;
-    if (!socket) return;
+    if (!socket) {
+      this.resetProtocolState();
+      this.rejectPendingAcks("signal socket closed");
+      return;
+    }
+
+    this.releaseSocket(socket, "signal socket closed", "gateway stopped", false);
     try {
       if (wasConnected) socket.send(`${ENGINE_IO_MESSAGE}${ENGINE_IO_CLOSE}`);
-      socket.close(1000, "gateway stopped");
     } catch {
-      // Closing an already terminated upstream socket is harmless.
+      // The transport may already have closed before the disconnect packet is sent.
     }
+    closeWebSocket(socket, "gateway stopped");
   }
 
   private async completeHandshake(socket: WebSocket, timeoutMs: number): Promise<void> {
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        cleanup();
-        reject(new Error(`signal socket connect timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
-      const cleanup = () => {
+      let settled = false;
+      const finish = (complete: () => void) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timeout);
-        socket.removeEventListener("message", onMessage);
-        socket.removeEventListener("close", onClose);
-        socket.removeEventListener("error", onError);
+        if (this.handshakeCallbacks === callbacks) this.handshakeCallbacks = null;
+        complete();
       };
-      const onMessage = (event: MessageEvent) => {
-        if (socket !== this.socket) {
-          cleanup();
-          reject(new Error("signal gateway start was superseded"));
-          return;
-        }
-        void this.handleSocketMessage(event.data, {
-          onConnected: () => {
-            cleanup();
-            resolve();
-          },
-          onConnectError: (error) => {
-            cleanup();
-            reject(error);
-          },
-        });
+      const callbacks: HandshakeCallbacks = {
+        onConnected: () => finish(resolve),
+        onConnectError: (error) => finish(() => reject(error)),
       };
-      const onClose = (event: CloseEvent) => {
-        cleanup();
-        reject(new Error(`signal socket closed before connect code=${event.code} reason=${event.reason}`));
-      };
-      const onError = () => {
-        cleanup();
-        reject(new Error("signal socket error before connect"));
-      };
-
-      socket.addEventListener("message", onMessage);
-      socket.addEventListener("close", onClose);
-      socket.addEventListener("error", onError);
+      this.handshakeCallbacks = callbacks;
+      const timeout = setTimeout(
+        () => callbacks.onConnectError(new Error(`signal socket connect timed out after ${timeoutMs}ms`)),
+        timeoutMs,
+      );
+      if (socket !== this.socket) callbacks.onConnectError(new Error("signal gateway start was superseded"));
     });
   }
 
-  private async handleSocketMessage(
-    value: unknown,
-    callbacks: { onConnected?: () => void; onConnectError?: (error: Error) => void } = {},
-  ): Promise<void> {
-    if (typeof value === "string") {
-      await this.handleTextFrame(value, callbacks);
-      return;
-    }
-    await this.handleBinaryFrame(await toWebSocketBytes(value));
+  private installSocketListeners(socket: WebSocket): void {
+    socket.addEventListener("message", (event) => this.enqueueSocketMessage(socket, event.data));
+    socket.addEventListener("close", (event) => {
+      this.handleRemoteDisconnect(
+        socket,
+        `signal socket closed code=${event.code} reason=${event.reason}`,
+        `signal socket closed before pending ack code=${event.code} reason=${event.reason}`,
+      );
+    });
+    socket.addEventListener("error", () => {
+      this.handleSocketError(socket, "signal socket error");
+    });
   }
 
-  private async handleTextFrame(
-    frame: string,
-    callbacks: { onConnected?: () => void; onConnectError?: (error: Error) => void },
-  ): Promise<void> {
+  private enqueueSocketMessage(socket: WebSocket, value: unknown): void {
+    this.messageQueue = this.messageQueue
+      .then(async () => {
+        if (socket !== this.socket) return;
+        await this.handleSocketMessage(socket, value);
+      })
+      .catch((error) => {
+        if (socket !== this.socket) return;
+        this.handleSocketError(socket, `invalid signal socket frame: ${errorMessage(error)}`);
+      });
+  }
+
+  private async handleSocketMessage(socket: WebSocket, value: unknown): Promise<void> {
+    if (typeof value === "string") {
+      await this.handleTextFrame(socket, value);
+      return;
+    }
+    const bytes = await toWebSocketBytes(value);
+    if (socket !== this.socket) return;
+    await this.handleBinaryFrame(socket, bytes);
+  }
+
+  private async handleTextFrame(socket: WebSocket, frame: string): Promise<void> {
     if (frame.startsWith(ENGINE_IO_OPEN)) {
       this.connectionId = parseEngineOpenPacket(frame.slice(1)).sid;
       this.sendRaw(`${ENGINE_IO_MESSAGE}0`);
@@ -193,7 +206,7 @@ export class WorkerSignalSocket {
       return;
     }
     if (frame === ENGINE_IO_CLOSE) {
-      await this.close();
+      this.handleRemoteDisconnect(socket, "signal socket received Engine.IO close");
       return;
     }
     if (!frame.startsWith(ENGINE_IO_MESSAGE)) return;
@@ -203,21 +216,25 @@ export class WorkerSignalSocket {
       const data = asRecord(packet.data);
       this.connectionId = typeof data?.sid === "string" ? data.sid : this.connectionId;
       this.namespaceConnected = true;
-      callbacks.onConnected?.();
+      this.handshakeCallbacks?.onConnected();
+      return;
+    }
+    if (packet.type === 1) {
+      this.handleRemoteDisconnect(socket, "signal socket received Socket.IO disconnect");
       return;
     }
     if (packet.type === 4) {
-      callbacks.onConnectError?.(new Error(`socket.io connect error: ${safeJson(packet.data)}`));
+      this.handleSocketError(socket, `socket.io connect error: ${safeJson(packet.data)}`);
       return;
     }
     if (packet.attachments > 0) {
       this.pendingBinaryPacket = { packet, buffers: [] };
       return;
     }
-    await this.processSocketIoPacket(packet);
+    await this.processSocketIoPacket(socket, packet);
   }
 
-  private async handleBinaryFrame(rawBytes: Uint8Array): Promise<void> {
+  private async handleBinaryFrame(socket: WebSocket, rawBytes: Uint8Array): Promise<void> {
     const bytes = stripEngineIoBinaryFramePrefix(rawBytes);
     const pending = this.pendingBinaryPacket;
     if (!pending) {
@@ -232,35 +249,34 @@ export class WorkerSignalSocket {
     pending.buffers.push(bytes);
     if (pending.buffers.length < pending.packet.attachments) return;
     this.pendingBinaryPacket = null;
-    await this.processSocketIoPacket({
+    await this.processSocketIoPacket(socket, {
       ...pending.packet,
       data: reconstructBinaryPlaceholders(pending.packet.data, pending.buffers),
     });
   }
 
-  private async processSocketIoPacket(packet: SocketIoPacket): Promise<void> {
+  private async processSocketIoPacket(socket: WebSocket, packet: SocketIoPacket): Promise<void> {
     if (packet.type === 2 || packet.type === 5) {
-      await this.processSocketIoEvent(packet.data);
+      await this.processSocketIoEvent(socket, packet.data);
       return;
     }
     if (packet.type === 3 || packet.type === 6) this.resolveAck(packet);
   }
 
-  private async processSocketIoEvent(data: unknown): Promise<void> {
+  private async processSocketIoEvent(socket: WebSocket, data: unknown): Promise<void> {
     if (!Array.isArray(data) || typeof data[0] !== "string") return;
     const event = data[0];
     const payload = data.slice(1);
-    for (const normalized of await normalizeSignalGatewayInboundEventsAsync(
-      event,
-      payload,
-      workerSignalGatewayBinary,
-    )) {
+    const normalizedEvents = await normalizeSignalGatewayInboundEventsAsync(event, payload, workerSignalGatewayBinary);
+    if (socket !== this.socket) return;
+    for (const normalized of normalizedEvents) {
       console.log(`[uurc-do] inbound ${normalized.event}`);
       this.callbacks.onEvent({
         direction: "inbound",
         event: normalized.event,
         payload: normalizeSignalGatewayPayload(normalized.payload, workerSignalGatewayBinary),
       });
+      if (socket !== this.socket) return;
     }
   }
 
@@ -285,7 +301,7 @@ export class WorkerSignalSocket {
       data: deconstructed.data,
     });
     this.sendRaw(`${ENGINE_IO_MESSAGE}${encoded}`);
-    for (const buffer of deconstructed.buffers) this.sendRaw(ensureEngineIoBinaryFramePrefix(buffer));
+    for (const buffer of deconstructed.buffers) this.sendRaw(prefixEngineIoBinaryFrame(buffer));
     return ackId;
   }
 
@@ -293,26 +309,58 @@ export class WorkerSignalSocket {
     this.socket?.send(frame);
   }
 
-  private handleSocketClose(event: CloseEvent): void {
-    console.log(`[uurc-do] upstream socket close code=${event.code} reason=${event.reason} manual=${this.manualClose}`);
-    this.rejectPendingAcks(
-      `signal socket closed before pending ack code=${event.code} reason=${event.reason}`,
-      event,
-    );
-    this.socket = null;
-    this.namespaceConnected = false;
-    if (!this.manualClose) this.callbacks.onClose(`signal socket closed code=${event.code} reason=${event.reason}`);
+  private handleRemoteDisconnect(socket: WebSocket, reason: string, pendingAckReason = reason): void {
+    if (socket !== this.socket) return;
+    console.log(`[uurc-do] upstream socket close reason=${reason}`);
+    const wasConnecting = this.rejectHandshake(new Error(reason));
+    this.releaseSocket(socket, pendingAckReason, "remote disconnect");
+    if (!wasConnecting) this.callbacks.onClose(reason);
   }
 
-  private rejectPendingAcks(message: string, event?: CloseEvent): void {
-    for (const [id, pending] of this.pendingAcks) {
+  private handleSocketError(socket: WebSocket, reason: string): void {
+    if (socket !== this.socket) return;
+    console.log(`[uurc-do] upstream socket error reason=${reason}`);
+    const wasConnecting = this.rejectHandshake(new Error(reason));
+    this.releaseSocket(socket, reason, "protocol error");
+    if (!wasConnecting) this.callbacks.onError(reason);
+  }
+
+  private releaseSocket(socket: WebSocket, pendingAckReason: string, closeReason: string, close = true): void {
+    if (socket !== this.socket) return;
+    this.cancelPendingConnect();
+    this.socket = null;
+    this.messageQueue = Promise.resolve();
+    this.resetProtocolState();
+    this.rejectPendingAcks(pendingAckReason);
+    if (close) closeWebSocket(socket, closeReason);
+  }
+
+  private cancelPendingConnect(): void {
+    const controller = this.connectAbortController;
+    this.connectAbortController = null;
+    controller?.abort();
+  }
+
+  private rejectHandshake(error: Error): boolean {
+    const callbacks = this.handshakeCallbacks;
+    if (!callbacks) return false;
+    callbacks.onConnectError(error);
+    return true;
+  }
+
+  private resetProtocolState(): void {
+    this.connectionId = undefined;
+    this.namespaceConnected = false;
+    this.pendingBinaryPacket = null;
+    this.nextAckId = 0;
+  }
+
+  private rejectPendingAcks(message: string): void {
+    const pendingAcks = [...this.pendingAcks.values()];
+    this.pendingAcks.clear();
+    for (const pending of pendingAcks) {
       clearTimeout(pending.timeout);
-      pending.reject(
-        event
-          ? new Error(`signal socket closed before ${pending.event} ack code=${event.code} reason=${event.reason}`)
-          : new Error(message),
-      );
-      this.pendingAcks.delete(id);
+      pending.reject(new Error(message.includes("pending ack") ? message : `${message} before ${pending.event} ack`));
     }
   }
 }
@@ -320,10 +368,14 @@ export class WorkerSignalSocket {
 async function openSignalWebSocket(
   signalServer: string,
   headers: Record<string, string>,
+  controller: AbortController,
   timeoutMs: number,
 ): Promise<WebSocket> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   try {
     const response = await fetch(buildEngineIoWebSocketUrl(signalServer), {
       headers: { ...headers, Upgrade: "websocket" },
@@ -334,8 +386,19 @@ async function openSignalWebSocket(
     socket.binaryType = "arraybuffer";
     socket.accept();
     return socket;
+  } catch (error) {
+    if (timedOut) throw new Error(`signal socket connect timed out after ${timeoutMs}ms`);
+    throw error;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+function closeWebSocket(socket: WebSocket, reason: string): void {
+  try {
+    socket.close(1000, reason);
+  } catch {
+    // Closing an already terminated upstream socket is harmless.
   }
 }
 
@@ -349,4 +412,8 @@ function safeJson(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

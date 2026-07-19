@@ -35,10 +35,6 @@ export function encodeStreamerTextMessage(input: StreamerInputMessage): Uint8Arr
   return encodeStreamerRomMessage(input, STREAMER_ROM_MESSAGE_TYPES.RomMsg_Text);
 }
 
-export function encodeStreamerControlStringMessage(inputMessage: string): Uint8Array {
-  return new TextEncoder().encode(inputMessage);
-}
-
 export function encodeStreamerEchoRequestMessage(input: EchoRequestInput): Uint8Array {
   return encodeSimpleAction({
     ...input,
@@ -60,7 +56,8 @@ function encodeStreamerRomMessage(input: StreamerInputMessage, inputType: number
   if (inputType !== STREAMER_ROM_MESSAGE_TYPES.RomMsg_VINPUT) {
     pushVarintField(body, STREAMER_SEND_TO_ROM_WIRE_FIELDS.inputTypeTag, inputType);
   }
-  if (input.inputMessage !== "") pushStringField(body, STREAMER_SEND_TO_ROM_WIRE_FIELDS.inputMessageTag, input.inputMessage);
+  if (input.inputMessage !== "")
+    pushStringField(body, STREAMER_SEND_TO_ROM_WIRE_FIELDS.inputMessageTag, input.inputMessage);
   if (input.displayId) pushVarintField(body, STREAMER_SEND_TO_ROM_WIRE_FIELDS.displayIdTag, input.displayId);
   return encodeEnvelope(input, STREAMER_SEND_TO_ROM_WIRE_FIELDS.envelopeTag, new Uint8Array(body));
 }

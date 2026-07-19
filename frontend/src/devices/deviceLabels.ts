@@ -1,4 +1,4 @@
-import type { UuDevice, UuDeviceGroups } from "@uurc/shared/types";
+import type { UuDevice, UuDeviceGroups } from "@uurc/shared/devices";
 
 export type DeviceCategory = "desktop" | "mobile" | "tv";
 

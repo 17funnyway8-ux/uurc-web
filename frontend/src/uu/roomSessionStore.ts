@@ -1,16 +1,19 @@
-import { normalizeStreamerRoomConfig, summarizeStreamerRoomConfig } from "@uurc/shared/roomConfig";
+import {
+  normalizeStreamerRoomConfig,
+  summarizeStreamerRoomConfig,
+  type StreamerRoomConfig,
+} from "@uurc/shared/roomConfig";
 import type {
   RemoteAssistanceControlMode,
   RemoteRoomJoinContext,
   RoomJoinResult,
   RoomJoinUpstreamSummary,
-  StreamerRoomConfig,
-  UuResponse,
-} from "@uurc/shared/types";
+} from "@uurc/shared/roomSession";
+import type { UuResponse } from "@uurc/shared/uuTransport";
 
 const ROOM_SESSION_KEY = "uurc.latestRoomSession";
 
-export interface BrowserRoomSession {
+interface BrowserRoomSession {
   capturedAt: string;
   joinContext: RemoteRoomJoinContext;
   roomConfig: StreamerRoomConfig;

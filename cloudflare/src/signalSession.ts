@@ -3,20 +3,22 @@ import { analyzeRemoteSignalReadiness } from "@uurc/shared/streamer/readiness";
 import {
   STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS,
   STREAMER_CONTROL_EVENT_NAME,
-  STREAMER_SOAC_EVENT,
   buildStreamerSignalHeaders,
-  normalizeStreamerSignalControlAck,
-} from "@uurc/shared/streamer/signal";
+} from "@uurc/shared/streamer/signalSession";
+import { normalizeStreamerSignalControlAck } from "@uurc/shared/streamer/signalControl";
+import { STREAMER_SOAC_EVENT } from "@uurc/shared/streamer/signalSoac";
 import {
   buildSignalGatewayControlPayload,
   buildSignalGatewaySoacPayloadAsync,
+  normalizeSignalGatewayPayload,
+} from "@uurc/shared/signalGateway/payload";
+import {
   createIdleSignalGatewayStatus,
   createSignalGatewayStatus,
-  normalizeSignalGatewayPayload,
-  normalizeSignalGatewayRoomConfig,
   orderSignalGatewayServers,
   redactSignalGatewayToken,
-} from "@uurc/shared/signalGatewayProtocol";
+} from "@uurc/shared/signalGateway/status";
+import { normalizeSignalGatewayRoomConfig } from "@uurc/shared/signalGateway/events";
 import type {
   RemoteSignalControlRequest,
   RemoteSignalControlResult,
@@ -25,7 +27,7 @@ import type {
   RemoteSignalGatewayStatus,
   RemoteSignalSoacRequest,
   RemoteSignalSoacResult,
-} from "@uurc/shared/types";
+} from "@uurc/shared/signalGateway/model";
 
 import { SignalSessionStore } from "./signal/signalSessionStore.js";
 import { workerSignalGatewayBinary } from "./signal/workerSignalBinaryCodec.js";
@@ -38,7 +40,9 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
   private signalSocket: WorkerSignalSocket | null = null;
   private status: RemoteSignalGatewayStatus | null = null;
   private rawHeaders: Record<string, string> = {};
-  private signalGeneration = 0;
+  private nextSignalRequestSequence = 0;
+  private authoritativeSignalRequestSequence = 0;
+  private activeSignalGeneration = 0;
 
   constructor(ctx: DurableObjectState, env: SignalSessionEnv) {
     super(ctx, env);
@@ -76,19 +80,21 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
   }
 
   async start(input: RemoteSignalGatewayStartRequest = {}): Promise<RemoteSignalGatewayStatus> {
-    const generation = ++this.signalGeneration;
+    const requestSequence = ++this.nextSignalRequestSequence;
     const roomConfig = normalizeSignalGatewayRoomConfig(input.roomConfig);
     if (!roomConfig) {
-      return this.setStatus({
+      return {
         ...createIdleSignalGatewayStatus(),
         status: "error",
         updatedAt: new Date().toISOString(),
         error: "roomConfig with token and signalServers is required",
-      });
+      };
     }
 
-    await this.closeSocket();
-    if (generation !== this.signalGeneration) return this.readStatus();
+    if (requestSequence < this.authoritativeSignalRequestSequence) return this.readStatus();
+    this.authoritativeSignalRequestSequence = requestSequence;
+    const generation = ++this.activeSignalGeneration;
+    this.closeSocket();
     this.store.clearEvents();
 
     const startedAt = new Date().toISOString();
@@ -109,7 +115,7 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
       try {
         await socket.connect(signalServer, this.rawHeaders, roomConfig.timeout ?? 10_000);
         if (!this.isCurrentSocket(socket, generation)) {
-          await socket.close();
+          socket.close();
           return this.readStatus();
         }
         return this.setStatus(
@@ -123,10 +129,10 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
           }),
         );
       } catch (error) {
-        if (generation !== this.signalGeneration) return this.readStatus();
-        lastError = error;
         if (this.signalSocket === socket) this.signalSocket = null;
-        await socket.close();
+        socket.close();
+        if (generation !== this.activeSignalGeneration) return this.readStatus();
+        lastError = error;
       }
     }
 
@@ -142,8 +148,10 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
   }
 
   async stop(): Promise<RemoteSignalGatewayStatus> {
-    ++this.signalGeneration;
-    await this.closeSocket();
+    const requestSequence = ++this.nextSignalRequestSequence;
+    this.authoritativeSignalRequestSequence = requestSequence;
+    ++this.activeSignalGeneration;
+    this.closeSocket();
     this.store.clearEvents();
     return this.setStatus({
       ...createIdleSignalGatewayStatus(),
@@ -154,6 +162,7 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
 
   async sendControl(input: RemoteSignalControlRequest): Promise<RemoteSignalControlResult | null> {
     const socket = this.connectedSocket();
+    const generation = this.activeSignalGeneration;
     if (!socket) return null;
 
     const emittedAt = new Date().toISOString();
@@ -163,11 +172,14 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
       event: STREAMER_CONTROL_EVENT_NAME,
       payload: normalizeSignalGatewayPayload(payload, workerSignalGatewayBinary),
     });
-    const ack = await socket.emitWithAck(
-      STREAMER_CONTROL_EVENT_NAME,
-      payload,
-      STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS,
-    );
+    let ack: unknown[];
+    try {
+      ack = await socket.emitWithAck(STREAMER_CONTROL_EVENT_NAME, payload, STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS);
+    } catch (error) {
+      if (!this.isCurrentSocket(socket, generation)) return null;
+      throw error;
+    }
+    if (!this.isCurrentSocket(socket, generation)) return null;
     const normalizedAck = normalizeSignalGatewayPayload(ack, workerSignalGatewayBinary);
     const ackArray = Array.isArray(normalizedAck) ? normalizedAck : [normalizedAck];
     const result: RemoteSignalControlResult = {
@@ -184,16 +196,19 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
 
   async sendSoac(input: RemoteSignalSoacRequest): Promise<RemoteSignalSoacResult | null> {
     const socket = this.connectedSocket();
+    const generation = this.activeSignalGeneration;
     if (!socket) return null;
 
     const emittedAt = new Date().toISOString();
     const payload = await buildSignalGatewaySoacPayloadAsync(input, workerSignalGatewayBinary);
+    if (!this.isCurrentSocket(socket, generation)) return null;
     this.recordEvent({
       direction: "outbound",
       event: STREAMER_SOAC_EVENT,
       payload: normalizeSignalGatewayPayload(payload, workerSignalGatewayBinary),
     });
     socket.emitWithOptionalAck(STREAMER_SOAC_EVENT, payload, (ack) => {
+      if (!this.isCurrentSocket(socket, generation)) return;
       this.recordEvent({
         direction: "inbound",
         event: `${STREAMER_SOAC_EVENT}:ack`,
@@ -208,8 +223,7 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
   }
 
   private createSignalSocket(generation: number): WorkerSignalSocket {
-    let socket: WorkerSignalSocket;
-    socket = new WorkerSignalSocket({
+    const socket = new WorkerSignalSocket({
       onEvent: (event) => {
         if (this.isCurrentSocket(socket, generation)) this.recordEvent(event);
       },
@@ -229,6 +243,7 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
       },
       onError: (reason) => {
         if (!this.isCurrentSocket(socket, generation)) return;
+        this.signalSocket = null;
         const status = this.readStatus();
         if (status.status === "connected" || status.status === "connecting") {
           this.setStatus({ ...status, status: "error", updatedAt: new Date().toISOString(), error: reason });
@@ -239,17 +254,17 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
   }
 
   private isCurrentSocket(socket: WorkerSignalSocket, generation: number): boolean {
-    return generation === this.signalGeneration && socket === this.signalSocket;
+    return generation === this.activeSignalGeneration && socket === this.signalSocket;
   }
 
   private connectedSocket(): WorkerSignalSocket | null {
-    return this.signalSocket?.connected ? this.signalSocket : null;
+    return this.readStatus().status === "connected" && this.signalSocket?.connected ? this.signalSocket : null;
   }
 
-  private async closeSocket(): Promise<void> {
+  private closeSocket(): void {
     const socket = this.signalSocket;
     this.signalSocket = null;
-    await socket?.close();
+    socket?.close();
   }
 
   private readStatus(): RemoteSignalGatewayStatus {

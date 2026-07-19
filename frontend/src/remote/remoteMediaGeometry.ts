@@ -1,13 +1,13 @@
-export type RemoteMediaObjectFit = "contain" | "cover";
+type RemoteMediaObjectFit = "contain" | "cover";
 
-export interface RemoteMediaRect {
+interface RemoteMediaRect {
   left: number;
   top: number;
   width: number;
   height: number;
 }
 
-export interface RemoteMediaPoint {
+interface RemoteMediaPoint {
   x: number;
   y: number;
 }
@@ -21,7 +21,7 @@ export interface RemoteMediaGeometry {
   scale: number;
 }
 
-export interface RemoteMediaNormalizedPoint extends RemoteMediaPoint {
+interface RemoteMediaNormalizedPoint extends RemoteMediaPoint {
   insideVisibleMedia: boolean;
 }
 
@@ -69,16 +69,6 @@ export function clientPointToRemoteMedia(
     x: shouldClamp ? clampUnit(normalizedX) : normalizedX,
     y: shouldClamp ? clampUnit(normalizedY) : normalizedY,
     insideVisibleMedia: containsPoint(geometry.visibleRect, clientPoint),
-  };
-}
-
-export function remoteMediaPointToClient(
-  geometry: RemoteMediaGeometry,
-  normalizedPoint: RemoteMediaPoint,
-): RemoteMediaPoint {
-  return {
-    x: geometry.displayRect.left + normalizedPoint.x * geometry.displayRect.width,
-    y: geometry.displayRect.top + normalizedPoint.y * geometry.displayRect.height,
   };
 }
 

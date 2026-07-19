@@ -1,5 +1,5 @@
 import type { StreamerRoomConfig } from "../roomConfig.js";
-import { STREAMER_CONTROL_STREAMER_DATA_JSON_KEYS } from "../streamer/controlConfig.js";
+import { STREAMER_CONTROL_STREAMER_DATA_JSON_KEYS } from "../streamer/internal/controlConfigSchema.js";
 import {
   STREAMER_CONTROL_EVENT_PAYLOAD_KEYS,
   STREAMER_CONTROL_EVENT_PAYLOAD_TYPES,

@@ -36,6 +36,13 @@ export const STREAMER_SIGNAL_HEADER_KEYS = [
   "streamer_flag",
 ] as const;
 
+export const STREAMER_CLIENT_VERSION = "V3.1.14" as const;
+
+export const STREAMER_DEFAULT_SIGNAL_HEADER_VALUES = {
+  "X-NRD-CONTROLLING": "0",
+  streamer_version: STREAMER_CLIENT_VERSION,
+} as const;
+
 export const STREAMER_SOAC_PAYLOAD_KEYS = [
   "type",
   "sdp",
@@ -49,3 +56,5 @@ export const STREAMER_SOAC_PAYLOAD_KEYS = [
 ] as const;
 
 export const STREAMER_SOAC_MESSAGE_KEYS = ["client_id", "data"] as const;
+
+export const STREAMER_CONTROLLER_OUTBOUND_SOAC_TYPES = ["offer", "candidate", "restart_ice"] as const;

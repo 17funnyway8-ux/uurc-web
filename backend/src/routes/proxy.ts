@@ -1,11 +1,7 @@
 import { Router } from "express";
-import {
-  API_BASE,
-  assertAllowedUuApiPath,
-  parseMaybeJsonBody,
-  sanitizeUuProxyHeaders,
-  type UuResponse,
-} from "@uurc/shared";
+import { API_BASE } from "@uurc/shared/constants";
+import { assertAllowedUuApiPath, parseMaybeJsonBody, sanitizeUuProxyHeaders } from "@uurc/shared/uuProxy";
+import type { UuResponse } from "@uurc/shared/uuTransport";
 
 type FetchLike = typeof fetch;
 

@@ -11,7 +11,8 @@ import {
 } from "react";
 
 import type { RemoteStageViewMode } from "../app/remoteControlTypes.js";
-import type { BrowserRemoteSession, BrowserRemoteSessionState } from "../remote/browserRemoteSession.js";
+import type { BrowserRemoteSession } from "../remote/browserRemoteSession.js";
+import type { BrowserRemoteSessionState } from "../remote/browserRemoteSessionTypes.js";
 import { sendRemoteShortcut, type RemoteShortcut } from "../remote/remoteShortcuts.js";
 import { toRemoteKeyValue, toRemoteMouseButton } from "../remote/remoteControlUiModel.js";
 import { clientPointToRemoteMedia } from "../remote/remoteMediaGeometry.js";

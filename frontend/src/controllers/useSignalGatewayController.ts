@@ -9,7 +9,8 @@ import type {
 
 import type { RoomJoinContext } from "../app/remoteControlTypes.js";
 import { getRemoteSignalDiagnostics, getRemoteSignalEvents } from "../api/client.js";
-import type { BrowserRemoteSession, BrowserRemoteSessionState } from "../remote/browserRemoteSession.js";
+import type { BrowserRemoteSession } from "../remote/browserRemoteSession.js";
+import type { BrowserRemoteSessionState } from "../remote/browserRemoteSessionTypes.js";
 
 export function useSignalGatewayController({
   browserStage,

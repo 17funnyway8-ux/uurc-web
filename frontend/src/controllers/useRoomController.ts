@@ -2,12 +2,14 @@ import { useCallback, useState } from "react";
 
 import type { RemoteControlBootstrap, RoomJoinResult } from "@uurc/shared/types";
 
-import type { RoomJoinContext } from "../app/remoteControlTypes.js";
+import type { RemoteControlHandoff, RoomJoinContext } from "../app/remoteControlTypes.js";
 
-export function useRoomController() {
-  const [roomResponse, setRoomResponse] = useState<RoomJoinResult | null>(null);
-  const [roomJoinContext, setRoomJoinContext] = useState<RoomJoinContext | null>(null);
-  const [remoteBootstrap, setRemoteBootstrap] = useState<RemoteControlBootstrap | null>(null);
+export function useRoomController(initial: RemoteControlHandoff | null = null) {
+  const [roomResponse, setRoomResponse] = useState<RoomJoinResult | null>(() => initial?.roomResponse ?? null);
+  const [roomJoinContext, setRoomJoinContext] = useState<RoomJoinContext | null>(() => initial?.roomJoinContext ?? null);
+  const [remoteBootstrap, setRemoteBootstrap] = useState<RemoteControlBootstrap | null>(
+    () => initial?.remoteBootstrap ?? null,
+  );
 
   const resetRoom = useCallback(() => {
     setRoomResponse(null);

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { ChevronDown, LayoutGrid } from "lucide-react";
 
-import type { RemoteVideoSourcePanelProps } from "../app/remoteControlPageProps.js";
+import type { RemoteVideoSourcePanelProps } from "./RemoteVideoSourcePanel.js";
 
 export function RemoteScreenPicker({
   onRemoteVideoSourceChange,

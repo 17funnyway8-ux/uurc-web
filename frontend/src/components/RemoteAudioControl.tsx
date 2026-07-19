@@ -1,6 +1,19 @@
 import { Volume1, Volume2, VolumeX } from "lucide-react";
+import type { RefObject } from "react";
 
-import type { RemoteAudioControlProps } from "../app/remoteControlPageProps.js";
+import type { RemoteAudioPlaybackState } from "../app/remoteControlTypes.js";
+
+export interface RemoteAudioControlProps {
+  elementRef: RefObject<HTMLAudioElement | null>;
+  available: boolean;
+  muted: boolean;
+  volume: number;
+  playbackState: RemoteAudioPlaybackState;
+  playbackErrorName: string;
+  onToggleMuted: () => void;
+  onVolumeChange: (volume: number) => void;
+  onResumePlayback: () => void;
+}
 
 export function RemoteAudioControl({
   elementRef,

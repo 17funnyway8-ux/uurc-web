@@ -1,8 +1,23 @@
 import { ChevronLeft, CircleStop, LoaderCircle, PanelRight } from "lucide-react";
 
-import type { RemoteControlTopbarProps, RemoteVideoSourcePanelProps } from "../app/remoteControlPageProps.js";
+import type { UuDevice } from "@uurc/shared/types";
+
+import type { BusyAction } from "../app/remoteControlTypes.js";
+import type { BrowserRemoteSessionState } from "../remote/browserRemoteSessionTypes.js";
 import { RemoteScreenPicker } from "./RemoteScreenPicker.js";
 import { StatusPill } from "./StatusPill.js";
+import type { RemoteVideoSourcePanelProps } from "./RemoteVideoSourcePanel.js";
+
+export interface RemoteControlTopbarProps {
+  browserRemoteState: BrowserRemoteSessionState;
+  busy: BusyAction;
+  canDisconnectRemote: boolean;
+  onReturnToDevices: () => void;
+  onStopSignalGateway: () => void;
+  selectedDevice: UuDevice | null;
+  selectedTargetLabel: string;
+  signalGatewayDisplay: string;
+}
 
 export function RemoteControlTopbar({
   browserRemoteState,

@@ -1,6 +1,14 @@
 import { RotateCcw } from "lucide-react";
 
-import type { RemoteCommandBarProps } from "../app/remoteControlPageProps.js";
+import type { BusyAction } from "../app/remoteControlTypes.js";
+
+export interface RemoteReconnectBannerProps {
+  autoReconnectAttemptCount: number;
+  busy: BusyAction;
+  canReconnectRemote: boolean;
+  onReconnectRemote: () => void;
+  remoteRecoveryLabel: string;
+}
 
 export function RemoteReconnectBanner({
   autoReconnectAttemptCount,
@@ -8,10 +16,7 @@ export function RemoteReconnectBanner({
   canReconnectRemote,
   onReconnectRemote,
   remoteRecoveryLabel,
-}: Pick<
-  RemoteCommandBarProps,
-  "autoReconnectAttemptCount" | "busy" | "canReconnectRemote" | "onReconnectRemote" | "remoteRecoveryLabel"
->) {
+}: RemoteReconnectBannerProps) {
   if (!remoteRecoveryLabel) return null;
 
   const attemptSuffix = autoReconnectAttemptCount > 0 ? `（第 ${autoReconnectAttemptCount} 次）` : "";

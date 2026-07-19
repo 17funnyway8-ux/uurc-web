@@ -14,10 +14,44 @@ import {
   MoveVertical,
   TextCursor,
 } from "lucide-react";
+import type { ClipboardEvent, KeyboardEvent, PointerEvent, RefObject, WheelEvent } from "react";
 
-import type { RemoteControlStageProps } from "../app/remoteControlPageProps.js";
+import type { UuDevice } from "@uurc/shared/types";
+
+import type { RemoteStageViewMode, RemoteVideoStream } from "../app/remoteControlTypes.js";
+import type {
+  BrowserRemoteSessionState,
+  BrowserRemoteVideoElementSample,
+} from "../remote/browserRemoteSessionTypes.js";
 import { getConnectingStageSteps } from "../remote/remoteControlUiModel.js";
 import { RemoteVideoTile } from "./RemoteVideoTile.js";
+
+export interface RemoteControlStageProps {
+  browserRemoteState: BrowserRemoteSessionState;
+  browserStageLabel: string;
+  hasRemoteVideo: boolean;
+  inputControlActive: boolean;
+  inputControlLabel: string;
+  onRemoteStageKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
+  onRemoteStageKeyUp: (event: KeyboardEvent<HTMLDivElement>) => void;
+  onRemoteStageBlur: () => void;
+  onRemoteStagePaste: (event: ClipboardEvent<HTMLDivElement>) => void;
+  onRemoteStagePointerCancel: (event: PointerEvent<HTMLDivElement>) => void;
+  onRemoteStagePointerDown: (event: PointerEvent<HTMLDivElement>) => void;
+  onRemoteStagePointerMove: (event: PointerEvent<HTMLDivElement>) => void;
+  onRemoteStagePointerUp: (event: PointerEvent<HTMLDivElement>) => void;
+  onRemoteStageWheel: (event: WheelEvent<HTMLDivElement>) => void;
+  onRemoteVideoSample: (videoId: string, sample: BrowserRemoteVideoElementSample) => void;
+  primaryRemoteVideoActive: boolean;
+  primaryRemoteVideoId: string;
+  remoteStageRef: RefObject<HTMLDivElement | null>;
+  remoteStageViewMode: RemoteStageViewMode;
+  remoteVideoCount: number;
+  remoteVideoStreams: RemoteVideoStream[];
+  selectedDevice: UuDevice | null;
+  stageStatusLabel: string;
+  videoFlowLabel: string;
+}
 
 export function RemoteControlStage({
   browserRemoteState,

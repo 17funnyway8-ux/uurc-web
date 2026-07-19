@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 
 import { getLocalClipboardAccessIssue, readLocalClipboardText, writeLocalClipboardText } from "../browser/clipboard.js";
-import type { BrowserRemoteSession, BrowserRemoteSessionState } from "../remote/browserRemoteSession.js";
+import type { BrowserRemoteSession } from "../remote/browserRemoteSession.js";
+import type { BrowserRemoteSessionState } from "../remote/browserRemoteSessionTypes.js";
 
 const RESUME_READ_THROTTLE_MS = 500;
 const REMOTE_CLIPBOARD_INITIAL_POLL_DELAY_MS = 1200;

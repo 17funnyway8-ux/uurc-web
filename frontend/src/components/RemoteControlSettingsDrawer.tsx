@@ -1,9 +1,32 @@
 import { CircleStop, LoaderCircle, Monitor, PlugZap } from "lucide-react";
 
-import type { RemoteControlSettingsDrawerProps } from "../app/remoteControlPageProps.js";
+import type { UuDevice, UuParticipantInfo } from "@uurc/shared/types";
+
+import type { BusyAction, ConnectionRouteMode, SdpTransportMode } from "../app/remoteControlTypes.js";
 import { ParticipantList } from "./ParticipantList.js";
 import { SegmentedControl } from "./ui/SegmentedControl.js";
 import { Switch } from "./ui/Switch.js";
+
+export interface RemoteControlSettingsDrawerProps {
+  autoConnect: boolean;
+  browserRtcReady: boolean;
+  busy: BusyAction;
+  connectionRouteMode: ConnectionRouteMode;
+  forceJoin: boolean;
+  onAutoConnectChange: (enabled: boolean) => void;
+  onConnectionRouteModeChange: (mode: ConnectionRouteMode) => void;
+  onForceJoinChange: (forceJoin: boolean) => void;
+  onSignalServerIndexChange: (index: number) => void;
+  onSdpTransportModeChange: (mode: SdpTransportMode) => void;
+  onStartBrowserRemote: () => void;
+  onStartSignalGateway: () => void;
+  onStopSignalGateway: () => void;
+  sdpTransportMode: SdpTransportMode;
+  selectedDevice: UuDevice | null;
+  selectedParticipants: UuParticipantInfo[];
+  signalServerIndex: number;
+  signalServerOptions: string[];
+}
 
 export function RemoteControlSettingsDrawer({
   autoConnect,

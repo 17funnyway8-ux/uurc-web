@@ -23,7 +23,7 @@ describe("LandingPage", () => {
     expect(screen.getByRole("img", { name: "UU Remote Web 设备列表页面" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "UU Remote Web 远程控制会话页面" })).toBeInTheDocument();
     expect(container.querySelector(".landing-hero img")).not.toBeInTheDocument();
-    expect(container.querySelector(".landing-signal-field")).toHaveAttribute("aria-hidden", "true");
+    expect(container.querySelector(".landing-signal-field")).not.toBeInTheDocument();
   });
 
   it("sends signed-out visitors to login", () => {

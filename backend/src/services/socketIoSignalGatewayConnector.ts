@@ -98,12 +98,6 @@ class SocketIoSignalGatewayConnection implements SignalGatewayConnection {
     });
   }
 
-  async emit(event: string, payload: object): Promise<void> {
-    this.assertConnected();
-    installEngineIoBinaryFrameInterop(this.socket);
-    this.socket.emit(event, payload);
-  }
-
   async emitWithOptionalAck(
     event: string,
     payload: Record<string, unknown>,

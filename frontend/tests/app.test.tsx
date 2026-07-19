@@ -10,7 +10,7 @@ import {
 import { encodeStreamerClipboardTextChangeRequest } from "@uurc/shared/streamer/clipboard";
 import { analyzeRemoteSignalReadiness } from "@uurc/shared/streamer/readiness";
 import App from "../src/App.js";
-import type { BrowserRemoteSessionState } from "../src/remote/browserRemoteSession.js";
+import type { BrowserRemoteSessionState } from "../src/remote/browserRemoteSessionTypes.js";
 import { getRemoteConnectionQuality } from "../src/remote/remoteControlUiModel.js";
 
 const readLocalClipboardTextMock = vi.hoisted(() => vi.fn(async () => ""));

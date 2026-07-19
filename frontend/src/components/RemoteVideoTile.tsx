@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import type { BrowserRemoteVideoElementSample } from "../remote/browserRemoteSession.js";
+import type { BrowserRemoteVideoElementSample } from "../remote/browserRemoteSessionTypes.js";
 
 export function RemoteVideoTile({
   videoId,

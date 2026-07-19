@@ -1,4 +1,4 @@
-import type { RemoteControlContext } from "../controllers/useProductController.js";
+import type { RemoteControlContext } from "../app/remoteControlTypes.js";
 import { useRemoteControlController } from "../controllers/useRemoteControlController.js";
 import { RemoteControlPage } from "./RemoteControlPage.js";
 import { Toast } from "./Toast.js";

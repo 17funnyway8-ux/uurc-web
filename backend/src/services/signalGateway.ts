@@ -20,7 +20,6 @@ export interface SignalGatewayConnectionStateUpdate {
 export interface SignalGatewayConnection {
   id?: string;
   close(): void;
-  emit(event: string, payload: object): Promise<void>;
   emitWithAck(event: string, payload: Record<string, unknown>, ackTimeoutMs: number): Promise<unknown[]>;
   emitWithOptionalAck(event: string, payload: Record<string, unknown>, onAck: (ack: unknown[]) => void): Promise<void>;
 }

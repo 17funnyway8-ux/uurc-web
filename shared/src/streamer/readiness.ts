@@ -1,19 +1,81 @@
-import type {
-  RemoteSignalGatewayEvent,
-  RemoteSignalGatewayStatus,
-  RemoteSignalReadinessDiagnostics,
-} from "../types.js";
+import type { RemoteSignalGatewayEvent, RemoteSignalGatewayState, RemoteSignalGatewayStatus } from "../signalGateway/model.js";
 import {
-  STREAMER_CONTROL_EVENT_NAME,
-  STREAMER_SIGNAL_SOCKET_EVENTS,
-  STREAMER_SOAC_EVENT,
-  STREAMER_SOAC_TYPES,
   getStreamerSignalControlFailure,
   mapStreamerControlResultProtocolError,
   normalizeStreamerSignalControlAck,
-  type StreamerSoacType,
-} from "./signal.js";
+} from "./signalControl.js";
+import { STREAMER_SOAC_EVENT, STREAMER_SOAC_TYPES, type StreamerSoacType } from "./signalSoac.js";
+import { STREAMER_CONTROL_EVENT_NAME, STREAMER_SIGNAL_SOCKET_EVENTS } from "./signalSession.js";
 import { asRecord } from "./internal/unknown.js";
+
+export type RemoteSignalReadinessStage =
+  "idle" | "gateway_connected" | "control_acknowledged" | "offer_sent" | "answer_received";
+
+export type RemoteSignalReadinessBlocker =
+  | "gateway_not_connected"
+  | "control_ack_missing"
+  | "control_ack_failed"
+  | "offer_missing"
+  | "be_controlled_failed"
+  | "answer_missing"
+  | "controlled_left_before_answer"
+  | null;
+
+export interface RemoteSignalReadinessDiagnostics {
+  stage: RemoteSignalReadinessStage;
+  blocker: RemoteSignalReadinessBlocker;
+  gatewayStatus: RemoteSignalGatewayState;
+  gatewayError?: string;
+  selectedSignalServer?: string;
+  updatedAt?: string;
+  lastEventAt?: string;
+  terminalSignal?: {
+    event: string;
+    reason: "server_kick" | "publisher_disconnected" | "released";
+    receivedAt: string;
+    traceId?: string;
+    iceIdPresent?: boolean;
+    iceIdMatchesLastOffer?: boolean;
+  };
+  controlAckError?: {
+    ackStatus?: string;
+    code?: number;
+    message?: string;
+    protocolError?: string;
+    receivedAt: string;
+  };
+  beControlledError?: {
+    code?: number;
+    message?: string;
+    protocolError?: string;
+    receivedAt: string;
+  };
+  checks: {
+    signalGatewayConnected: boolean;
+    controlAckReceived: boolean;
+    offerSent: boolean;
+    beControlledReceived: boolean;
+    answerReceived: boolean;
+    terminalSignalReceived: boolean;
+  };
+  counts: {
+    outboundControl: number;
+    inboundControlAck: number;
+    inboundControlAckSuccess: number;
+    inboundControlAckFailure: number;
+    outboundOffer: number;
+    outboundCandidate: number;
+    inboundAnswer: number;
+    inboundRestartIce: number;
+    inboundCandidate: number;
+    inboundBmsgPush: number;
+    inboundLeave: number;
+    inboundReleased: number;
+    inboundBeControlled: number;
+    inboundBeControlledSuccess: number;
+    inboundBeControlledFailure: number;
+  };
+}
 
 export interface AnalyzeRemoteSignalReadinessInput {
   events: readonly RemoteSignalGatewayEvent[];

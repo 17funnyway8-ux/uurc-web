@@ -1,10 +1,27 @@
 import { Eye, GripHorizontal, LoaderCircle, Maximize2, MousePointerClick, PlugZap, Scan } from "lucide-react";
 
-import type { RemoteCommandBarProps } from "../app/remoteControlPageProps.js";
-import { RemoteAudioControl } from "./RemoteAudioControl.js";
+import type { BusyAction, NextAction, RemoteStageViewMode } from "../app/remoteControlTypes.js";
+import type { RemoteShortcut } from "../remote/remoteShortcuts.js";
+import { RemoteAudioControl, type RemoteAudioControlProps } from "./RemoteAudioControl.js";
 import { RemoteShortcutMenu } from "./RemoteShortcutMenu.js";
 import { useDraggableFloatingPanel } from "./useDraggableFloatingPanel.js";
 import { useFullscreenIdleHide } from "./useFullscreenIdleHide.js";
+
+export interface RemoteCommandBarProps {
+  busy: BusyAction;
+  controlChannelState: RTCDataChannelState;
+  inputControlActive: boolean;
+  isFullscreen: boolean;
+  nextAction: NextAction;
+  onNextAction: () => void;
+  onRemoteShortcut: (shortcut: RemoteShortcut) => void;
+  onStageViewModeChange: (mode: RemoteStageViewMode) => void;
+  onToggleInputControl: () => void;
+  onToggleFullscreen: () => void;
+  remoteAudio: RemoteAudioControlProps;
+  remoteShortcutPlatform: string;
+  remoteStageViewMode: RemoteStageViewMode;
+}
 
 export function RemoteCommandBar({
   busy,

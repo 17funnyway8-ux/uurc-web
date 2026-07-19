@@ -21,7 +21,7 @@ import type {
   RemoteVideoStream,
 } from "../app/remoteControlTypes.js";
 import { toAndroidKeyCodeFromDomEvent } from "./androidKeyCodes.js";
-import type { BrowserRemoteSessionState, BrowserRemoteVideoElementSample } from "./browserRemoteSession.js";
+import type { BrowserRemoteSessionState, BrowserRemoteVideoElementSample } from "./browserRemoteSessionTypes.js";
 import { clientPointToRemoteMedia, computeRemoteMediaGeometry } from "./remoteMediaGeometry.js";
 
 export function createIdleBrowserRemoteState(): BrowserRemoteSessionState {

@@ -1,14 +1,40 @@
 import { MonitorX, TerminalSquare } from "lucide-react";
-import { useState } from "react";
+import { useState, type RefObject } from "react";
 
-import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
-import { RemoteCommandBar } from "./RemoteCommandBar.js";
+import { RemoteCommandBar, type RemoteCommandBarProps } from "./RemoteCommandBar.js";
+import type { RemoteClipboardPanelProps } from "./RemoteClipboardPanel.js";
+import type { RemoteConnectionQualityPanelProps } from "./RemoteConnectionQualityPanel.js";
+import type { RemoteControlDiagnosticsDrawerProps } from "./RemoteControlDiagnosticsDrawer.js";
+import type { RemoteControlSettingsDrawerProps } from "./RemoteControlSettingsDrawer.js";
 import { RemoteControlSidePanel } from "./RemoteControlSidePanel.js";
-import { RemoteControlStage } from "./RemoteControlStage.js";
-import { RemoteControlTopbar } from "./RemoteControlTopbar.js";
-import { RemoteControlWarnings } from "./RemoteControlWarnings.js";
+import { RemoteControlStage, type RemoteControlStageProps } from "./RemoteControlStage.js";
+import { RemoteControlTopbar, type RemoteControlTopbarProps } from "./RemoteControlTopbar.js";
+import { RemoteControlWarnings, type RemoteControlWarningsProps } from "./RemoteControlWarnings.js";
 import { RemoteOccupiedDialog } from "./RemoteOccupiedDialog.js";
-import { RemoteReconnectBanner } from "./RemoteReconnectBanner.js";
+import { RemoteReconnectBanner, type RemoteReconnectBannerProps } from "./RemoteReconnectBanner.js";
+import type { RemoteVideoSourcePanelProps } from "./RemoteVideoSourcePanel.js";
+
+export interface RemoteControlPageProps {
+  shell: {
+    deviceNotFound: boolean;
+    error: string;
+    isFullscreen: boolean;
+    onReturnToDevices: () => void;
+    remoteStageFrameRef: RefObject<HTMLDivElement | null>;
+  };
+  topbar: RemoteControlTopbarProps;
+  commandBar: RemoteCommandBarProps;
+  reconnect: RemoteReconnectBannerProps;
+  stage: RemoteControlStageProps;
+  warnings: RemoteControlWarningsProps;
+  insights: {
+    quality: RemoteConnectionQualityPanelProps;
+    clipboard: RemoteClipboardPanelProps;
+    videoSources: RemoteVideoSourcePanelProps;
+  };
+  settings: RemoteControlSettingsDrawerProps;
+  diagnostics: RemoteControlDiagnosticsDrawerProps;
+}
 
 export function RemoteControlPage(props: RemoteControlPageProps) {
   const { shell } = props;
@@ -85,7 +111,7 @@ export function RemoteControlPage(props: RemoteControlPageProps) {
           ref={shell.remoteStageFrameRef}
         >
           <RemoteControlStage {...props.stage} />
-          <RemoteReconnectBanner {...props.commandBar} />
+          <RemoteReconnectBanner {...props.reconnect} />
           <RemoteCommandBar {...props.commandBar} onNextAction={handlePrimaryAction} />
           {shell.isFullscreen ? (
             <div className="fullscreen-hint">工具栏可拖到任意位置 · 无操作 2 秒后自动隐藏 · Esc 退出全屏</div>

@@ -1,4 +1,4 @@
-import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
+import type { RemoteControlPageProps } from "./RemoteControlPage.js";
 import { RemoteClipboardPanel } from "./RemoteClipboardPanel.js";
 import { RemoteConnectionQualityPanel } from "./RemoteConnectionQualityPanel.js";
 import { RemoteControlDiagnosticsDrawer } from "./RemoteControlDiagnosticsDrawer.js";

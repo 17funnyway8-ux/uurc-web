@@ -1,4 +1,4 @@
-import type { BrowserRemoteDebugEvent } from "../remote/browserRemoteSession.js";
+import type { BrowserRemoteDebugEvent } from "../remote/browserRemoteSessionTypes.js";
 
 export function DebugEventList({ events }: { events: readonly BrowserRemoteDebugEvent[] }) {
   const recentEvents: BrowserRemoteDebugEvent[] = [];

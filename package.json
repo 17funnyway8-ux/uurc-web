@@ -19,8 +19,9 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "npm run test -w shared && npm run test -w backend && npm run test -w frontend",
-    "test:unit": "npm run test -w shared && npm run test -w backend && npm run test -w frontend"
+    "test": "npm run test -w shared && npm run test -w backend && npm run test -w frontend && npm run test:cloudflare",
+    "test:unit": "npm run test -w shared && npm run test -w backend && npm run test -w frontend && npm run test:cloudflare",
+    "test:cloudflare": "vitest run --config cloudflare/vitest.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

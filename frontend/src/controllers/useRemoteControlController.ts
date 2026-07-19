@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMatch, useNavigate } from "react-router";
+import { useNavigate, useParams } from "react-router";
 
 import {
   STREAMER_CLIENT_TYPES,
@@ -9,38 +9,27 @@ import {
 import { buildStreamerControlStreamerDataJson } from "@uurc/shared/streamer/controlConfig";
 import { analyzeRemoteSignalReadiness } from "@uurc/shared/streamer/readiness";
 import { STREAMER_DATA_CHANNEL_LABELS } from "@uurc/shared/streamer/transport";
-import type { RemoteSignalGatewayStatus, RuntimeProfile, RemoteAssistanceJoinResult } from "@uurc/shared/types";
+import type { RemoteSignalGatewayStatus, RuntimeProfile } from "@uurc/shared/types";
 
-import type { BusyAction, RoomJoinContext } from "../app/remoteControlTypes.js";
+import type { BusyAction, RemoteControlContext, RoomJoinContext } from "../app/remoteControlTypes.js";
 import { SELF_DEVICE_BLOCKED_REASON } from "../app/remoteControlTypes.js";
 import {
   cancelRemoteAssistance,
-  clearAuthState,
   clearRoomByDevice,
-  createMobileDevice,
-  exportAuthState,
-  getAuthStatus,
   getDeviceGroups,
-  getRemoteAssistanceControlMode,
   getRemoteBootstrap,
   getRuntimeProfile,
   getRemoteSignalDiagnostics,
-  importAuthState,
-  joinRemoteAssistanceByCode,
-  joinRemoteAssistanceByConfirmation,
   joinRoomByDevice,
-  loginByMobile,
-  sendMobileCode,
   sendRemoteSignalControl,
   sendRemoteSignalSoac,
   startRemoteSignalGateway,
   stopRemoteSignalGateway,
 } from "../api/client.js";
-import { createRemoteControlPageProps, type RemoteControlViewProps } from "../app/remoteControlPageProps.js";
-import { writeLocalClipboardText } from "../browser/clipboard.js";
+import type { RemoteControlPageProps } from "../components/RemoteControlPage.js";
 import { formatParticipantMeta } from "../devices/deviceLabels.js";
-import { pickControllableDesktop } from "../devices/deviceSummary.js";
-import { BrowserRemoteSession, type BrowserRemoteSessionState } from "../remote/browserRemoteSession.js";
+import { BrowserRemoteSession } from "../remote/browserRemoteSession.js";
+import type { BrowserRemoteSessionState } from "../remote/browserRemoteSessionTypes.js";
 import { REMOTE_CURSOR_LOCAL_RENDERING_ENABLED } from "../remote/remoteCursor.js";
 import { remoteShortcutGroupTitleForPlatform } from "../remote/remoteShortcuts.js";
 import {
@@ -54,7 +43,6 @@ import {
   getRemoteConnectionQuality,
   formatInboundAudioStats,
   formatInboundVideoStats,
-  formatRemoteAssistanceMode,
   formatRoomJoinContext,
   formatRoomReleaseDetail,
   formatRoomReleaseState,
@@ -69,9 +57,6 @@ import {
   summarizeSwitchNetworkNotify,
   summarizeUnexpectedSignalEvents,
 } from "../remote/remoteControlUiModel.js";
-import { useAutoLoadDevices } from "./useAutoLoadDevices.js";
-import { useAccountController } from "./useAccountController.js";
-import { useDeviceController } from "./useDeviceController.js";
 import { useRemoteAudioController } from "./useRemoteAudioController.js";
 import { useRemoteVideoController } from "./useRemoteVideoController.js";
 import { useRemoteControlPreferences } from "./useRemoteControlPreferences.js";
@@ -96,51 +81,8 @@ function toFriendlyError(message: string): string {
   return text;
 }
 
-// 手机号前端预校验：中国大陆区号要求 11 位、以 1 开头；其他区号只做非空+纯数字的宽松校验。
-function isValidMobileNumber(regionCode: string, mobile: string): boolean {
-  const digits = mobile.trim();
-  if (!/^\d+$/.test(digits)) return false;
-  const region = regionCode.trim() || "86";
-  if (region === "86") return /^1\d{10}$/.test(digits);
-  return digits.length >= 5 && digits.length <= 15;
-}
-
-export function useRemoteControlController() {
-  const {
-    authStatus,
-    setAuthStatus,
-    authJson,
-    setAuthJson,
-    regionCode,
-    setRegionCode,
-    mobile,
-    setMobile,
-    smsCode,
-    setSmsCode,
-    loginNotice,
-    setLoginNotice,
-    codeSent,
-    setCodeSent,
-    smsCountdown,
-    setSmsCountdown,
-  } = useAccountController();
-  const {
-    devices,
-    setDevices,
-    devicesLoaded,
-    setDevicesLoaded,
-    selectedDeviceIdState,
-    setSelectedDeviceId,
-    forceJoin,
-    setForceJoin,
-    assistanceConnectId,
-    setAssistanceConnectId,
-    assistanceConnectCode,
-    setAssistanceConnectCode,
-    assistanceNotice,
-    setAssistanceNotice,
-    resetDevices,
-  } = useDeviceController();
+export function useRemoteControlController(context: RemoteControlContext) {
+  const { authStatus, devices, devicesLoaded, handoff, onControlLeave, onDevicesChange } = context;
   const {
     roomResponse,
     setRoomResponse,
@@ -148,15 +90,15 @@ export function useRemoteControlController() {
     setRoomJoinContext,
     remoteBootstrap,
     setRemoteBootstrap,
-    resetRoom,
-  } = useRoomController();
+  } = useRoomController(handoff);
+  const [forceJoin, setForceJoin] = useState(handoff?.roomJoinContext.forceJoin ?? false);
   const [runtimeProfile, setRuntimeProfile] = useState<RuntimeProfile | null>(null);
   const [browserRemoteState, setBrowserRemoteState] = useState<BrowserRemoteSessionState>(createIdleBrowserRemoteState);
   const [autoReconnectAttemptCount, setAutoReconnectAttemptCount] = useState(0);
   const [decodeStalledStreak, setDecodeStalledStreak] = useState(0);
   const [autoReconnectStatus, setAutoReconnectStatus] = useState("");
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState<BusyAction>("status");
+  const [busy, setBusy] = useState<BusyAction>(null);
   const { toast, showToast, dismissToast } = useToastController();
   const browserRemoteSession = useRef<BrowserRemoteSession | null>(null);
   const remoteStageFrameRef = useRef<HTMLDivElement | null>(null);
@@ -219,14 +161,13 @@ export function useRemoteControlController() {
     [handleRemoteAudioStream, handleRemoteMediaStream],
   );
   const navigate = useNavigate();
-  const controlRouteMatch = useMatch("/devices/:deviceId/control");
-  const routeSelectedDeviceId = controlRouteMatch?.params.deviceId ?? "";
+  const { deviceId: routeSelectedDeviceId = "" } = useParams<{ deviceId: string }>();
 
   const allDevices = useMemo(
     () => [...devices.desktopDevices, ...devices.mobileDevices, ...devices.tvDevices],
     [devices.desktopDevices, devices.mobileDevices, devices.tvDevices],
   );
-  const selectedDeviceId = routeSelectedDeviceId || selectedDeviceIdState;
+  const selectedDeviceId = routeSelectedDeviceId;
 
   const selectedDevice = useMemo(
     () => allDevices.find((device) => device.deviceId === selectedDeviceId) ?? null,
@@ -271,7 +212,6 @@ export function useRemoteControlController() {
   const {
     clipboardSyncEnabled,
     clipboardSyncAvailable,
-    clipboardPreviewLabel,
     localClipboardStatusLabel,
     remoteClipboardStatusLabel,
     remoteClipboardPendingText,
@@ -286,7 +226,7 @@ export function useRemoteControlController() {
     handleCopyRemoteClipboard,
   } = useRemoteClipboardController({
     browserSessionRef: browserRemoteSession,
-    sessionKey: controlRouteMatch ? selectedDeviceId : "",
+    sessionKey: selectedDeviceId,
     fileChannelState,
     remoteClipboardReadEnabled,
     textChannelState,
@@ -324,9 +264,24 @@ export function useRemoteControlController() {
     onSessionStateChange: setBrowserRemoteState,
   });
   useEffect(() => {
-    void loadStatus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在挂载时恢复一次账号凭证
+    let active = true;
+    void getRuntimeProfile()
+      .then((runtime) => {
+        if (active) setRuntimeProfile(runtime);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
   }, []);
+
+  useEffect(
+    () => () => {
+      browserRemoteSession.current?.close();
+      browserRemoteSession.current = null;
+    },
+    [],
+  );
 
   async function run(action: BusyAction, task: () => Promise<void>) {
     setBusy(action);
@@ -335,214 +290,14 @@ export function useRemoteControlController() {
       await task();
     } catch (caught) {
       setError(toFriendlyError(caught instanceof Error ? caught.message : String(caught)));
-      // 远程协助失败时清除“等待对方确认…”等瞬态提示，避免与错误条同时显示矛盾信息
-      if (action === "assistance") setAssistanceNotice("");
     } finally {
       setBusy(null);
     }
   }
 
-  async function loadStatus() {
-    await run("status", async () => {
-      const [status, runtime] = await Promise.all([getAuthStatus(), getRuntimeProfile().catch(() => null)]);
-      setAuthStatus(status);
-      setRuntimeProfile(runtime);
-    });
-  }
-
-  async function handleImport() {
-    await run("import", async () => {
-      const status = await importAuthState(authJson);
-      setAuthStatus(status);
-      if (!status.hasState) {
-        const fieldLabels: Record<string, string> = { token: "令牌", userId: "用户 ID", deviceId: "设备 ID" };
-        const missing = (status.missingFields ?? []).map((field) => fieldLabels[field] ?? field).join("、");
-        throw new Error(missing ? `导入失败：账号凭证缺少 ${missing}` : "导入失败：账号凭证不完整");
-      }
-      setLoginNotice("已导入");
-      setDevicesLoaded(false);
-      navigate("/devices", { replace: true });
-    });
-  }
-
-  async function handleExport() {
-    await run("export", async () => {
-      const state = await exportAuthState();
-      const exportedAuthJson = JSON.stringify(state, null, 2);
-      setAuthJson(exportedAuthJson);
-      try {
-        await writeLocalClipboardText(exportedAuthJson);
-        showToast("账号凭证已导出并复制到剪贴板");
-      } catch {
-        showToast("账号凭证已导出，自动复制失败，请手动复制");
-      }
-    });
-  }
-
-  async function handleCopyAuthJson() {
-    if (!authJson.trim()) return;
-    try {
-      await writeLocalClipboardText(authJson);
-      showToast("已复制账号凭证到剪贴板");
-    } catch {
-      showToast("复制失败，请手动选择文本复制");
-    }
-  }
-
-  async function handleLogout() {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("退出后需重新登录。若未导出账号凭证备份，建议先导出。确定退出？")
-    ) {
-      return;
-    }
-    await run("logout", async () => {
-      resetBrowserRemoteSession();
-      await stopRemoteSignalGateway().catch(() => undefined);
-      if (roomJoinContext?.deviceId) {
-        const releaseRoom =
-          roomJoinContext.kind === "remote_assistance"
-            ? cancelRemoteAssistance(roomJoinContext.connectId ?? roomJoinContext.deviceId)
-            : clearRoomByDevice(roomJoinContext.deviceId);
-        await releaseRoom.catch(() => undefined);
-      }
-      setAuthStatus(await clearAuthState());
-      setAuthJson("");
-      resetDevices();
-      resetRoom();
-      resetSignalGateway();
-      setLoginNotice("");
-      setCodeSent(false);
-      setSmsCountdown(0);
-      navigate("/login", { replace: true });
-    });
-  }
-
-  async function ensureMobileDevice() {
-    if (authStatus?.deviceId) return;
-    const result = await createMobileDevice();
-    setAuthStatus(result.status);
-  }
-
-  async function handleSendMobileCode() {
-    await run("send-mobile-code", async () => {
-      if (!isValidMobileNumber(regionCode, mobile)) {
-        throw new Error(
-          regionCode.trim() === "86" || !regionCode.trim() ? "请输入 11 位有效手机号。" : "请输入有效的手机号。",
-        );
-      }
-      await ensureMobileDevice();
-      const result = await sendMobileCode({ regionCode: regionCode.trim() || "86", mobile });
-      setAuthStatus(result.status);
-      setCodeSent(true);
-      setSmsCountdown(60);
-      setLoginNotice("验证码已发送");
-    });
-  }
-
-  async function handleMobileLogin() {
-    await run("mobile-login", async () => {
-      await ensureMobileDevice();
-      const result = await loginByMobile({ regionCode: regionCode.trim() || "86", mobile, code: smsCode });
-      setAuthStatus(result.status);
-      setLoginNotice("已登录");
-      setDevicesLoaded(false);
-      navigate("/devices", { replace: true });
-    });
-  }
-
   async function loadDevices() {
     await run("devices", async () => {
-      const nextDevices = await getDeviceGroups();
-      setDevices(nextDevices);
-      setDevicesLoaded(true);
-      const target = pickControllableDesktop(nextDevices.desktopDevices, authStatus?.deviceId);
-      setSelectedDeviceId(target?.deviceId ?? nextDevices.desktopDevices[0]?.deviceId ?? "");
-    });
-  }
-
-  async function handleOpenDevice(deviceId: string) {
-    setSelectedDeviceId(deviceId);
-    navigate(`/devices/${encodeURIComponent(deviceId)}/control`);
-  }
-
-  async function handleStartRemoteAssistance() {
-    if (busy !== null) return;
-    if (!loggedIn) {
-      setError("远程协助需要先登录 UU 账号。");
-      return;
-    }
-
-    setAssistanceNotice("");
-    await run("assistance", async () => {
-      const connectId = assistanceConnectId.trim();
-      const connectCode = assistanceConnectCode.trim();
-      const modeResult = await getRemoteAssistanceControlMode(connectId);
-      if (modeResult.upstream.body.code !== undefined && modeResult.upstream.body.code !== 0) {
-        throw new Error(modeResult.upstream.body.msg ?? `远程协助模式返回 ${modeResult.upstream.body.code}`);
-      }
-      if (!modeResult.canRemoteControl) {
-        throw new Error("伙伴设备当前不允许远程协助");
-      }
-      if (!modeResult.controlMode) {
-        throw new Error("伙伴设备未返回可识别的验证方式");
-      }
-
-      let joined: RemoteAssistanceJoinResult;
-      if (connectCode) {
-        joined = await joinRemoteAssistanceByCode({
-          connectId,
-          connectCode,
-          controlMode: modeResult.controlMode,
-        });
-        if (!joined.roomConfigSummary && joined.assistance.confirmationRequired) {
-          setAssistanceNotice("伙伴设备要求二次确认，正在等待对方确认...");
-          joined = await joinRemoteAssistanceByConfirmation({
-            connectId,
-            connectCode,
-            controlId: joined.assistance.controlId,
-            controlMode: modeResult.controlMode,
-          });
-        }
-      } else if (modeResult.controlMode === "by_confirmation" || modeResult.controlMode === "password_confirmation") {
-        setAssistanceNotice("正在等待伙伴设备确认...");
-        joined = await joinRemoteAssistanceByConfirmation({
-          connectId,
-          controlMode: modeResult.controlMode,
-        });
-      } else {
-        throw new Error("伙伴设备当前要求输入设备验证码");
-      }
-
-      if (!joined.roomConfigSummary) {
-        throw new Error(joined.upstream.body.msg ?? "远程协助未返回可用房间配置");
-      }
-      const targetPlatform = joined.assistance.targetPlatform;
-      if (targetPlatform === undefined) {
-        throw new Error("伙伴设备未返回设备系统，已取消本次远程协助");
-      }
-
-      const context: RoomJoinContext = {
-        kind: "remote_assistance",
-        deviceId: joined.assistance.connectId,
-        forceJoin: false,
-        occupiedAtJoin: false,
-        connectId: joined.assistance.connectId,
-        connectCodeProvided: joined.assistance.connectCodeProvided,
-        controlId: joined.assistance.controlId,
-        controlMode: joined.assistance.controlMode,
-        deviceName: joined.assistance.deviceName,
-        targetPlatform,
-      };
-      setSelectedDeviceId(joined.assistance.connectId);
-      setRoomResponse(joined);
-      setRoomJoinContext(context);
-      setForceJoin(false);
-      resetSignalGateway();
-      resetBrowserRemoteSession();
-      setRemoteBootstrap(await getRemoteBootstrap());
-      setAssistanceNotice(`已进入远程协助：${formatRemoteAssistanceMode(modeResult.controlMode)}`);
-      navigate(`/devices/${encodeURIComponent(joined.assistance.connectId)}/control`);
+      onDevicesChange(await getDeviceGroups());
     });
   }
 
@@ -565,7 +320,6 @@ export function useRemoteControlController() {
       setRoomJoinContext(context);
       setForceJoin(joinWithForce);
       resetSignalGateway();
-      setAssistanceNotice("");
       resetBrowserRemoteSession();
       setRemoteBootstrap(joined.roomConfigSummary ? await getRemoteBootstrap() : null);
       // 房间加入失败（无房间配置）时不返回上下文：让 handleNextAction 就此停下，
@@ -630,7 +384,7 @@ export function useRemoteControlController() {
       }
       if (clearContext?.kind !== "remote_assistance") {
         try {
-          setDevices(await getDeviceGroups());
+          onDevicesChange(await getDeviceGroups());
         } catch {
           // Disconnect should still complete even if the follow-up device refresh fails.
         }
@@ -651,6 +405,7 @@ export function useRemoteControlController() {
       if (typeof window !== "undefined" && !window.confirm(message)) return;
       await handleStopSignalGateway();
     }
+    onControlLeave();
     navigate("/devices");
   }
 
@@ -789,18 +544,6 @@ export function useRemoteControlController() {
 
   const loggedIn = Boolean(authStatus?.hasState);
   const deviceTotal = devices.desktopDevices.length + devices.mobileDevices.length + devices.tvDevices.length;
-  const canSubmitMobile = mobile.trim().length > 0 && busy === null && smsCountdown === 0;
-  const canLogin = mobile.trim().length > 0 && smsCode.trim().length > 0 && busy === null;
-
-  useAutoLoadDevices({
-    loggedIn,
-    devicesLoaded,
-    busy,
-    loadDevices: () => void loadDevices(),
-  });
-
-  const identitySourceLabel = authStatus?.deviceId ? "网页控制端" : "待创建设备";
-  const identityDeviceLabel = authStatus?.deviceId ?? "-";
   const roomDebugPayload = roomResponse
     ? {
         upstream: summarizeRoomJoinUpstream(roomResponse.upstream),
@@ -1004,10 +747,6 @@ export function useRemoteControlController() {
 
   const remoteAssistanceActive = roomJoinContext?.kind === "remote_assistance";
   useEffect(() => {
-    if (!controlRouteMatch) {
-      autoConnectAttemptedDeviceRef.current = "";
-      return;
-    }
     if (
       !autoConnect ||
       !loggedIn ||
@@ -1030,7 +769,6 @@ export function useRemoteControlController() {
     void handleNextAction();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handleNextAction 每次渲染重建，不入依赖；用 ref 保证每台设备只自动连一次
   }, [
-    controlRouteMatch,
     autoConnect,
     loggedIn,
     selectedDeviceId,
@@ -1061,185 +799,172 @@ export function useRemoteControlController() {
               ? "已就绪，点「开始连接」"
               : "未连接";
 
-  const loginPageProps = {
-    authJson,
-    regionCode,
-    mobile,
-    smsCode,
-    loginNotice,
-    codeSent,
-    smsCountdown,
-    error,
-    busy,
-    canSubmitMobile,
-    canLogin,
-    onAuthJsonChange: setAuthJson,
-    onRegionCodeChange: setRegionCode,
-    onMobileChange: setMobile,
-    onSmsCodeChange: setSmsCode,
-    onSendMobileCode: () => void handleSendMobileCode(),
-    onMobileLogin: () => void handleMobileLogin(),
-    onImport: () => void handleImport(),
+  const controlPageProps: RemoteControlPageProps = {
+    shell: {
+      deviceNotFound,
+      error,
+      isFullscreen,
+      onReturnToDevices: () => void handleReturnToDevices(),
+      remoteStageFrameRef,
+    },
+    topbar: {
+      browserRemoteState,
+      busy,
+      canDisconnectRemote,
+      onReturnToDevices: () => void handleReturnToDevices(),
+      onStopSignalGateway: () => void handleStopSignalGateway(),
+      selectedDevice,
+      selectedTargetLabel,
+      signalGatewayDisplay,
+    },
+    commandBar: {
+      busy,
+      controlChannelState,
+      inputControlActive,
+      isFullscreen,
+      nextAction,
+      onNextAction: () => void handleNextAction(),
+      onRemoteShortcut: handleRemoteShortcut,
+      onStageViewModeChange: setRemoteStageViewMode,
+      onToggleInputControl: handleToggleInputControl,
+      onToggleFullscreen: handleToggleFullscreen,
+      remoteAudio,
+      remoteShortcutPlatform,
+      remoteStageViewMode,
+    },
+    reconnect: {
+      autoReconnectAttemptCount,
+      busy,
+      canReconnectRemote: browserConnectionRecoverable,
+      onReconnectRemote: () => void handleReconnectRemote(),
+      remoteRecoveryLabel,
+    },
+    stage: {
+      browserRemoteState,
+      browserStageLabel,
+      hasRemoteVideo,
+      inputControlActive,
+      inputControlLabel,
+      onRemoteStageKeyDown: handleRemoteStageKeyDown,
+      onRemoteStageKeyUp: handleRemoteStageKeyUp,
+      onRemoteStageBlur: handleRemoteStageBlur,
+      onRemoteStagePaste: handleRemoteStagePaste,
+      onRemoteStagePointerCancel: handleRemoteStagePointerCancel,
+      onRemoteStagePointerDown: handleRemoteStagePointerDown,
+      onRemoteStagePointerMove: handleRemoteStagePointerMove,
+      onRemoteStagePointerUp: handleRemoteStagePointerUp,
+      onRemoteStageWheel: handleRemoteStageWheel,
+      onRemoteVideoSample: handleRemoteVideoSample,
+      primaryRemoteVideoActive,
+      primaryRemoteVideoId,
+      remoteStageRef,
+      remoteStageViewMode,
+      remoteVideoCount,
+      remoteVideoStreams,
+      selectedDevice,
+      stageStatusLabel,
+      videoFlowLabel,
+    },
+    warnings: {
+      browserWebRtcUnavailableReason,
+      forceJoin,
+      normalJoinTakeoverHint,
+      occupiedBySelfClient,
+      occupyingParticipantLabel,
+      roomJoinFailureMessage,
+      selectedDeviceOccupied,
+      selfDeviceBlockedReason,
+      signalGatewayErrorHint,
+    },
+    insights: {
+      quality: {
+        autoReconnectEnabled,
+        autoReconnectLabel,
+        connectionQuality,
+        onAutoReconnectEnabledChange: setAutoReconnectEnabled,
+      },
+      clipboard: {
+        canCopyRemoteClipboard,
+        canReadLocalClipboard,
+        canSendClipboardText,
+        clipboardSyncAvailable,
+        clipboardSyncEnabled,
+        localClipboardStatusLabel,
+        remoteClipboardPendingText,
+        remoteClipboardStatusLabel,
+        onClipboardSyncEnabledChange: handleClipboardSyncEnabledChange,
+        onCopyRemoteClipboard: handleCopyRemoteClipboard,
+        onReadLocalClipboard: () => void handleReadLocalClipboard(),
+        onSendClipboardText: handleSendClipboardText,
+      },
+      videoSources: {
+        onRemoteVideoSourceChange: setSelectedRemoteVideoId,
+        primaryRemoteVideoId,
+        remoteVideoSources,
+      },
+    },
+    settings: {
+      autoConnect,
+      browserRtcReady,
+      busy,
+      connectionRouteMode,
+      forceJoin,
+      onAutoConnectChange: setAutoConnect,
+      onConnectionRouteModeChange: setConnectionRouteMode,
+      onForceJoinChange: setForceJoin,
+      onSignalServerIndexChange: setSignalServerIndex,
+      onSdpTransportModeChange: setSdpTransportMode,
+      onStartBrowserRemote: () => void handleStartBrowserRemote(),
+      onStartSignalGateway: () => void handleStartSignalGateway(),
+      onStopSignalGateway: () => void handleStopSignalGateway(),
+      sdpTransportMode,
+      selectedDevice,
+      selectedParticipants,
+      signalServerIndex,
+      signalServerOptions,
+    },
+    diagnostics: {
+      audioPlaybackLabel,
+      autoSwitchThresholdLabel,
+      browserIceServers,
+      browserRemoteState,
+      browserRtcDescription,
+      browserStageLabel,
+      candidatePairSummary,
+      connectionPathLabel,
+      controlChannelLabel,
+      debugEvents,
+      effectiveConnectionRouteLabel,
+      iceControlStatusLabel,
+      inboundAudioStatsLabel,
+      inboundVideoStatsLabel,
+      inputControlActive,
+      joinModeLabel,
+      networkSwitchSummary,
+      remoteBootstrap,
+      roomDebugPayload,
+      roomJoinModeDebugLabel,
+      roomReleaseDetail,
+      roomReleaseLabel,
+      runtimeProfile,
+      selectedDevice,
+      selectedDeviceId,
+      serviceRoutePolicyLabel,
+      signalEvents,
+      signalGatewayDisplay,
+      signalHeaderSummary,
+      signalReadiness,
+      sdpTransportLabel,
+      textChannelLabel,
+      unexpectedSignalEventSummary,
+      videoElementLabel,
+      videoFlowLabel,
+    },
   };
-
-  const deviceListPageProps = {
-    authStatus,
-    authJson,
-    devices,
-    devicesLoaded,
-    selectedDeviceId,
-    assistanceConnectId,
-    assistanceConnectCode,
-    assistanceNotice,
-    identitySourceLabel,
-    identityDeviceLabel,
-    error,
-    busy,
-    onLoadStatus: () => void loadStatus(),
-    onLoadDevices: () => void loadDevices(),
-    onSelectDevice: setSelectedDeviceId,
-    onOpenDevice: (deviceId: string) => void handleOpenDevice(deviceId),
-    onAssistanceConnectIdChange: setAssistanceConnectId,
-    onAssistanceConnectCodeChange: setAssistanceConnectCode,
-    onStartRemoteAssistance: () => void handleStartRemoteAssistance(),
-    onExport: () => void handleExport(),
-    onCopyAuthJson: () => void handleCopyAuthJson(),
-    onLogout: () => void handleLogout(),
-  };
-
-  const controlViewProps: RemoteControlViewProps = {
-    audioPlaybackLabel,
-    autoSwitchThresholdLabel,
-    autoConnect,
-    autoReconnectAttemptCount,
-    autoReconnectEnabled,
-    autoReconnectLabel,
-    browserIceServers,
-    browserRemoteState,
-    browserWebRtcUnavailableReason,
-    browserRtcDescription,
-    browserRtcReady,
-    browserStageLabel,
-    busy,
-    canDisconnectRemote,
-    canCopyRemoteClipboard,
-    canReadLocalClipboard,
-    canReconnectRemote: browserConnectionRecoverable,
-    canSendClipboardText,
-    candidatePairSummary,
-    clipboardSyncAvailable,
-    clipboardSyncEnabled,
-    clipboardPreviewLabel,
-    localClipboardStatusLabel,
-    remoteClipboardPendingText,
-    remoteClipboardStatusLabel,
-    connectionQuality,
-    connectionPathLabel,
-    connectionRouteMode,
-    controlChannelLabel,
-    controlChannelState,
-    debugEvents,
-    deviceNotFound,
-    effectiveConnectionRouteLabel,
-    error,
-    forceJoin,
-    hasRemoteVideo,
-    iceControlStatusLabel,
-    inboundAudioStatsLabel,
-    inboundVideoStatsLabel,
-    inputControlActive,
-    inputControlLabel,
-    joinModeLabel,
-    networkSwitchSummary,
-    nextAction,
-    normalJoinTakeoverHint,
-    occupiedBySelfClient,
-    occupyingParticipantLabel,
-    primaryRemoteVideoActive,
-    primaryRemoteVideoId,
-    remoteAudio,
-    remoteBootstrap,
-    remoteRecoveryLabel,
-    remoteShortcutPlatform,
-    remoteStageRef,
-    remoteStageFrameRef,
-    isFullscreen,
-    remoteStageViewMode,
-    remoteVideoCount,
-    remoteVideoSources,
-    remoteVideoStreams,
-    stageStatusLabel,
-    roomDebugPayload,
-    roomJoinFailureMessage,
-    roomJoinFailureTakeoverHint,
-    roomJoinModeDebugLabel,
-    roomReleaseDetail,
-    roomReleaseLabel,
-    roomResponseReady: Boolean(roomResponse),
-    runtimeProfile,
-    roomRequiresTakeover,
-    sdpTransportLabel,
-    sdpTransportMode,
-    selectedDevice,
-    selectedDeviceId,
-    selectedTargetLabel,
-    selectedDeviceOccupied,
-    selectedParticipants,
-    selfDeviceBlockedReason,
-    serviceRoutePolicyLabel,
-    signalEvents,
-    signalGatewayDisplay,
-    signalGatewayErrorHint,
-    signalHeaderSummary,
-    signalReadiness,
-    signalServerIndex,
-    signalServerOptions,
-    textChannelLabel,
-    textChannelState,
-    unexpectedSignalEventSummary,
-    videoElementLabel,
-    videoFlowLabel,
-    onAutoReconnectEnabledChange: setAutoReconnectEnabled,
-    onAutoConnectChange: setAutoConnect,
-    onClipboardSyncEnabledChange: handleClipboardSyncEnabledChange,
-    onConnectionRouteModeChange: setConnectionRouteMode,
-    onCopyRemoteClipboard: handleCopyRemoteClipboard,
-    onForceJoinChange: setForceJoin,
-    onNextAction: () => void handleNextAction(),
-    onReconnectRemote: () => void handleReconnectRemote(),
-    onRemoteStageKeyDown: handleRemoteStageKeyDown,
-    onRemoteStageKeyUp: handleRemoteStageKeyUp,
-    onRemoteStageBlur: handleRemoteStageBlur,
-    onRemoteStagePaste: handleRemoteStagePaste,
-    onRemoteStagePointerCancel: handleRemoteStagePointerCancel,
-    onRemoteStagePointerDown: handleRemoteStagePointerDown,
-    onRemoteStagePointerMove: handleRemoteStagePointerMove,
-    onRemoteStagePointerUp: handleRemoteStagePointerUp,
-    onRemoteStageWheel: handleRemoteStageWheel,
-    onRemoteShortcut: handleRemoteShortcut,
-    onRemoteVideoSourceChange: setSelectedRemoteVideoId,
-    onRemoteVideoSample: handleRemoteVideoSample,
-    onReadLocalClipboard: () => void handleReadLocalClipboard(),
-    onReturnToDevices: () => void handleReturnToDevices(),
-    onSdpTransportModeChange: setSdpTransportMode,
-    onSignalServerIndexChange: setSignalServerIndex,
-    onStartBrowserRemote: () => void handleStartBrowserRemote(),
-    onStartSignalGateway: () => void handleStartSignalGateway(),
-    onStageViewModeChange: setRemoteStageViewMode,
-    onStopSignalGateway: () => void handleStopSignalGateway(),
-    onSendClipboardText: handleSendClipboardText,
-    onToggleInputControl: handleToggleInputControl,
-    onToggleFullscreen: handleToggleFullscreen,
-  };
-  const controlPageProps = createRemoteControlPageProps(controlViewProps);
 
   return {
-    authLoading: authStatus === null && busy === "status",
-    loggedIn,
     toast,
     onDismissToast: dismissToast,
-    loginPageProps,
-    deviceListPageProps,
-    controlPageProps,
+    page: controlPageProps,
   };
 }

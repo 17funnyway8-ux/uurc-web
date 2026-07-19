@@ -4,31 +4,12 @@ import { Link } from "react-router";
 const GITHUB_URL = "https://github.com/iola1999/uurc-web";
 const V2EX_URL = "https://www.v2ex.com/t/1225978";
 
-function HeroSignalMap() {
-  return (
-    <div className="landing-signal-field" aria-hidden="true">
-      <span className="landing-signal-frame" />
-      <span className="landing-signal-route landing-signal-route-a" />
-      <span className="landing-signal-route landing-signal-route-b" />
-      <span className="landing-signal-route landing-signal-route-c" />
-      <span className="landing-signal-route landing-signal-route-d" />
-      <span className="landing-signal-route landing-signal-route-e" />
-      <span className="landing-signal-node landing-signal-node-a" />
-      <span className="landing-signal-node landing-signal-node-b" />
-      <span className="landing-signal-node landing-signal-node-c" />
-      <span className="landing-signal-node landing-signal-node-active" />
-    </div>
-  );
-}
-
 export function LandingPage({ loggedIn }: { loggedIn: boolean }) {
   const consolePath = loggedIn ? "/devices" : "/login";
 
   return (
     <main className="landing-page">
       <section className="landing-hero" aria-labelledby="landing-title">
-        <HeroSignalMap />
-
         <header className="landing-header">
           <a className="landing-brand" href="/" aria-label="UU Remote Web 首页">
             <span className="landing-brand-mark" aria-hidden="true">
@@ -133,7 +114,6 @@ export function LandingPage({ loggedIn }: { loggedIn: boolean }) {
         <div>
           <p className="landing-section-index">UU Remote Web</p>
           <h2 id="landing-final-title">准备开始？</h2>
-          <p>已登录会直接进入设备页；首次使用会先前往登录。</p>
         </div>
         <Link className="landing-primary-action" to={consolePath}>
           进入控制台

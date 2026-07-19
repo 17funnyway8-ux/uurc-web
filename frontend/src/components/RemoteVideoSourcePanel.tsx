@@ -1,4 +1,10 @@
-import type { RemoteVideoSourcePanelProps } from "../app/remoteControlPageProps.js";
+import type { RemoteVideoSourceInfo } from "../app/remoteControlTypes.js";
+
+export interface RemoteVideoSourcePanelProps {
+  onRemoteVideoSourceChange: (videoId: string) => void;
+  primaryRemoteVideoId: string;
+  remoteVideoSources: RemoteVideoSourceInfo[];
+}
 
 export function RemoteVideoSourcePanel({
   onRemoteVideoSourceChange,

@@ -1,6 +1,13 @@
-import type { RemoteAssistanceControlMode, RoomJoinKind } from "@uurc/shared/types";
+import type {
+  AuthStatus,
+  RemoteAssistanceControlMode,
+  RemoteControlBootstrap,
+  RoomJoinKind,
+  RoomJoinResult,
+  UuDeviceGroups,
+} from "@uurc/shared/types";
 
-import type { BrowserRemoteVideoElementSample } from "../remote/browserRemoteSession.js";
+import type { BrowserRemoteVideoElementSample } from "../remote/browserRemoteSessionTypes.js";
 
 export type BusyAction =
   | "status"
@@ -37,6 +44,21 @@ export type RoomJoinContext = {
   deviceName?: string;
   targetPlatform?: number;
 };
+
+export interface RemoteControlHandoff {
+  roomResponse: RoomJoinResult;
+  roomJoinContext: RoomJoinContext;
+  remoteBootstrap: RemoteControlBootstrap;
+}
+
+export interface RemoteControlContext {
+  authStatus: AuthStatus | null;
+  devices: UuDeviceGroups;
+  devicesLoaded: boolean;
+  handoff: RemoteControlHandoff | null;
+  onDevicesChange: (devices: UuDeviceGroups) => void;
+  onControlLeave: () => void;
+}
 
 export type RemoteVideoStream = {
   id: string;

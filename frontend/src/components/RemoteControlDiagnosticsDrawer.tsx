@@ -1,8 +1,54 @@
-import type { RemoteControlDiagnosticsDrawerProps } from "../app/remoteControlPageProps.js";
+import type {
+  RemoteControlBootstrap,
+  RemoteSignalGatewayEvent,
+  RemoteSignalReadinessDiagnostics,
+  RuntimeProfile,
+  UuDevice,
+} from "@uurc/shared/types";
+
+import type { BrowserRemoteDebugEvent, BrowserRemoteSessionState } from "../remote/browserRemoteSessionTypes.js";
 import { DebugEventList } from "./DebugEventList.js";
 import { formatAppFlagControlMode, getDeviceConnectionLabel } from "../devices/deviceLabels.js";
 import { StatusRow } from "./Panel.js";
 import { ReadinessStrip } from "./ReadinessStrip.js";
+
+export interface RemoteControlDiagnosticsDrawerProps {
+  audioPlaybackLabel: string;
+  autoSwitchThresholdLabel: string;
+  browserIceServers: number;
+  browserRemoteState: BrowserRemoteSessionState;
+  browserRtcDescription: string;
+  browserStageLabel: string;
+  candidatePairSummary: string;
+  connectionPathLabel: string;
+  controlChannelLabel: string;
+  debugEvents: BrowserRemoteDebugEvent[];
+  effectiveConnectionRouteLabel: string;
+  iceControlStatusLabel: string;
+  inboundAudioStatsLabel: string;
+  inboundVideoStatsLabel: string;
+  inputControlActive: boolean;
+  joinModeLabel: string;
+  networkSwitchSummary: string;
+  remoteBootstrap: RemoteControlBootstrap | null;
+  roomDebugPayload: unknown;
+  roomJoinModeDebugLabel: string;
+  roomReleaseDetail: string;
+  roomReleaseLabel: string;
+  runtimeProfile: RuntimeProfile | null;
+  selectedDevice: UuDevice | null;
+  selectedDeviceId: string;
+  serviceRoutePolicyLabel: string;
+  signalEvents: RemoteSignalGatewayEvent[];
+  signalGatewayDisplay: string;
+  signalHeaderSummary: string;
+  signalReadiness: RemoteSignalReadinessDiagnostics;
+  sdpTransportLabel: string;
+  textChannelLabel: string;
+  unexpectedSignalEventSummary: string;
+  videoElementLabel: string;
+  videoFlowLabel: string;
+}
 
 export function RemoteControlDiagnosticsDrawer({
   audioPlaybackLabel,

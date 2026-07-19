@@ -1,7 +1,21 @@
 import { ClipboardCheck, Copy, RefreshCw } from "lucide-react";
 
-import type { RemoteClipboardPanelProps } from "../app/remoteControlPageProps.js";
 import { Switch } from "./ui/Switch.js";
+
+export interface RemoteClipboardPanelProps {
+  canCopyRemoteClipboard: boolean;
+  canReadLocalClipboard: boolean;
+  canSendClipboardText: boolean;
+  clipboardSyncAvailable: boolean;
+  clipboardSyncEnabled: boolean;
+  localClipboardStatusLabel: string;
+  remoteClipboardPendingText: string | null;
+  remoteClipboardStatusLabel: string;
+  onClipboardSyncEnabledChange: (enabled: boolean) => void;
+  onCopyRemoteClipboard: () => void;
+  onReadLocalClipboard: () => void;
+  onSendClipboardText: () => void;
+}
 
 export function RemoteClipboardPanel({
   canCopyRemoteClipboard,

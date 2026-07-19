@@ -14,6 +14,7 @@ import { readLocalClipboardText } from "../browser/clipboard.js";
 import type { BrowserRemoteSession, BrowserRemoteSessionState } from "../remote/browserRemoteSession.js";
 import { sendRemoteShortcut, type RemoteShortcut } from "../remote/remoteShortcuts.js";
 import { toRemoteKeyValue, toRemoteMouseButton, toRemoteMousePosition } from "../remote/remoteControlUiModel.js";
+import { isDesktopRemoteScrollTarget, RemoteScrollDeltaAccumulator } from "../remote/remoteScrollInput.js";
 
 const HOLD_MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta", "AltGraph"]);
 
@@ -22,6 +23,7 @@ interface UseRemoteInputControllerOptions {
   busy: BusyAction;
   controlChannelState: RTCDataChannelState;
   textChannelState: RTCDataChannelState;
+  targetPlatform?: number;
   run(action: BusyAction, task: () => Promise<void>): Promise<void>;
   onError(message: string): void;
   onSessionStateChange(state: BrowserRemoteSessionState): void;
@@ -33,6 +35,7 @@ export function useRemoteInputController({
   busy,
   controlChannelState,
   textChannelState,
+  targetPlatform,
   run,
   onError,
   onSessionStateChange,
@@ -45,6 +48,7 @@ export function useRemoteInputController({
   const remoteStageRef = useRef<HTMLDivElement | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
   const controlChannelOpenedRef = useRef(false);
+  const scrollDeltaAccumulatorRef = useRef(new RemoteScrollDeltaAccumulator());
 
   const inputControlActive = inputControlEnabled && controlChannelState === "open";
   const canReadLocalClipboard = busy === null;
@@ -55,7 +59,12 @@ export function useRemoteInputController({
     if (controlChannelState !== "open" && inputControlEnabled) {
       setInputControlEnabled(false);
     }
+    if (controlChannelState !== "open") scrollDeltaAccumulatorRef.current.reset();
   }, [controlChannelState, inputControlEnabled]);
+
+  useEffect(() => {
+    scrollDeltaAccumulatorRef.current.reset();
+  }, [targetPlatform]);
 
   useEffect(() => {
     if (controlChannelState !== "open") {
@@ -91,6 +100,7 @@ export function useRemoteInputController({
 
   function resetInputControl(): void {
     activePointerIdRef.current = null;
+    scrollDeltaAccumulatorRef.current.reset();
     setInputControlEnabled(false);
   }
 
@@ -165,7 +175,7 @@ export function useRemoteInputController({
 
   function handleToggleInputControl(): void {
     if (inputControlActive) {
-      setInputControlEnabled(false);
+      resetInputControl();
       return;
     }
     enableInputControl();
@@ -231,8 +241,17 @@ export function useRemoteInputController({
     const session = browserSessionRef.current;
     if (!inputControlActive || !session) return;
     event.preventDefault();
+    const desktopTarget = isDesktopRemoteScrollTarget(targetPlatform);
+    const delta = scrollDeltaAccumulatorRef.current.push({
+      deltaX: event.deltaX,
+      deltaY: event.deltaY,
+      deltaMode: event.deltaMode,
+      pageHeight: event.currentTarget.clientHeight,
+      desktopTarget,
+    });
+    if (!delta) return;
     try {
-      session.sendMouseScroll({ deltaX: event.deltaX, deltaY: event.deltaY });
+      session.sendMouseScroll(delta);
     } catch (caught) {
       onError(errorMessage(caught));
     }
@@ -269,6 +288,7 @@ export function useRemoteInputController({
 
   function handleRemoteStageBlur(): void {
     activePointerIdRef.current = null;
+    scrollDeltaAccumulatorRef.current.reset();
     browserSessionRef.current?.releaseAllInputs();
   }
 

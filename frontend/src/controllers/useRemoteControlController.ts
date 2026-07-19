@@ -278,6 +278,7 @@ export function useRemoteControlController() {
     busy,
     controlChannelState,
     textChannelState,
+    targetPlatform: resolveTargetPlatform(),
     run,
     onError: setError,
     onSessionStateChange: setBrowserRemoteState,

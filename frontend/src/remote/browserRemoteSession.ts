@@ -56,6 +56,7 @@ import type {
   RemoteSignalSoacRequest,
   RemoteSignalSoacResult,
 } from "@uurc/shared/types";
+import { applyOpusReceiverPreferencesToSdp } from "./remoteSdp.js";
 
 export interface BrowserRemoteSessionApi {
   sendSignalControl(input: RemoteSignalControlRequest): Promise<RemoteSignalControlResult>;
@@ -1107,14 +1108,18 @@ export class BrowserRemoteSession {
     this.assertLifecycleGeneration(lifecycleGeneration);
     const offer = await peer.createOffer(options);
     this.assertLifecycleGeneration(lifecycleGeneration);
-    await peer.setLocalDescription(offer);
+    const preferredOffer = {
+      ...offer,
+      sdp: applyOpusReceiverPreferencesToSdp(offer.sdp),
+    };
+    await peer.setLocalDescription(preferredOffer);
     this.assertLifecycleGeneration(lifecycleGeneration);
     await this.options.api.sendSignalSoac({
       type,
       clientId: this.clientId,
       iceId: this.iceId,
       appControlId: this.appControlId,
-      sdp: offer.sdp,
+      sdp: peer.localDescription?.sdp ?? preferredOffer.sdp,
       gzipSdp: this.gzipSdp,
       iceNetworkType: this.iceNetworkType,
     });

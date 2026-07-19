@@ -133,6 +133,35 @@ describe("BrowserRemoteSession", () => {
     expect(api.soacCalls.at(-1)).not.toHaveProperty("iceNetworkType");
   });
 
+  it("negotiates high-quality stereo Opus and signals the browser-normalized local offer", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    peer.offerSdp =
+      [
+        "v=0",
+        "m=video 9 UDP/TLS/RTP/SAVPF 111",
+        "a=rtpmap:111 H264/90000",
+        "a=fmtp:111 profile-level-id=42e01f",
+        "m=audio 9 UDP/TLS/RTP/SAVPF 109",
+        "a=rtpmap:109 opus/48000/2",
+        "a=fmtp:109 minptime=10;useinbandfec=1",
+      ].join("\r\n") + "\r\n";
+    peer.localDescriptionSdpSuffix = "a=x-browser-normalized:1\r\n";
+    const session = new BrowserRemoteSession({
+      api,
+      createPeerConnection: () => peer,
+    });
+
+    await session.start({ appControlId: "control-1", appDataBase64: "Cg==", streamerData: "{}" });
+
+    expect(peer.localDescription?.sdp).toContain(
+      "a=fmtp:109 minptime=10;stereo=1;useinbandfec=1;maxplaybackrate=48000;maxaveragebitrate=128000\r\n",
+    );
+    expect(peer.localDescription?.sdp).toContain("a=fmtp:111 profile-level-id=42e01f\r\n");
+    expect(api.soacCalls[0].sdp).toBe(peer.localDescription?.sdp);
+    expect(api.soacCalls[0].sdp).toMatch(/a=x-browser-normalized:1\r\n$/);
+  });
+
   it("keeps a closed session idle when signal control resolves after close", async () => {
     const controlGate = deferred<void>();
     const api = new FakeRemoteApi();
@@ -658,6 +687,12 @@ describe("BrowserRemoteSession", () => {
       appDataBase64: "Cg==",
       streamerData: "{}",
     });
+    peer.offerSdp = [
+      "v=0",
+      "m=audio 9 UDP/TLS/RTP/SAVPF 107",
+      "a=rtpmap:107 opus/48000/2",
+      "a=fmtp:107 minptime=10;useinbandfec=1",
+    ].join("\r\n");
 
     const events = [
       {
@@ -679,7 +714,12 @@ describe("BrowserRemoteSession", () => {
       clientId: "controlled-1",
       iceId: "ice-1",
       appControlId: "control-1",
-      sdp: "v=0 browser restart offer",
+      sdp: [
+        "v=0",
+        "m=audio 9 UDP/TLS/RTP/SAVPF 107",
+        "a=rtpmap:107 opus/48000/2",
+        "a=fmtp:107 minptime=10;stereo=1;useinbandfec=1;maxplaybackrate=48000;maxaveragebitrate=128000",
+      ].join("\r\n"),
       gzipSdp: true,
       iceNetworkType: STREAMER_ICE_NETWORK_TYPES.appAuto,
     });
@@ -2899,6 +2939,8 @@ class FakePeerConnection {
   readonly candidates: RTCIceCandidateInit[] = [];
   readonly createOfferCalls: Array<RTCOfferOptions | undefined> = [];
   createOfferPromise: Promise<RTCSessionDescriptionInit> | undefined;
+  offerSdp: string | undefined;
+  localDescriptionSdpSuffix: string | undefined;
   setRemoteDescriptionPromise: Promise<void> | undefined;
   setRemoteDescriptionShouldThrow = false;
   closed = false;
@@ -2932,7 +2974,7 @@ class FakePeerConnection {
     if (this.createOfferPromise) return this.createOfferPromise;
     return {
       type: "offer",
-      sdp: options?.iceRestart ? "v=0 browser restart offer" : "v=0 browser offer",
+      sdp: this.offerSdp ?? (options?.iceRestart ? "v=0 browser restart offer" : "v=0 browser offer"),
     };
   }
 
@@ -2941,7 +2983,10 @@ class FakePeerConnection {
   }
 
   async setLocalDescription(description: RTCSessionDescriptionInit): Promise<void> {
-    this.localDescription = description;
+    this.localDescription =
+      description.sdp && this.localDescriptionSdpSuffix
+        ? { ...description, sdp: `${description.sdp}${this.localDescriptionSdpSuffix}` }
+        : description;
     if (description.type === "offer") {
       this.signalingState = "have-local-offer";
     } else if (description.type === "answer") {

@@ -70,7 +70,7 @@ export function useRemoteInputController({
   const canReadLocalClipboard = busy === null;
   const canSendClipboardText = inputControlActive && textChannelState === "open" && clipboardText.trim().length > 0;
   const clipboardPreviewLabel = clipboardText.trim() ? `${clipboardText.length} 字符待发送` : "剪贴板内容未读取";
-  const { geometryRef, refreshGeometry } = useRemoteMediaGeometry({
+  const { geometryRef, refreshGeometry, subscribeGeometryChange } = useRemoteMediaGeometry({
     stageRef: remoteStageRef,
     viewMode: remoteStageViewMode,
     primaryVideoId: primaryRemoteVideoId,
@@ -78,6 +78,7 @@ export function useRemoteInputController({
   const { handleRemoteCursorShape, resetRemoteCursor } = useRemoteCursorController({
     stageRef: remoteStageRef,
     geometryRef,
+    subscribeGeometryChange,
     active: inputControlActive,
     primaryVideoId: primaryRemoteVideoId,
   });
@@ -221,8 +222,14 @@ export function useRemoteInputController({
     event.currentTarget.focus();
     activePointerIdRef.current = event.pointerId;
     event.currentTarget.setPointerCapture?.(event.pointerId);
+    if (!flushPointerPosition(pointerPositionFromEvent(event))) {
+      activePointerIdRef.current = null;
+      if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+        event.currentTarget.releasePointerCapture?.(event.pointerId);
+      }
+      return;
+    }
     try {
-      flushPointerPosition(pointerPositionFromEvent(event));
       session.sendMouseButton({ action: "mousePress", button: toRemoteMouseButton(event.button) });
     } catch (caught) {
       onError(errorMessage(caught));
@@ -253,8 +260,8 @@ export function useRemoteInputController({
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture?.(event.pointerId);
     }
+    flushPointerPosition(pointerPositionFromEvent(event));
     try {
-      flushPointerPosition(pointerPositionFromEvent(event));
       session.sendMouseButton({ action: "mouseRelease", button: toRemoteMouseButton(event.button) });
     } catch (caught) {
       onError(errorMessage(caught));
@@ -266,8 +273,8 @@ export function useRemoteInputController({
     activePointerIdRef.current = null;
     const session = browserSessionRef.current;
     if (!inputControlActive || !session) return;
+    flushPointerPosition(pointerPositionFromEvent(event));
     try {
-      flushPointerPosition(pointerPositionFromEvent(event));
       session.sendMouseButton({ action: "mouseRelease", button: toRemoteMouseButton(event.button) });
     } catch (caught) {
       onError(errorMessage(caught));
@@ -287,8 +294,8 @@ export function useRemoteInputController({
       desktopTarget,
     });
     if (!delta) return;
+    if (!flushPointerPosition(pointerPositionFromEvent(event))) return;
     try {
-      flushPointerPosition(pointerPositionFromEvent(event));
       session.sendMouseScroll(delta);
     } catch (caught) {
       onError(errorMessage(caught));
@@ -344,16 +351,16 @@ export function useRemoteInputController({
     }
   }
 
-  function flushPointerPosition(position: LocalPointerPosition): void {
+  function flushPointerPosition(position: LocalPointerPosition): boolean {
     cancelPendingPointerMove();
-    sendPointerPosition(position, true, true);
+    return sendPointerPosition(position, true, true);
   }
 
-  function sendPointerPosition(position: LocalPointerPosition, critical: boolean, refresh: boolean): void {
+  function sendPointerPosition(position: LocalPointerPosition, critical: boolean, refresh: boolean): boolean {
     const session = browserSessionRef.current;
-    if (!inputControlActive || !session) return;
+    if (!inputControlActive || !session) return false;
     const geometry = refresh ? refreshGeometry() : (geometryRef.current ?? refreshGeometry());
-    if (!geometry) return;
+    if (!geometry) return false;
     const normalized = clientPointToRemoteMedia(geometry, { x: position.clientX, y: position.clientY });
     try {
       session.sendMouseMove(
@@ -365,8 +372,10 @@ export function useRemoteInputController({
         },
         { critical },
       );
+      return true;
     } catch (caught) {
       onError(errorMessage(caught));
+      return false;
     }
   }
 

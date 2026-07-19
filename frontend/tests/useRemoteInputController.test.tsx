@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { useEffect } from "react";
-import { act, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BrowserRemoteSession } from "../src/remote/browserRemoteSession.js";
@@ -24,6 +24,7 @@ describe("useRemoteInputController pointer scheduling", () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.restoreAllMocks();
   });
 
@@ -84,6 +85,41 @@ describe("useRemoteInputController pointer scheduling", () => {
     expect(calls).toHaveLength(3);
   });
 
+  it("does not send a press when its critical position cannot be sent", async () => {
+    const onError = vi.fn();
+    const session = {
+      sendMouseMove: vi.fn(() => {
+        throw new Error("control channel is congested");
+      }),
+      sendMouseButton: vi.fn(),
+      releaseAllInputs: vi.fn(),
+    } as unknown as BrowserRemoteSession;
+    let controller: ReturnType<typeof useRemoteInputController> | undefined;
+
+    const view = render(
+      <Harness
+        session={session}
+        onError={onError}
+        onController={(nextController) => {
+          controller = nextController;
+        }}
+      />,
+    );
+    await waitFor(() => expect(controller?.inputControlActive).toBe(true));
+    const stage = view.getByTestId("stage") as HTMLDivElement;
+    stage.getBoundingClientRect = () => new DOMRect(0, 0, 1000, 500);
+    const video = stage.querySelector("video")!;
+    Object.defineProperty(video, "videoWidth", { value: 1000, configurable: true });
+    Object.defineProperty(video, "videoHeight", { value: 500, configurable: true });
+    flushFrames();
+
+    act(() => controller?.handleRemoteStagePointerDown(pointerEvent(stage, 200, 210)));
+
+    expect(session.sendMouseMove).toHaveBeenCalledOnce();
+    expect(session.sendMouseButton).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith("control channel is congested");
+  });
+
   function flushFrames(): void {
     const callbacks = [...frameCallbacks.values()];
     frameCallbacks.clear();
@@ -93,9 +129,13 @@ describe("useRemoteInputController pointer scheduling", () => {
 
 function Harness({
   session,
+  onError = (message) => {
+    throw new Error(message);
+  },
   onController,
 }: {
   session: BrowserRemoteSession;
+  onError?: (message: string) => void;
   onController(controller: ReturnType<typeof useRemoteInputController>): void;
 }) {
   const browserSessionRef = { current: session };
@@ -108,9 +148,7 @@ function Harness({
     primaryRemoteVideoId: "video-1",
     remoteStageViewMode: "fit",
     run: async (_action, task) => task(),
-    onError: (message) => {
-      throw new Error(message);
-    },
+    onError,
     onSessionStateChange: () => undefined,
     showToast: () => undefined,
   });

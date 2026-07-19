@@ -35,7 +35,8 @@ export interface RemoteCursorPresentation {
   renderHeight: number;
   hotspotX: number;
   hotspotY: number;
-  forceOverlay: boolean;
+  imageDensity: number;
+  requiresImageResize: boolean;
   screenId?: number;
 }
 
@@ -50,7 +51,8 @@ export function createDefaultRemoteCursorPresentation(): RemoteCursorPresentatio
     renderHeight: DEFAULT_CURSOR_SIZE.height,
     hotspotX: DEFAULT_CURSOR_SIZE.hotspotX,
     hotspotY: DEFAULT_CURSOR_SIZE.hotspotY,
-    forceOverlay: false,
+    imageDensity: 1,
+    requiresImageResize: false,
   };
 }
 
@@ -66,7 +68,8 @@ export function createRemoteCursorPresentation(shape: DecodedStreamerCursorShape
       renderHeight: 1,
       hotspotX: 0,
       hotspotY: 0,
-      forceOverlay: false,
+      imageDensity: 1,
+      requiresImageResize: false,
       screenId: safeInt32(shape.screenId),
     };
   }
@@ -83,22 +86,23 @@ export function createRemoteCursorPresentation(shape: DecodedStreamerCursorShape
       hidden: false,
       kind,
       cssFallback: fallback,
-      forceOverlay: false,
+      imageDensity: 1,
+      requiresImageResize: false,
       screenId: safeInt32(shape.screenId),
     };
   }
 
-  const coordinateXScale = validCoordinateScale(shape.coordinateXScale) ?? 1;
-  const coordinateYScale = validCoordinateScale(shape.coordinateYScale) ?? 1;
-  const requestedWidth = logicalWidth / coordinateXScale;
-  const requestedHeight = logicalHeight / coordinateYScale;
+  // Cursor bitmaps may be Retina assets while width/height describe their logical bounds.
+  // A single density keeps the source aspect ratio intact even when protocol axis scales differ.
   const renderScale = Math.min(
     1,
-    REMOTE_CURSOR_IMAGE_LIMITS.maxRenderedDimension / requestedWidth,
-    REMOTE_CURSOR_IMAGE_LIMITS.maxRenderedDimension / requestedHeight,
+    logicalWidth / image.width,
+    logicalHeight / image.height,
+    REMOTE_CURSOR_IMAGE_LIMITS.maxRenderedDimension / image.width,
+    REMOTE_CURSOR_IMAGE_LIMITS.maxRenderedDimension / image.height,
   );
-  const renderWidth = Math.max(1, Math.round(requestedWidth * renderScale));
-  const renderHeight = Math.max(1, Math.round(requestedHeight * renderScale));
+  const renderWidth = Math.max(1, Math.round(image.width * renderScale));
+  const renderHeight = Math.max(1, Math.round(image.height * renderScale));
   const sourceHotspotX = clamp(safeInt32(shape.posX) ?? 0, 0, Math.max(0, logicalWidth - 1));
   const sourceHotspotY = clamp(safeInt32(shape.posY) ?? 0, 0, Math.max(0, logicalHeight - 1));
 
@@ -113,11 +117,8 @@ export function createRemoteCursorPresentation(shape: DecodedStreamerCursorShape
     renderHeight,
     hotspotX: clamp(Math.round((sourceHotspotX / logicalWidth) * renderWidth), 0, renderWidth - 1),
     hotspotY: clamp(Math.round((sourceHotspotY / logicalHeight) * renderHeight), 0, renderHeight - 1),
-    forceOverlay:
-      image.width > REMOTE_CURSOR_IMAGE_LIMITS.maxRenderedDimension ||
-      image.height > REMOTE_CURSOR_IMAGE_LIMITS.maxRenderedDimension ||
-      requestedWidth > REMOTE_CURSOR_IMAGE_LIMITS.maxRenderedDimension ||
-      requestedHeight > REMOTE_CURSOR_IMAGE_LIMITS.maxRenderedDimension,
+    imageDensity: 1 / renderScale,
+    requiresImageResize: image.width !== renderWidth || image.height !== renderHeight,
     screenId: safeInt32(shape.screenId),
   };
 }
@@ -165,7 +166,8 @@ function cursorFallbackMetrics(kind: RemoteCursorKind): {
   hotspotY: number;
 } {
   if (kind === "text") return { renderWidth: 18, renderHeight: 24, hotspotX: 9, hotspotY: 12 };
-  if (kind === "crosshair") return { renderWidth: 22, renderHeight: 22, hotspotX: 11, hotspotY: 11 };
+  if (kind === "pointer") return { renderWidth: 22, renderHeight: 24, hotspotX: 7, hotspotY: 2 };
+  if (kind !== "default") return { renderWidth: 22, renderHeight: 22, hotspotX: 11, hotspotY: 11 };
   return {
     renderWidth: DEFAULT_CURSOR_SIZE.width,
     renderHeight: DEFAULT_CURSOR_SIZE.height,
@@ -209,10 +211,6 @@ function safeInt32(value: number | undefined): number | undefined {
   return value !== undefined && Number.isSafeInteger(value) && value >= -0x80000000 && value <= 0x7fffffff
     ? value
     : undefined;
-}
-
-function validCoordinateScale(value: number | undefined): number | undefined {
-  return value !== undefined && Number.isFinite(value) && value >= 0.25 && value <= 8 ? value : undefined;
 }
 
 function clamp(value: number, min: number, max: number): number {

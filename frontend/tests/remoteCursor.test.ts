@@ -47,10 +47,49 @@ describe("remote cursor presentation", () => {
       renderHeight: 64,
       hotspotX: 32,
       hotspotY: 16,
-      forceOverlay: true,
+      imageDensity: 2,
+      requiresImageResize: true,
     });
     expect(cursor.imageBytes).toEqual(bytes);
     expect(cursor.imageBytes).not.toBe(bytes);
+  });
+
+  it("keeps the PNG aspect ratio and ignores asymmetric coordinate scales", () => {
+    const cursor = createRemoteCursorPresentation({
+      width: 30,
+      height: 20,
+      posX: 15,
+      posY: 10,
+      byteValue: pngHeader(48, 24),
+      coordinateXScale: 2,
+      coordinateYScale: 3,
+    });
+
+    expect(cursor).toMatchObject({
+      imageWidth: 48,
+      imageHeight: 24,
+      renderWidth: 30,
+      renderHeight: 15,
+      hotspotX: 15,
+      hotspotY: 8,
+      imageDensity: 1.6,
+      requiresImageResize: true,
+    });
+  });
+
+  it("does not enlarge a cursor PNG when reported bounds are larger", () => {
+    expect(
+      createRemoteCursorPresentation({
+        width: 96,
+        height: 96,
+        byteValue: pngHeader(48, 24),
+      }),
+    ).toMatchObject({
+      renderWidth: 48,
+      renderHeight: 24,
+      imageDensity: 1,
+      requiresImageResize: false,
+    });
   });
 
   it("clamps invalid hotspots and ignores non-PNG or oversized image data", () => {

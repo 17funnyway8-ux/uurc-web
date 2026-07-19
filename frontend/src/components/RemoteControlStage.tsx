@@ -1,4 +1,18 @@
-import { Monitor } from "lucide-react";
+import {
+  Ban,
+  CircleHelp,
+  Crosshair,
+  Hand,
+  LoaderCircle,
+  Monitor,
+  MousePointer2,
+  Move,
+  MoveDiagonal,
+  MoveDiagonal2,
+  MoveHorizontal,
+  MoveVertical,
+  TextCursor,
+} from "lucide-react";
 
 import type { RemoteControlStageProps } from "../app/remoteControlPageProps.js";
 import { RemoteVideoTile } from "./RemoteVideoTile.js";
@@ -74,7 +88,7 @@ export function RemoteControlStage({
           <div className="stage-badge">
             {browserStageLabel} · {remoteVideoCount} 路视频 · {videoFlowLabel} · 输入 {inputControlLabel}
           </div>
-          <div className="remote-cursor-overlay" data-remote-cursor-overlay data-visible="false" aria-hidden="true" />
+          <RemoteCursorOverlay />
         </>
       ) : (
         <>
@@ -86,6 +100,29 @@ export function RemoteControlStage({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function RemoteCursorOverlay() {
+  return (
+    <div className="remote-cursor-overlay" data-remote-cursor-overlay data-visible="false" aria-hidden="true">
+      <MousePointer2 data-remote-cursor-glyph="default" />
+      <Hand data-remote-cursor-glyph="pointer" />
+      <TextCursor data-remote-cursor-glyph="text" />
+      <Crosshair data-remote-cursor-glyph="crosshair" />
+      <LoaderCircle data-remote-cursor-glyph="wait" />
+      <span className="remote-cursor-progress-glyph" data-remote-cursor-glyph="progress">
+        <MousePointer2 />
+        <LoaderCircle />
+      </span>
+      <Move data-remote-cursor-glyph="move" />
+      <MoveDiagonal2 data-remote-cursor-glyph="nwse-resize" />
+      <MoveDiagonal data-remote-cursor-glyph="nesw-resize" />
+      <MoveHorizontal data-remote-cursor-glyph="ew-resize" />
+      <MoveVertical data-remote-cursor-glyph="ns-resize" />
+      <Ban data-remote-cursor-glyph="not-allowed" />
+      <CircleHelp data-remote-cursor-glyph="help" />
     </div>
   );
 }

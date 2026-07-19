@@ -700,6 +700,13 @@ export const STREAMER_CURSOR_SHAPE_WIRE_FIELDS = {
   screenIdTag: 9,
 } as const;
 
+export const STREAMER_CONTROL_DECODE_LIMITS = {
+  maxMessageBytes: 2 * 1024 * 1024,
+  maxFieldsPerMessage: 128,
+  maxLengthDelimitedBytes: 1024 * 1024,
+  maxCursorImageBytes: 512 * 1024,
+} as const;
+
 export const STREAMER_SIMPLE_ACTION_TYPES = {
   ACTION_TYPE_ECHO_REQUEST: 0,
   ACTION_TYPE_ECHO_RESPONSE: 1,
@@ -1158,10 +1165,14 @@ function encodeStreamerSimpleActionMessage(input: {
   return new Uint8Array(envelopeBytes);
 }
 
-export function decodeStreamerControlMessage(data: ArrayBuffer | ArrayBufferView): DecodedStreamerControlMessage {
+export function decodeStreamerControlMessage(
+  data: ArrayBuffer | ArrayBufferView,
+): DecodedStreamerControlMessage | undefined {
   const bytes =
     data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  if (bytes.byteLength > STREAMER_CONTROL_DECODE_LIMITS.maxMessageBytes) return undefined;
   const fields = readProtobufFields(bytes);
+  if (!fields) return undefined;
   const decoded: DecodedStreamerControlMessage = {
     byteLength: bytes.byteLength,
     topLevelTags: fields.map((field) => field.tag),
@@ -1170,20 +1181,30 @@ export function decodeStreamerControlMessage(data: ArrayBuffer | ArrayBufferView
   for (const field of fields) {
     if (field.tag === 1 && field.varint !== undefined) decoded.sequence = safeNumber(field.varint);
     if (field.tag === 2 && field.varint !== undefined) decoded.timestampMs = safeNumber(field.varint);
-    if (field.tag === STREAMER_SIMPLE_ACTION_WIRE_FIELDS.envelopeTag && field.bytes) {
-      decoded.simpleAction = decodeStreamerSimpleAction(field.bytes);
+    if (field.tag === STREAMER_SIMPLE_ACTION_WIRE_FIELDS.envelopeTag) {
+      const value = protobufLengthDelimitedFieldBytes(bytes, field);
+      const simpleAction = value ? decodeStreamerSimpleAction(value) : undefined;
+      if (simpleAction) decoded.simpleAction = simpleAction;
     }
-    if (field.tag === 8 && field.bytes) {
-      decoded.captureChange = decodeStreamerCaptureChange(field.bytes);
+    if (field.tag === 8) {
+      const value = protobufLengthDelimitedFieldBytes(bytes, field);
+      const captureChange = value ? decodeStreamerCaptureChange(value) : undefined;
+      if (captureChange) decoded.captureChange = captureChange;
     }
-    if (field.tag === STREAMER_ROM_MESSAGE_WIRE_FIELDS.envelopeTag && field.bytes) {
-      decoded.romMessage = decodeStreamerRomMessage(field.bytes);
+    if (field.tag === STREAMER_ROM_MESSAGE_WIRE_FIELDS.envelopeTag) {
+      const value = protobufLengthDelimitedFieldBytes(bytes, field);
+      const romMessage = value ? decodeStreamerRomMessage(value) : undefined;
+      if (romMessage) decoded.romMessage = romMessage;
     }
-    if (field.tag === STREAMER_SEND_TO_ROM_WIRE_FIELDS.envelopeTag && field.bytes) {
-      decoded.sendToRom = decodeStreamerSendToRom(field.bytes);
+    if (field.tag === STREAMER_SEND_TO_ROM_WIRE_FIELDS.envelopeTag) {
+      const value = protobufLengthDelimitedFieldBytes(bytes, field);
+      const sendToRom = value ? decodeStreamerSendToRom(value) : undefined;
+      if (sendToRom) decoded.sendToRom = sendToRom;
     }
-    if (field.tag === STREAMER_SYSTEM_STATE_CHANGE_WIRE_FIELDS.envelopeTag && field.bytes) {
-      decoded.systemStateChange = decodeStreamerSystemStateChange(field.bytes);
+    if (field.tag === STREAMER_SYSTEM_STATE_CHANGE_WIRE_FIELDS.envelopeTag) {
+      const value = protobufLengthDelimitedFieldBytes(bytes, field);
+      const systemStateChange = value ? decodeStreamerSystemStateChange(value) : undefined;
+      if (systemStateChange) decoded.systemStateChange = systemStateChange;
     }
   }
 
@@ -1217,15 +1238,16 @@ interface ProtobufField {
   tag: number;
   wireType: number;
   varint?: bigint;
-  bytes?: Uint8Array;
-  fixed64?: Uint8Array;
+  dataOffset?: number;
+  byteLength?: number;
 }
 
-function readProtobufFields(bytes: Uint8Array): ProtobufField[] {
+function readProtobufFields(bytes: Uint8Array): ProtobufField[] | undefined {
   const fields: ProtobufField[] = [];
   let offset = 0;
 
   while (offset < bytes.byteLength) {
+    if (fields.length >= STREAMER_CONTROL_DECODE_LIMITS.maxFieldsPerMessage) return undefined;
     const key = readProtobufVarint(bytes, offset);
     if (!key) break;
     offset = key.nextOffset;
@@ -1244,7 +1266,7 @@ function readProtobufFields(bytes: Uint8Array): ProtobufField[] {
     if (wireType === protobufWireType.fixed64) {
       const nextOffset = offset + 8;
       if (nextOffset > bytes.byteLength) break;
-      fields.push({ tag, wireType, fixed64: bytes.slice(offset, nextOffset) });
+      fields.push({ tag, wireType, dataOffset: offset, byteLength: 8 });
       offset = nextOffset;
       continue;
     }
@@ -1255,7 +1277,8 @@ function readProtobufFields(bytes: Uint8Array): ProtobufField[] {
       offset = length.nextOffset;
       const byteLength = Number(length.value);
       if (!Number.isSafeInteger(byteLength) || byteLength < 0 || byteLength > bytes.byteLength - offset) break;
-      fields.push({ tag, wireType, bytes: bytes.slice(offset, offset + byteLength) });
+      if (byteLength > STREAMER_CONTROL_DECODE_LIMITS.maxLengthDelimitedBytes) return undefined;
+      fields.push({ tag, wireType, dataOffset: offset, byteLength });
       offset += byteLength;
       continue;
     }
@@ -1274,6 +1297,18 @@ function readProtobufFields(bytes: Uint8Array): ProtobufField[] {
   return fields;
 }
 
+function protobufLengthDelimitedFieldBytes(bytes: Uint8Array, field: ProtobufField): Uint8Array | undefined {
+  if (field.wireType !== protobufWireType.lengthDelimited) return undefined;
+  if (field.dataOffset === undefined || field.byteLength === undefined) return undefined;
+  return bytes.subarray(field.dataOffset, field.dataOffset + field.byteLength);
+}
+
+function protobufFixed64FieldBytes(bytes: Uint8Array, field: ProtobufField): Uint8Array | undefined {
+  if (field.wireType !== protobufWireType.fixed64 || field.byteLength !== 8) return undefined;
+  if (field.dataOffset === undefined || field.byteLength === undefined) return undefined;
+  return bytes.subarray(field.dataOffset, field.dataOffset + field.byteLength);
+}
+
 function readProtobufVarint(bytes: Uint8Array, startOffset: number): { value: bigint; nextOffset: number } | undefined {
   let value = 0n;
   let offset = startOffset;
@@ -1289,8 +1324,9 @@ function readProtobufVarint(bytes: Uint8Array, startOffset: number): { value: bi
   return undefined;
 }
 
-function decodeStreamerSimpleAction(bytes: Uint8Array): DecodedStreamerSimpleAction {
+function decodeStreamerSimpleAction(bytes: Uint8Array): DecodedStreamerSimpleAction | undefined {
   const fields = readProtobufFields(bytes);
+  if (!fields) return undefined;
   let action: number = STREAMER_SIMPLE_ACTION_TYPES.ACTION_TYPE_ECHO_REQUEST;
   let args: string | undefined;
   let featureFlags: StreamerSimpleActionFeatureFlagsInput | undefined;
@@ -1299,11 +1335,13 @@ function decodeStreamerSimpleAction(bytes: Uint8Array): DecodedStreamerSimpleAct
     if (field.tag === STREAMER_SIMPLE_ACTION_WIRE_FIELDS.actionTag && field.varint !== undefined) {
       action = safeNumber(field.varint) ?? action;
     }
-    if (field.tag === STREAMER_SIMPLE_ACTION_WIRE_FIELDS.argsTag && field.bytes) {
-      args = textDecoder.decode(field.bytes);
+    if (field.tag === STREAMER_SIMPLE_ACTION_WIRE_FIELDS.argsTag) {
+      const value = protobufLengthDelimitedFieldBytes(bytes, field);
+      if (value) args = textDecoder.decode(value);
     }
-    if (field.tag === STREAMER_SIMPLE_ACTION_WIRE_FIELDS.featureFlagTag && field.bytes) {
-      featureFlags = decodeStreamerSimpleActionFeatureFlags(field.bytes);
+    if (field.tag === STREAMER_SIMPLE_ACTION_WIRE_FIELDS.featureFlagTag) {
+      const value = protobufLengthDelimitedFieldBytes(bytes, field);
+      if (value) featureFlags = decodeStreamerSimpleActionFeatureFlags(value);
     }
   }
 
@@ -1316,9 +1354,10 @@ function decodeStreamerSimpleAction(bytes: Uint8Array): DecodedStreamerSimpleAct
   };
 }
 
-function decodeStreamerSimpleActionFeatureFlags(bytes: Uint8Array): StreamerSimpleActionFeatureFlagsInput {
+function decodeStreamerSimpleActionFeatureFlags(bytes: Uint8Array): StreamerSimpleActionFeatureFlagsInput | undefined {
   const featureFlags: StreamerSimpleActionFeatureFlagsInput = {};
   const fields = readProtobufFields(bytes);
+  if (!fields) return undefined;
   for (const field of fields) {
     if (field.varint === undefined) continue;
     const definition = STREAMER_SIMPLE_ACTION_FEATURE_FLAG_FIELDS.find((item) => item.tag === field.tag);
@@ -1329,8 +1368,9 @@ function decodeStreamerSimpleActionFeatureFlags(bytes: Uint8Array): StreamerSimp
   return featureFlags;
 }
 
-function decodeStreamerCaptureChange(bytes: Uint8Array): DecodedStreamerCaptureChange {
+function decodeStreamerCaptureChange(bytes: Uint8Array): DecodedStreamerCaptureChange | undefined {
   const fields = readProtobufFields(bytes);
+  if (!fields) return undefined;
   let captureType: number = STREAMER_CAPTURE_CHANGE_TYPES.CT_DESKTOP;
   let captureId: number | undefined;
   let desc: string | undefined;
@@ -1338,7 +1378,10 @@ function decodeStreamerCaptureChange(bytes: Uint8Array): DecodedStreamerCaptureC
   for (const field of fields) {
     if (field.tag === 1 && field.varint !== undefined) captureType = safeNumber(field.varint) ?? captureType;
     if (field.tag === 2 && field.varint !== undefined) captureId = safeNumber(field.varint);
-    if (field.tag === 3 && field.bytes) desc = textDecoder.decode(field.bytes);
+    if (field.tag === 3) {
+      const value = protobufLengthDelimitedFieldBytes(bytes, field);
+      if (value) desc = textDecoder.decode(value);
+    }
   }
 
   return {
@@ -1349,22 +1392,26 @@ function decodeStreamerCaptureChange(bytes: Uint8Array): DecodedStreamerCaptureC
   };
 }
 
-function decodeStreamerSystemStateChange(bytes: Uint8Array): DecodedStreamerSystemStateChange {
+function decodeStreamerSystemStateChange(bytes: Uint8Array): DecodedStreamerSystemStateChange | undefined {
   const decoded: DecodedStreamerSystemStateChange = {};
   const fields = readProtobufFields(bytes);
+  if (!fields) return undefined;
 
   for (const field of fields) {
-    if (field.tag === STREAMER_SYSTEM_STATE_CHANGE_WIRE_FIELDS.cursorShapeTag && field.bytes) {
-      decoded.cursorShape = decodeStreamerCursorShape(field.bytes);
+    if (field.tag === STREAMER_SYSTEM_STATE_CHANGE_WIRE_FIELDS.cursorShapeTag) {
+      const value = protobufLengthDelimitedFieldBytes(bytes, field);
+      const cursorShape = value ? decodeStreamerCursorShape(value) : undefined;
+      if (cursorShape) decoded.cursorShape = cursorShape;
     }
   }
 
   return decoded;
 }
 
-function decodeStreamerCursorShape(bytes: Uint8Array): DecodedStreamerCursorShape {
+function decodeStreamerCursorShape(bytes: Uint8Array): DecodedStreamerCursorShape | undefined {
   const decoded: DecodedStreamerCursorShape = {};
   const fields = readProtobufFields(bytes);
+  if (!fields) return undefined;
 
   for (const field of fields) {
     if (field.varint !== undefined) {
@@ -1377,15 +1424,22 @@ function decodeStreamerCursorShape(bytes: Uint8Array): DecodedStreamerCursorShap
       if (field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.cursorTypeTag) decoded.cursorType = value;
       if (field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.screenIdTag) decoded.screenId = value;
     }
-    if (field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.byteValueTag && field.bytes) {
-      decoded.byteValue = field.bytes;
+    if (
+      field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.byteValueTag &&
+      field.byteLength !== undefined &&
+      field.byteLength <= STREAMER_CONTROL_DECODE_LIMITS.maxCursorImageBytes
+    ) {
+      const value = protobufLengthDelimitedFieldBytes(bytes, field);
+      if (value) decoded.byteValue = value.slice();
     }
-    if (field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.coordinateXScaleTag && field.fixed64) {
-      const value = readProtobufDouble(field.fixed64);
+    if (field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.coordinateXScaleTag) {
+      const encoded = protobufFixed64FieldBytes(bytes, field);
+      const value = encoded ? readProtobufDouble(encoded) : Number.NaN;
       if (Number.isFinite(value)) decoded.coordinateXScale = value;
     }
-    if (field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.coordinateYScaleTag && field.fixed64) {
-      const value = readProtobufDouble(field.fixed64);
+    if (field.tag === STREAMER_CURSOR_SHAPE_WIRE_FIELDS.coordinateYScaleTag) {
+      const encoded = protobufFixed64FieldBytes(bytes, field);
+      const value = encoded ? readProtobufDouble(encoded) : Number.NaN;
       if (Number.isFinite(value)) decoded.coordinateYScale = value;
     }
   }
@@ -1393,8 +1447,9 @@ function decodeStreamerCursorShape(bytes: Uint8Array): DecodedStreamerCursorShap
   return decoded;
 }
 
-function decodeStreamerSendToRom(bytes: Uint8Array): DecodedStreamerSendToRom {
+function decodeStreamerSendToRom(bytes: Uint8Array): DecodedStreamerSendToRom | undefined {
   const fields = readProtobufFields(bytes);
+  if (!fields) return undefined;
   let inputType: number = STREAMER_ROM_MESSAGE_TYPES.RomMsg_VINPUT;
   let inputMessage: string | undefined;
   let displayId: number | undefined;
@@ -1403,8 +1458,9 @@ function decodeStreamerSendToRom(bytes: Uint8Array): DecodedStreamerSendToRom {
     if (field.tag === STREAMER_SEND_TO_ROM_WIRE_FIELDS.inputTypeTag && field.varint !== undefined) {
       inputType = safeNumber(field.varint) ?? inputType;
     }
-    if (field.tag === STREAMER_SEND_TO_ROM_WIRE_FIELDS.inputMessageTag && field.bytes) {
-      inputMessage = textDecoder.decode(field.bytes);
+    if (field.tag === STREAMER_SEND_TO_ROM_WIRE_FIELDS.inputMessageTag) {
+      const value = protobufLengthDelimitedFieldBytes(bytes, field);
+      if (value) inputMessage = textDecoder.decode(value);
     }
     if (field.tag === STREAMER_SEND_TO_ROM_WIRE_FIELDS.displayIdTag && field.varint !== undefined) {
       displayId = safeNumber(field.varint);
@@ -1419,22 +1475,29 @@ function decodeStreamerSendToRom(bytes: Uint8Array): DecodedStreamerSendToRom {
   };
 }
 
-function decodeStreamerRomMessage(bytes: Uint8Array): DecodedStreamerRomMessage {
+function decodeStreamerRomMessage(bytes: Uint8Array): DecodedStreamerRomMessage | undefined {
   const fields = readProtobufFields(bytes);
+  if (!fields) return undefined;
   const decoded: DecodedStreamerRomMessage = {};
 
   for (const field of fields) {
-    if (field.tag === STREAMER_ROM_MESSAGE_WIRE_FIELDS.nameTag && field.bytes) {
-      decoded.name = textDecoder.decode(field.bytes);
+    if (field.tag === STREAMER_ROM_MESSAGE_WIRE_FIELDS.nameTag) {
+      const value = protobufLengthDelimitedFieldBytes(bytes, field);
+      if (value) decoded.name = textDecoder.decode(value);
     }
-    if (field.tag === STREAMER_ROM_MESSAGE_WIRE_FIELDS.valueTag && field.bytes) {
-      decoded.value = textDecoder.decode(field.bytes);
+    if (field.tag === STREAMER_ROM_MESSAGE_WIRE_FIELDS.valueTag) {
+      const value = protobufLengthDelimitedFieldBytes(bytes, field);
+      if (value) decoded.value = textDecoder.decode(value);
     }
     if (field.tag === STREAMER_ROM_MESSAGE_WIRE_FIELDS.displayIdTag && field.varint !== undefined) {
       decoded.displayId = safeNumber(field.varint);
     }
-    if (field.tag === STREAMER_ROM_MESSAGE_WIRE_FIELDS.byteValueTag && field.bytes) {
-      decoded.byteValueLength = field.bytes.byteLength;
+    if (
+      field.tag === STREAMER_ROM_MESSAGE_WIRE_FIELDS.byteValueTag &&
+      field.wireType === protobufWireType.lengthDelimited &&
+      field.byteLength !== undefined
+    ) {
+      decoded.byteValueLength = field.byteLength;
     }
   }
 

@@ -10,11 +10,23 @@ export function useRemoteMediaGeometry(options: {
 }) {
   const { stageRef, viewMode, primaryVideoId } = options;
   const geometryRef = useRef<RemoteMediaGeometry | undefined>(undefined);
+  const geometryChangeListenersRef = useRef(new Set<() => void>());
+
+  const notifyGeometryChange = useCallback(() => {
+    for (const listener of geometryChangeListenersRef.current) listener();
+  }, []);
+
+  const subscribeGeometryChange = useCallback((listener: () => void): (() => void) => {
+    geometryChangeListenersRef.current.add(listener);
+    listener();
+    return () => geometryChangeListenersRef.current.delete(listener);
+  }, []);
 
   const refreshGeometry = useCallback((): RemoteMediaGeometry | undefined => {
     const stage = stageRef.current;
     if (!stage) {
       geometryRef.current = undefined;
+      notifyGeometryChange();
       return undefined;
     }
 
@@ -23,14 +35,20 @@ export function useRemoteMediaGeometry(options: {
     const mediaWidth = video?.videoWidth || Math.round(stageRect.width);
     const mediaHeight = video?.videoHeight || Math.round(stageRect.height);
     const geometry = computeRemoteMediaGeometry({
-      containerRect: stageRect,
+      containerRect: {
+        left: stageRect.left,
+        top: stageRect.top,
+        width: stageRect.width,
+        height: stageRect.height,
+      },
       mediaWidth,
       mediaHeight,
       objectFit: viewMode === "fill" ? "cover" : "contain",
     });
     geometryRef.current = geometry;
+    notifyGeometryChange();
     return geometry;
-  }, [stageRef, viewMode]);
+  }, [notifyGeometryChange, stageRef, viewMode]);
 
   useLayoutEffect(() => {
     const stage = stageRef.current;
@@ -85,10 +103,11 @@ export function useRemoteMediaGeometry(options: {
         activeVideo.removeEventListener("playing", refreshGeometry);
       }
       geometryRef.current = undefined;
+      notifyGeometryChange();
     };
-  }, [primaryVideoId, refreshGeometry, stageRef]);
+  }, [notifyGeometryChange, primaryVideoId, refreshGeometry, stageRef]);
 
-  return { geometryRef, refreshGeometry };
+  return { geometryRef, refreshGeometry, subscribeGeometryChange };
 }
 
 function requestGeometryFrame(callback: FrameRequestCallback): number {

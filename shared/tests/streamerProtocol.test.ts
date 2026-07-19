@@ -10,6 +10,7 @@ import {
   STREAMER_CONNECT_OPTIONS_FIELDS,
   STREAMER_CONTROL_CONNECT_TYPES,
   STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS,
+  STREAMER_CONTROL_DECODE_LIMITS,
   STREAMER_CONTROL_EVENT_NAME,
   STREAMER_CONTROL_EVENT_WIRE_ARGUMENT_ORDER,
   STREAMER_CONTROL_EVENT_PAYLOAD_KEYS,
@@ -94,6 +95,41 @@ import {
   normalizeStreamerSignalControlAck,
   STREAMER_CONTROL_RESULT_ICE_SERVER_KEYS,
 } from "../src/streamerProtocol.js";
+
+function encodeTestVarint(value: number): Uint8Array {
+  const bytes: number[] = [];
+  let remaining = value;
+  do {
+    let byte = remaining % 128;
+    remaining = Math.floor(remaining / 128);
+    if (remaining > 0) byte |= 0x80;
+    bytes.push(byte);
+  } while (remaining > 0);
+  return new Uint8Array(bytes);
+}
+
+function concatTestBytes(...chunks: readonly Uint8Array[]): Uint8Array {
+  const result = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
+}
+
+function testVarintField(tag: number, value: number): Uint8Array {
+  return concatTestBytes(encodeTestVarint(tag * 8), encodeTestVarint(value));
+}
+
+function testLengthDelimitedField(tag: number, payload: Uint8Array): Uint8Array {
+  return concatTestBytes(encodeTestVarint(tag * 8 + 2), encodeTestVarint(payload.byteLength), payload);
+}
+
+function testFixed64Field(tag: number, payload: Uint8Array): Uint8Array {
+  if (payload.byteLength !== 8) throw new RangeError("fixed64 test payload must contain 8 bytes");
+  return concatTestBytes(encodeTestVarint(tag * 8 + 1), payload);
+}
 
 describe("streamer protocol constants", () => {
   it("captures the data channel labels and SOAC payload surface", () => {
@@ -1188,6 +1224,142 @@ describe("streamer protocol constants", () => {
         },
       },
     });
+  });
+
+  it("bounds control messages by total bytes without rejecting the exact limit", () => {
+    const atLimit = new Uint8Array(STREAMER_CONTROL_DECODE_LIMITS.maxMessageBytes);
+    atLimit.set(testVarintField(1, 7));
+
+    expect(() => decodeStreamerControlMessage(atLimit)).not.toThrow();
+    expect(decodeStreamerControlMessage(atLimit)).toEqual({
+      sequence: 7,
+      byteLength: STREAMER_CONTROL_DECODE_LIMITS.maxMessageBytes,
+      topLevelTags: [1],
+    });
+
+    const overLimit = new Uint8Array(STREAMER_CONTROL_DECODE_LIMITS.maxMessageBytes + 1);
+    overLimit.set(testVarintField(1, 7));
+    expect(() => decodeStreamerControlMessage(overLimit)).not.toThrow();
+    expect(decodeStreamerControlMessage(overLimit)).toBeUndefined();
+  });
+
+  it("bounds protobuf field counts independently at each message level", () => {
+    const atLimit = concatTestBytes(
+      ...Array.from({ length: STREAMER_CONTROL_DECODE_LIMITS.maxFieldsPerMessage }, () => testVarintField(20, 0)),
+    );
+    expect(decodeStreamerControlMessage(atLimit)?.topLevelTags).toHaveLength(
+      STREAMER_CONTROL_DECODE_LIMITS.maxFieldsPerMessage,
+    );
+
+    const overLimit = concatTestBytes(atLimit, testVarintField(20, 0));
+    expect(decodeStreamerControlMessage(overLimit)).toBeUndefined();
+
+    const nestedCursorOverLimit = concatTestBytes(
+      ...Array.from({ length: STREAMER_CONTROL_DECODE_LIMITS.maxFieldsPerMessage + 1 }, () => testVarintField(20, 0)),
+    );
+    const nestedPayload = concatTestBytes(
+      testVarintField(1, 9),
+      testLengthDelimitedField(
+        STREAMER_SYSTEM_STATE_CHANGE_WIRE_FIELDS.envelopeTag,
+        testLengthDelimitedField(STREAMER_SYSTEM_STATE_CHANGE_WIRE_FIELDS.cursorShapeTag, nestedCursorOverLimit),
+      ),
+    );
+    expect(decodeStreamerControlMessage(nestedPayload)).toEqual({
+      sequence: 9,
+      byteLength: nestedPayload.byteLength,
+      topLevelTags: [1, STREAMER_SYSTEM_STATE_CHANGE_WIRE_FIELDS.envelopeTag],
+      systemStateChange: {},
+    });
+  });
+
+  it("bounds length-delimited payloads while skipping accepted unknown fields", () => {
+    const acceptedUnknownField = testLengthDelimitedField(
+      20,
+      new Uint8Array(STREAMER_CONTROL_DECODE_LIMITS.maxLengthDelimitedBytes),
+    );
+    const acceptedPayload = concatTestBytes(acceptedUnknownField, testVarintField(1, 42));
+    expect(() => decodeStreamerControlMessage(acceptedPayload)).not.toThrow();
+    expect(decodeStreamerControlMessage(acceptedPayload)).toEqual({
+      sequence: 42,
+      byteLength: acceptedPayload.byteLength,
+      topLevelTags: [20, 1],
+    });
+
+    const rejectedPayload = testLengthDelimitedField(
+      20,
+      new Uint8Array(STREAMER_CONTROL_DECODE_LIMITS.maxLengthDelimitedBytes + 1),
+    );
+    expect(() => decodeStreamerControlMessage(rejectedPayload)).not.toThrow();
+    expect(decodeStreamerControlMessage(rejectedPayload)).toBeUndefined();
+  });
+
+  it("keeps cursor metadata when an otherwise valid cursor image exceeds its dedicated limit", () => {
+    const wrapCursorShape = (cursorShape: Uint8Array) =>
+      testLengthDelimitedField(
+        STREAMER_SYSTEM_STATE_CHANGE_WIRE_FIELDS.envelopeTag,
+        testLengthDelimitedField(STREAMER_SYSTEM_STATE_CHANGE_WIRE_FIELDS.cursorShapeTag, cursorShape),
+      );
+    const cursorMetadata = concatTestBytes(
+      testVarintField(STREAMER_CURSOR_SHAPE_WIRE_FIELDS.cursorTypeTag, 0x7f01),
+      testVarintField(STREAMER_CURSOR_SHAPE_WIRE_FIELDS.screenIdTag, 3),
+    );
+    const acceptedImage = new Uint8Array(STREAMER_CONTROL_DECODE_LIMITS.maxCursorImageBytes);
+    const acceptedCursor = concatTestBytes(
+      testLengthDelimitedField(STREAMER_CURSOR_SHAPE_WIRE_FIELDS.byteValueTag, acceptedImage),
+      cursorMetadata,
+    );
+    const acceptedShape = decodeStreamerControlMessage(wrapCursorShape(acceptedCursor))?.systemStateChange?.cursorShape;
+    expect(acceptedShape?.byteValue).toBeDefined();
+    expect(acceptedShape?.byteValue).not.toBe(acceptedImage);
+    expect(acceptedShape?.byteValue?.byteLength).toBe(STREAMER_CONTROL_DECODE_LIMITS.maxCursorImageBytes);
+    expect(acceptedShape).toMatchObject({ cursorType: 0x7f01, screenId: 3 });
+
+    const rejectedCursor = concatTestBytes(
+      testLengthDelimitedField(
+        STREAMER_CURSOR_SHAPE_WIRE_FIELDS.byteValueTag,
+        new Uint8Array(STREAMER_CONTROL_DECODE_LIMITS.maxCursorImageBytes + 1),
+      ),
+      cursorMetadata,
+    );
+    expect(decodeStreamerControlMessage(wrapCursorShape(rejectedCursor))?.systemStateChange?.cursorShape).toEqual({
+      cursorType: 0x7f01,
+      screenId: 3,
+    });
+  });
+
+  it("ignores known protobuf fields encoded with the wrong wire type", () => {
+    const wrapCursorShape = (cursorShape: Uint8Array) =>
+      testLengthDelimitedField(
+        STREAMER_SYSTEM_STATE_CHANGE_WIRE_FIELDS.envelopeTag,
+        testLengthDelimitedField(STREAMER_SYSTEM_STATE_CHANGE_WIRE_FIELDS.cursorShapeTag, cursorShape),
+      );
+    const wrongScalePayload = wrapCursorShape(
+      concatTestBytes(
+        testLengthDelimitedField(STREAMER_CURSOR_SHAPE_WIRE_FIELDS.coordinateXScaleTag, new Uint8Array([0])),
+        testVarintField(STREAMER_CURSOR_SHAPE_WIRE_FIELDS.screenIdTag, 5),
+      ),
+    );
+    expect(() => decodeStreamerControlMessage(wrongScalePayload)).not.toThrow();
+    expect(decodeStreamerControlMessage(wrongScalePayload)?.systemStateChange?.cursorShape).toEqual({ screenId: 5 });
+
+    const wrongImagePayload = wrapCursorShape(
+      concatTestBytes(
+        testFixed64Field(STREAMER_CURSOR_SHAPE_WIRE_FIELDS.byteValueTag, new Uint8Array(8).fill(1)),
+        testVarintField(STREAMER_CURSOR_SHAPE_WIRE_FIELDS.cursorTypeTag, 0x7f01),
+      ),
+    );
+    expect(decodeStreamerControlMessage(wrongImagePayload)?.systemStateChange?.cursorShape).toEqual({
+      cursorType: 0x7f01,
+    });
+
+    const wrongRomByteValuePayload = testLengthDelimitedField(
+      STREAMER_ROM_MESSAGE_WIRE_FIELDS.envelopeTag,
+      concatTestBytes(
+        testFixed64Field(STREAMER_ROM_MESSAGE_WIRE_FIELDS.byteValueTag, new Uint8Array(8)),
+        testVarintField(STREAMER_ROM_MESSAGE_WIRE_FIELDS.displayIdTag, 2),
+      ),
+    );
+    expect(decodeStreamerControlMessage(wrongRomByteValuePayload)?.romMessage).toEqual({ displayId: 2 });
   });
 
   it("keeps safely decoded protobuf fields when cursor data is malformed", () => {

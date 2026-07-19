@@ -4,6 +4,7 @@ import type { DecodedStreamerCursorShape } from "@uurc/shared/streamerProtocol";
 
 import type { RemoteMediaGeometry } from "../remote/remoteMediaGeometry.js";
 import {
+  REMOTE_CURSOR_IMAGE_LIMITS,
   REMOTE_CURSOR_LOCAL_RENDERING_ENABLED,
   createDefaultRemoteCursorPresentation,
   createRemoteCursorPresentation,
@@ -19,10 +20,11 @@ interface CursorResource {
 export function useRemoteCursorController(options: {
   stageRef: RefObject<HTMLDivElement | null>;
   geometryRef: RefObject<RemoteMediaGeometry | undefined>;
+  subscribeGeometryChange?: (listener: () => void) => () => void;
   active: boolean;
   primaryVideoId: string;
 }) {
-  const { stageRef, geometryRef, active, primaryVideoId } = options;
+  const { stageRef, geometryRef, subscribeGeometryChange, active, primaryVideoId } = options;
   const activeRef = useRef(active);
   const presentationRef = useRef<RemoteCursorPresentation>(createDefaultRemoteCursorPresentation());
   const resourceRef = useRef<CursorResource>({ generation: 0 });
@@ -33,6 +35,7 @@ export function useRemoteCursorController(options: {
   const lastPointerRef = useRef<{ clientX: number; clientY: number } | undefined>(undefined);
   const previousPrimaryVideoIdRef = useRef("");
   const supportsCursorImageRef = useRef(browserSupportsCursorImage());
+  const supportsCursorImageSetRef = useRef(browserSupportsCursorImageSet());
   activeRef.current = active;
 
   const updateOverlayPosition = useCallback(() => {
@@ -75,14 +78,30 @@ export function useRemoteCursorController(options: {
     }
 
     const resource = resourceRef.current;
-    const cssImageUrl = resource.resizedUrl ?? resource.originalUrl;
+    const useOriginalImageSet =
+      Boolean(resource.originalUrl) &&
+      presentation.requiresImageResize &&
+      presentation.imageWidth !== undefined &&
+      presentation.imageHeight !== undefined &&
+      presentation.imageWidth <= REMOTE_CURSOR_IMAGE_LIMITS.maxRenderedDimension &&
+      presentation.imageHeight <= REMOTE_CURSOR_IMAGE_LIMITS.maxRenderedDimension &&
+      supportsCursorImageSetRef.current;
+    const cssImage = resource.resizedUrl
+      ? cssCursorUrl(resource.resizedUrl)
+      : useOriginalImageSet && resource.originalUrl
+        ? cssCursorImageSet(resource.originalUrl, presentation.imageDensity)
+        : !presentation.requiresImageResize && resource.originalUrl
+          ? cssCursorUrl(resource.originalUrl)
+          : undefined;
     const touchPointer = pointerTypeRef.current !== "mouse";
     const overlayMode =
-      touchPointer || presentation.forceOverlay || Boolean(cssImageUrl && !supportsCursorImageRef.current);
+      touchPointer ||
+      Boolean(presentation.requiresImageResize && !resource.resizedUrl && !useOriginalImageSet) ||
+      Boolean(cssImage && !supportsCursorImageRef.current && !useOriginalImageSet);
     overlayModeRef.current = overlayMode;
     if (!overlayMode) {
-      const cursor = cssImageUrl
-        ? `url(${JSON.stringify(cssImageUrl)}) ${presentation.hotspotX} ${presentation.hotspotY}, ${presentation.cssFallback}`
+      const cursor = cssImage
+        ? `${cssImage} ${presentation.hotspotX} ${presentation.hotspotY}, ${presentation.cssFallback}`
         : presentation.cssFallback;
       stage.style.setProperty("--remote-cursor", cursor);
       setOverlayVisible(overlay, false);
@@ -95,7 +114,8 @@ export function useRemoteCursorController(options: {
       overlay.dataset.hasImage = resource.originalUrl ? "true" : "false";
       overlay.style.width = `${presentation.renderWidth}px`;
       overlay.style.height = `${presentation.renderHeight}px`;
-      overlay.style.backgroundImage = resource.originalUrl ? `url(${JSON.stringify(resource.originalUrl)})` : "none";
+      if (resource.originalUrl) overlay.style.backgroundImage = `url(${JSON.stringify(resource.originalUrl)})`;
+      else overlay.style.removeProperty("background-image");
       setOverlayVisible(overlay, pointerInsideRef.current);
       updateOverlayPosition();
     }
@@ -131,13 +151,14 @@ export function useRemoteCursorController(options: {
       revokeObjectUrl(previousResource.resizedUrl);
       revokeObjectUrl(previousResource.originalUrl);
 
-      if (
-        !originalUrl ||
-        presentation.forceOverlay ||
-        (presentation.imageWidth === presentation.renderWidth && presentation.imageHeight === presentation.renderHeight)
-      ) {
-        return;
-      }
+      const canUseOriginalImageSet =
+        presentation.requiresImageResize &&
+        presentation.imageWidth !== undefined &&
+        presentation.imageHeight !== undefined &&
+        presentation.imageWidth <= REMOTE_CURSOR_IMAGE_LIMITS.maxRenderedDimension &&
+        presentation.imageHeight <= REMOTE_CURSOR_IMAGE_LIMITS.maxRenderedDimension &&
+        supportsCursorImageSetRef.current;
+      if (!originalUrl || !presentation.requiresImageResize || canUseOriginalImageSet) return;
 
       void resizeCursorPng(presentation.imageBytes, presentation.renderWidth, presentation.renderHeight).then(
         (blob) => {
@@ -198,6 +219,8 @@ export function useRemoteCursorController(options: {
     applyCursor();
   }, [active, applyCursor]);
 
+  useEffect(() => subscribeGeometryChange?.(updateOverlayPosition), [subscribeGeometryChange, updateOverlayPosition]);
+
   useEffect(() => {
     const previousId = previousPrimaryVideoIdRef.current;
     if (previousId && primaryVideoId && previousId !== primaryVideoId) resetRemoteCursor();
@@ -216,6 +239,23 @@ function setOverlayVisible(overlay: HTMLDivElement | null, visible: boolean): vo
 function browserSupportsCursorImage(): boolean {
   if (typeof CSS === "undefined" || typeof CSS.supports !== "function") return true;
   return CSS.supports("cursor", 'url("data:image/png;base64,iVBORw0KGgo=") 0 0, default');
+}
+
+function browserSupportsCursorImageSet(): boolean {
+  if (typeof CSS === "undefined" || typeof CSS.supports !== "function") return false;
+  return CSS.supports("cursor", 'image-set(url("data:image/png;base64,iVBORw0KGgo=") 2x) 0 0, default');
+}
+
+function cssCursorUrl(url: string): string {
+  return `url(${JSON.stringify(url)})`;
+}
+
+function cssCursorImageSet(url: string, density: number): string {
+  return `image-set(${cssCursorUrl(url)} ${formatCursorDensity(density)}x)`;
+}
+
+function formatCursorDensity(density: number): string {
+  return Number(density.toFixed(4)).toString();
 }
 
 function createCursorObjectUrl(bytes: Uint8Array | undefined): string | undefined {
@@ -244,6 +284,8 @@ async function resizeCursorPng(
       canvas.height = height;
       const context = canvas.getContext("2d");
       if (!context) return undefined;
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
       context.drawImage(bitmap, 0, 0, width, height);
       return await new Promise<Blob | undefined>((resolve) => {
         canvas.toBlob((blob) => resolve(blob ?? undefined), "image/png");

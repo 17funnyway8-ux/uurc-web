@@ -125,6 +125,109 @@ describe("BrowserRemoteSession", () => {
     expect(api.soacCalls.at(-1)).not.toHaveProperty("iceNetworkType");
   });
 
+  it("keeps a closed session idle when signal control resolves after close", async () => {
+    const controlGate = deferred<void>();
+    const api = new FakeRemoteApi();
+    const originalSendSignalControl = api.sendSignalControl.bind(api);
+    const sendSignalControl = vi.spyOn(api, "sendSignalControl").mockImplementation(async (input) => {
+      await controlGate.promise;
+      return originalSendSignalControl(input);
+    });
+    const createPeerConnection = vi.fn(() => new FakePeerConnection());
+    const observedStages: string[] = [];
+    const session = new BrowserRemoteSession({
+      api,
+      createPeerConnection,
+      onStateChange: (state) => observedStages.push(state.stage),
+    });
+
+    const startPromise = session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+    });
+    await vi.waitFor(() => expect(sendSignalControl).toHaveBeenCalledOnce());
+    const rejection = expect(startPromise).rejects.toMatchObject({ name: "AbortError" });
+
+    session.close();
+    controlGate.resolve(undefined);
+    await rejection;
+
+    expect(createPeerConnection).not.toHaveBeenCalled();
+    expect(api.soacCalls).toEqual([]);
+    expect(session.getState().stage).toBe("idle");
+    expect(observedStages).toEqual(["idle"]);
+  });
+
+  it("closes an in-flight peer and suppresses stale callbacks when close interrupts createOffer", async () => {
+    const offer = deferred<RTCSessionDescriptionInit>();
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    peer.createOfferPromise = offer.promise;
+    const observedStages: string[] = [];
+    const session = new BrowserRemoteSession({
+      api,
+      createPeerConnection: () => peer,
+      onStateChange: (state) => observedStages.push(state.stage),
+    });
+
+    const startPromise = session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+    });
+    await vi.waitFor(() => expect(peer.createOfferCalls).toEqual([undefined]));
+    const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)!;
+    const staleOpenCallback = control.onopen;
+    const rejection = expect(startPromise).rejects.toMatchObject({ name: "AbortError" });
+
+    session.close();
+    offer.resolve({ type: "offer", sdp: "v=0 stale browser offer" });
+    await rejection;
+    staleOpenCallback?.(new Event("open"));
+
+    expect(peer.closed).toBe(true);
+    expect(peer.onicecandidate).toBeNull();
+    expect(peer.ontrack).toBeNull();
+    expect([...peer.channels.values()].every((channel) => channel.closed)).toBe(true);
+    expect(peer.localDescription).toBeNull();
+    expect(api.soacCalls).toEqual([]);
+    expect(session.getState().stage).toBe("idle");
+    expect(observedStages.at(-1)).toBe("idle");
+    expect(observedStages).not.toContain("offered");
+  });
+
+  it("does not restore connected state when close interrupts a remote answer", async () => {
+    const remoteDescriptionGate = deferred<void>();
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    peer.setRemoteDescriptionPromise = remoteDescriptionGate.promise;
+    const observedStages: string[] = [];
+    const session = new BrowserRemoteSession({
+      api,
+      createPeerConnection: () => peer,
+      onStateChange: (state) => observedStages.push(state.stage),
+    });
+    await session.start({ appControlId: "control-1", appDataBase64: "Cg==", streamerData: "{}" });
+    const setRemoteDescription = vi.spyOn(peer, "setRemoteDescription");
+
+    const applyingAnswer = session.applySignalEvents([
+      soacEvent(1, {
+        client_id: "controlled-1",
+        data: { type: "answer", sdp: "v=0 controlled answer" },
+      }),
+    ]);
+    await vi.waitFor(() => expect(setRemoteDescription).toHaveBeenCalledOnce());
+
+    session.close();
+    remoteDescriptionGate.resolve(undefined);
+    await expect(applyingAnswer).resolves.toBeUndefined();
+
+    expect(session.getState().stage).toBe("idle");
+    expect(observedStages.at(-1)).toBe("idle");
+    expect(observedStages).not.toContain("connected");
+  });
+
   it("keeps H264 RTX codec preferences so lossy relay links can negotiate retransmission", async () => {
     const api = new FakeRemoteApi();
     const peer = new FakePeerConnection();
@@ -922,6 +1025,112 @@ describe("BrowserRemoteSession", () => {
         inputMessage: buildStreamerMouseMoveAbsoluteInputMessage({ absX: 360, absY: 240 }),
       }),
     ]);
+  });
+
+  it("retries a failed critical pointer position before sending a mouse button", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({ api, createPeerConnection: () => peer, now: () => 6000 });
+    await session.start({ appControlId: "control-1", appDataBase64: "Cg==", streamerData: "{}" });
+    const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)!;
+    control.failNextSendCount = 1;
+
+    expect(() => session.sendMouseMove({ absX: 360, absY: 240 }, { critical: true })).toThrow("send failed");
+    session.sendMouseButton({ action: "mousePress", button: "primary" });
+
+    expect(control.sent).toEqual([
+      encodeStreamerInputMessage({
+        sequence: 2,
+        timestampMs: 6,
+        inputMessage: buildStreamerMouseMoveAbsoluteInputMessage({ absX: 360, absY: 240 }),
+      }),
+      encodeStreamerInputMessage({
+        sequence: 3,
+        timestampMs: 6,
+        inputMessage: buildStreamerMouseButtonInputMessage({ action: "mousePress", button: "primary" }),
+      }),
+    ]);
+  });
+
+  it("does not let a mouse button overtake a critical pointer position that still cannot be sent", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({ api, createPeerConnection: () => peer, now: () => 6000 });
+    await session.start({ appControlId: "control-1", appDataBase64: "Cg==", streamerData: "{}" });
+    const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)!;
+    control.failNextSendCount = 2;
+
+    expect(() => session.sendMouseMove({ absX: 360, absY: 240 }, { critical: true })).toThrow("send failed");
+    expect(() => session.sendMouseButton({ action: "mousePress", button: "primary" })).toThrow("send failed");
+    expect(control.sent).toEqual([]);
+  });
+
+  it("flushes a failed critical position before the latest ordinary move at the low watermark", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({ api, createPeerConnection: () => peer, now: () => 6000 });
+    await session.start({ appControlId: "control-1", appDataBase64: "Cg==", streamerData: "{}" });
+    const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)!;
+    control.failNextSendCount = 1;
+
+    expect(() => session.sendMouseMove({ absX: 120, absY: 80 }, { critical: true })).toThrow("send failed");
+    control.bufferedAmount = STREAMER_MAX_DATA_BUFFER_BYTES;
+    session.sendMouseMove({ absX: 520, absY: 340 });
+    control.bufferedAmount = control.bufferedAmountLowThreshold;
+    control.emitBufferedAmountLow();
+
+    expect(control.sent).toEqual([
+      encodeStreamerInputMessage({
+        sequence: 2,
+        timestampMs: 6,
+        inputMessage: buildStreamerMouseMoveAbsoluteInputMessage({ absX: 120, absY: 80 }),
+      }),
+      encodeStreamerInputMessage({
+        sequence: 3,
+        timestampMs: 6,
+        inputMessage: buildStreamerMouseMoveAbsoluteInputMessage({ absX: 520, absY: 340 }),
+      }),
+    ]);
+  });
+
+  it("does not let an ordinary move overtake a failed critical position", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({ api, createPeerConnection: () => peer, now: () => 6000 });
+    await session.start({ appControlId: "control-1", appDataBase64: "Cg==", streamerData: "{}" });
+    const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)!;
+    control.failNextSendCount = 1;
+
+    expect(() => session.sendMouseMove({ absX: 120, absY: 80 }, { critical: true })).toThrow("send failed");
+    session.sendMouseMove({ absX: 520, absY: 340 });
+    control.emitBufferedAmountLow();
+
+    expect(control.sent).toEqual([
+      encodeStreamerInputMessage({
+        sequence: 2,
+        timestampMs: 6,
+        inputMessage: buildStreamerMouseMoveAbsoluteInputMessage({ absX: 120, absY: 80 }),
+      }),
+      encodeStreamerInputMessage({
+        sequence: 3,
+        timestampMs: 6,
+        inputMessage: buildStreamerMouseMoveAbsoluteInputMessage({ absX: 520, absY: 340 }),
+      }),
+    ]);
+  });
+
+  it("does not retain a mouse press when its channel send fails", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({ api, createPeerConnection: () => peer });
+    await session.start({ appControlId: "control-1", appDataBase64: "Cg==", streamerData: "{}" });
+    const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)!;
+    control.failNextSendCount = 1;
+
+    expect(() => session.sendMouseButton({ action: "mousePress", button: "primary" })).toThrow("send failed");
+    session.releaseAllInputs();
+
+    expect(control.sent).toEqual([]);
   });
 
   it("records throttled inbound data channel messages for control debugging", async () => {
@@ -1963,6 +2172,43 @@ describe("BrowserRemoteSession", () => {
     session.releaseAllInputs();
     expect(control?.sent).toEqual([]);
   });
+
+  it("retries held mouse and keyboard releases after a channel send failure", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api,
+      createPeerConnection: () => peer,
+      now: () => 9000,
+    });
+    await session.start({ appControlId: "control-1", appDataBase64: "Cg==", streamerData: "{}" });
+    const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)!;
+    session.sendMouseButton({ action: "mousePress", button: "secondary" });
+    session.sendKeyboardInput({ action: "keyboardPress", value: "A" });
+    control.sent.length = 0;
+    control.failNextSendCount = 2;
+
+    session.releaseAllInputs();
+    expect(control.sent).toEqual([]);
+
+    session.releaseAllInputs();
+    expect(control.sent).toEqual([
+      encodeStreamerInputMessage({
+        sequence: 5,
+        timestampMs: 9,
+        inputMessage: buildStreamerMouseButtonInputMessage({ action: "mouseRelease", button: "secondary" }),
+      }),
+      encodeStreamerInputMessage({
+        sequence: 6,
+        timestampMs: 9,
+        inputMessage: buildStreamerKeyboardInputMessage({ action: "keyboardRelease", value: "A" }),
+      }),
+    ]);
+
+    control.sent.length = 0;
+    session.releaseAllInputs();
+    expect(control.sent).toEqual([]);
+  });
 });
 
 function soacEvent(id: number, payload: unknown): RemoteSignalGatewayEvent {
@@ -1973,6 +2219,20 @@ function soacEvent(id: number, payload: unknown): RemoteSignalGatewayEvent {
     receivedAt: "2026-05-15T00:00:00.000Z",
     payload: [payload],
   };
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve(value: T): void;
+  reject(reason?: unknown): void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+  return { promise, resolve, reject };
 }
 
 function cursorShapeControlMessage(screenId: number): Uint8Array {
@@ -2120,6 +2380,8 @@ class FakePeerConnection {
   readonly remoteDescriptions: RTCSessionDescriptionInit[] = [];
   readonly candidates: RTCIceCandidateInit[] = [];
   readonly createOfferCalls: Array<RTCOfferOptions | undefined> = [];
+  createOfferPromise: Promise<RTCSessionDescriptionInit> | undefined;
+  setRemoteDescriptionPromise: Promise<void> | undefined;
   setRemoteDescriptionShouldThrow = false;
   closed = false;
   restartIceCalls = 0;
@@ -2143,6 +2405,7 @@ class FakePeerConnection {
 
   async createOffer(options?: RTCOfferOptions): Promise<RTCSessionDescriptionInit> {
     this.createOfferCalls.push(options);
+    if (this.createOfferPromise) return this.createOfferPromise;
     return {
       type: "offer",
       sdp: options?.iceRestart ? "v=0 browser restart offer" : "v=0 browser offer",
@@ -2163,6 +2426,7 @@ class FakePeerConnection {
   }
 
   async setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void> {
+    if (this.setRemoteDescriptionPromise) await this.setRemoteDescriptionPromise;
     if (this.setRemoteDescriptionShouldThrow) {
       throw new Error("InvalidStateError: setRemoteDescription wrong state");
     }
@@ -2199,11 +2463,16 @@ class FakeDataChannel {
   bufferedAmount = 0;
   bufferedAmountLowThreshold = 0;
   readonly sent: Array<string | Blob | ArrayBuffer | ArrayBufferView> = [];
+  failNextSendCount = 0;
   closed = false;
 
   constructor(readonly label: string) {}
 
   send(data: string | Blob | ArrayBuffer | ArrayBufferView): void {
+    if (this.failNextSendCount > 0) {
+      this.failNextSendCount -= 1;
+      throw new Error("send failed");
+    }
     this.sent.push(data);
   }
 

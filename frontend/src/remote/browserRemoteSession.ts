@@ -296,6 +296,7 @@ export class BrowserRemoteSession {
   private lastEchoHeartbeatDebugAtMs = 0;
   private lastMouseMoveBackpressureDebugAtMs = 0;
   private pendingMouseMove: BrowserRemoteMousePositionInput | undefined;
+  private pendingCriticalMouseMove: BrowserRemoteMousePositionInput | undefined;
   private readonly lastDataReceiveDebugAtMs = new Map<StreamerDataChannelLabel, number>();
   private debugEventId = 1;
   private debugEvents: BrowserRemoteDebugEvent[] = [];
@@ -321,6 +322,7 @@ export class BrowserRemoteSession {
       }
     | undefined;
   private previousVideoElementSample: BrowserRemoteVideoElementSample | undefined;
+  private lifecycleGeneration = 0;
   private state: BrowserRemoteSessionState = {
     appControlId: "",
     connectionPath: "unknown",
@@ -362,6 +364,7 @@ export class BrowserRemoteSession {
   }
 
   close(): BrowserRemoteSessionState {
+    this.lifecycleGeneration += 1;
     this.recordDebugEvent("session", "关闭浏览器远控会话", {
       stage: this.state.stage,
       appControlId: this.appControlId || undefined,
@@ -380,7 +383,11 @@ export class BrowserRemoteSession {
     }
     this.dataChannels.clear();
     this.lastDataReceiveDebugAtMs.clear();
-    this.peer?.close?.();
+    if (this.peer) {
+      this.peer.onicecandidate = null;
+      this.peer.ontrack = null;
+      this.peer.close?.();
+    }
     this.peer = null;
     this.appControlId = "";
     this.clientId = undefined;
@@ -392,6 +399,7 @@ export class BrowserRemoteSession {
     this.remoteDisplayId = undefined;
     this.remoteInputDisplayId = undefined;
     this.pendingMouseMove = undefined;
+    this.pendingCriticalMouseMove = undefined;
     this.sequence = 1;
     this.heldKeyboardValues.clear();
     this.heldMouseButtons.clear();
@@ -410,6 +418,8 @@ export class BrowserRemoteSession {
   }
 
   async start(input: BrowserRemoteSessionStartInput): Promise<BrowserRemoteSessionState> {
+    const lifecycleGeneration = this.lifecycleGeneration + 1;
+    this.lifecycleGeneration = lifecycleGeneration;
     this.recordDebugEvent("session", "启动 signal control", {
       appControlId: input.appControlId,
       gzipSdp: input.gzipSdp ?? true,
@@ -420,6 +430,7 @@ export class BrowserRemoteSession {
       appDataBase64: input.appDataBase64,
       streamerData: input.streamerData,
     });
+    this.assertLifecycleGeneration(lifecycleGeneration);
     const result = control.control.result;
     if (!result) {
       throw new Error("signal control ack did not include a ControlResult");
@@ -436,15 +447,20 @@ export class BrowserRemoteSession {
     this.iceNetworkType = input.iceNetworkType ?? STREAMER_ICE_NETWORK_TYPES.appAuto;
     this.targetPlatform = input.targetPlatform;
     this.processedSignalEventIds.clear();
-    this.peer = this.createPeerConnection(
+    const peer = this.createPeerConnection(
       buildStreamerRtcConfiguration(result, { forceRelay: input.forceRelay === true }),
     );
-    this.createStreamerDataChannels(this.peer);
-    this.createStreamerMediaTransceivers(this.peer);
-    this.peer.onicecandidate = (event) => {
-      void this.sendLocalCandidate(event.candidate?.toJSON?.() ?? null);
+    this.peer = peer;
+    this.createStreamerDataChannels(peer, lifecycleGeneration);
+    this.createStreamerMediaTransceivers(peer);
+    peer.onicecandidate = (event) => {
+      if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
+      void this.sendLocalCandidate(event.candidate?.toJSON?.() ?? null, lifecycleGeneration);
     };
-    this.peer.ontrack = (event) => this.applyRemoteTrack(event);
+    peer.ontrack = (event) => {
+      if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
+      this.applyRemoteTrack(event);
+    };
 
     this.setState({
       appControlId: input.appControlId,
@@ -468,7 +484,8 @@ export class BrowserRemoteSession {
       targetPlatform: this.targetPlatform,
     });
 
-    await this.createAndSendLocalOffer();
+    await this.createAndSendLocalOffer("offer", undefined, lifecycleGeneration);
+    this.assertLifecycleGeneration(lifecycleGeneration);
 
     this.setState({
       ...this.state,
@@ -512,6 +529,17 @@ export class BrowserRemoteSession {
   sendMouseMove(input: BrowserRemoteMousePositionInput, options: BrowserRemoteMouseMoveOptions = {}): void {
     const channel = this.dataChannels.get(STREAMER_DATA_CHANNEL_LABELS.control);
     const bufferedAmount = channel?.bufferedAmount ?? 0;
+    if (options.critical) {
+      this.pendingMouseMove = undefined;
+      this.pendingCriticalMouseMove = { ...input };
+      this.flushPendingCriticalMouseMove();
+      return;
+    }
+    if (this.pendingCriticalMouseMove) {
+      this.pendingMouseMove = { ...input };
+      this.flushPendingMouseMove();
+      return;
+    }
     if (!options.critical && bufferedAmount >= STREAMER_MAX_DATA_BUFFER_BYTES) {
       this.pendingMouseMove = { ...input };
       const nowMs = this.now();
@@ -530,14 +558,16 @@ export class BrowserRemoteSession {
 
   sendMouseButton(input: BrowserRemoteMouseButtonInput): void {
     this.pendingMouseMove = undefined;
+    this.flushPendingCriticalMouseMove();
     const button = input.button ?? "primary";
+    this.sendInputData(buildStreamerMouseButtonInputMessage({ action: input.action, button }));
     if (input.action === "mousePress") this.heldMouseButtons.add(button);
     else if (input.action === "mouseRelease") this.heldMouseButtons.delete(button);
-    this.sendInputData(buildStreamerMouseButtonInputMessage({ action: input.action, button }));
   }
 
   sendMouseScroll(input: BrowserRemoteMouseScrollInput): void {
     this.pendingMouseMove = undefined;
+    this.flushPendingCriticalMouseMove();
     this.sendInputData(
       isDesktopPlatform(this.targetPlatform)
         ? buildStreamerMacMouseScrollInputMessage(input)
@@ -546,9 +576,11 @@ export class BrowserRemoteSession {
   }
 
   sendKeyboardInput(input: BrowserRemoteKeyboardInput): void {
+    const inputMessage = this.buildKeyboardInput(input);
+    this.sendInputData(inputMessage);
+    if (!inputMessage) return;
     if (input.action === "keyboardPress") this.heldKeyboardValues.add(input.value);
     else if (input.action === "keyboardRelease") this.heldKeyboardValues.delete(input.value);
-    this.sendInputData(this.buildKeyboardInput(input));
   }
 
   // 直接上屏一段字符(text_input)。桌面被控端打字用它替代逐键 kbd_press，避免字母连发；
@@ -563,12 +595,12 @@ export class BrowserRemoteSession {
     // pointerup/keyup 后，在被控端留下卡住的按键（右键卡死、Alt 卡死等）。
     const buttons = [...this.heldMouseButtons];
     this.pendingMouseMove = undefined;
-    this.heldMouseButtons.clear();
+    this.pendingCriticalMouseMove = undefined;
     const keys = [...this.heldKeyboardValues];
-    this.heldKeyboardValues.clear();
     for (const button of buttons) {
       try {
         this.sendInputData(buildStreamerMouseButtonInputMessage({ action: "mouseRelease", button }));
+        this.heldMouseButtons.delete(button);
       } catch {
         // 通道可能已关闭，忽略。
       }
@@ -576,6 +608,7 @@ export class BrowserRemoteSession {
     for (const value of keys) {
       try {
         this.sendInputData(this.buildKeyboardInput({ action: "keyboardRelease", value }));
+        this.heldKeyboardValues.delete(value);
       } catch {
         // 忽略。
       }
@@ -698,21 +731,30 @@ export class BrowserRemoteSession {
   }
 
   async applySignalEvents(events: RemoteSignalGatewayEvent[]): Promise<void> {
+    const lifecycleGeneration = this.lifecycleGeneration;
     for (const event of events) {
+      if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
       if (this.processedSignalEventIds.has(event.id)) continue;
       if (event.direction !== "inbound") continue;
       if (event.event === "soac") {
         this.recordDebugEvent("signal", "收到 SOAC", summarizeSignalEvent(event));
         const payloads = Array.isArray(event.payload) ? event.payload : [event.payload];
         for (const payload of payloads) {
-          await this.applySoacPayload(payload);
+          await this.applySoacPayload(payload, lifecycleGeneration);
+          if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
         }
         this.processedSignalEventIds.add(event.id);
         continue;
       }
       if (event.event === "switch_network_notify") {
         this.recordDebugEvent("signal", "收到切网通知", summarizeSignalEvent(event));
-        await this.applySwitchNetworkNotify(event.payload);
+        try {
+          await this.applySwitchNetworkNotify(event.payload, lifecycleGeneration);
+        } catch (error) {
+          if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
+          throw error;
+        }
+        if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
         this.processedSignalEventIds.add(event.id);
         continue;
       }
@@ -723,15 +765,19 @@ export class BrowserRemoteSession {
     }
   }
 
-  private createStreamerDataChannels(peer: BrowserRemotePeerConnection): void {
+  private createStreamerDataChannels(peer: BrowserRemotePeerConnection, lifecycleGeneration: number): void {
     for (const label of Object.values(STREAMER_DATA_CHANNEL_LABELS)) {
       const channel = peer.createDataChannel(label);
       channel.binaryType = "arraybuffer";
       if (label === STREAMER_DATA_CHANNEL_LABELS.control) {
         channel.bufferedAmountLowThreshold = BrowserRemoteSession.mouseMoveBufferedAmountLowThreshold;
-        channel.onbufferedamountlow = () => this.flushPendingMouseMove();
+        channel.onbufferedamountlow = () => {
+          if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
+          this.flushPendingMouseMove();
+        };
       }
       channel.onopen = () => {
+        if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
         this.recordDebugEvent("data_channel", `${label} open`, { label, readyState: channel.readyState });
         this.updateDataChannelState(label);
         if (label === STREAMER_DATA_CHANNEL_LABELS.control) {
@@ -739,15 +785,18 @@ export class BrowserRemoteSession {
         }
       };
       channel.onclose = () => {
+        if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
         this.recordDebugEvent("data_channel", `${label} close`, { label, readyState: channel.readyState });
         if (label === STREAMER_DATA_CHANNEL_LABELS.control) {
           console.warn(`[uurc] 控制数据通道关闭（${label}）→ 心跳停止，被控端可能停推画面`);
           this.pendingMouseMove = undefined;
+          this.pendingCriticalMouseMove = undefined;
           this.stopEchoHeartbeat();
         }
         this.updateDataChannelState(label);
       };
       channel.onerror = () => {
+        if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
         this.recordDebugEvent("data_channel", `${label} error`, { label, readyState: channel.readyState });
         if (label === STREAMER_DATA_CHANNEL_LABELS.control && channel.readyState !== "open") {
           console.warn(`[uurc] 控制数据通道错误（${label}），readyState=${channel.readyState}`);
@@ -756,6 +805,7 @@ export class BrowserRemoteSession {
         this.updateDataChannelState(label);
       };
       channel.onmessage = (event) => {
+        if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
         this.recordDataChannelMessage(label, event.data);
       };
       this.dataChannels.set(label, channel);
@@ -771,8 +821,8 @@ export class BrowserRemoteSession {
     peer.addTransceiver("audio", { direction: "recvonly" });
   }
 
-  private async sendLocalCandidate(candidate: RTCIceCandidateInit | null): Promise<void> {
-    if (!candidate?.candidate) return;
+  private async sendLocalCandidate(candidate: RTCIceCandidateInit | null, lifecycleGeneration: number): Promise<void> {
+    if (!candidate?.candidate || !this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
     this.recordDebugEvent("signal", "发送本地 candidate", {
       appControlId: this.appControlId,
       clientId: this.clientId,
@@ -794,8 +844,9 @@ export class BrowserRemoteSession {
     });
   }
 
-  private async applySoacPayload(payload: unknown): Promise<void> {
-    if (!this.peer) return;
+  private async applySoacPayload(payload: unknown, lifecycleGeneration: number): Promise<void> {
+    const peer = this.peer;
+    if (!peer || !this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
 
     const record = asRecord(payload);
     const data = asRecord(record?.data);
@@ -806,7 +857,7 @@ export class BrowserRemoteSession {
     if (type === "answer" || type === "restart_ice") {
       const sdp = typeof data.sdp === "string" ? data.sdp : undefined;
       if (!sdp) return;
-      const signalingState = this.peer.signalingState;
+      const signalingState = peer.signalingState;
       if (signalingState !== undefined && signalingState !== "have-local-offer") {
         console.warn(
           `[uurc] 忽略状态不匹配的 SOAC ${type}（signalingState=${signalingState}）→ 重协商未接上，画面可能停滞`,
@@ -821,18 +872,20 @@ export class BrowserRemoteSession {
         return;
       }
       try {
-        await this.peer.setRemoteDescription({ type: "answer", sdp });
+        await peer.setRemoteDescription({ type: "answer", sdp });
       } catch (error) {
+        if (!this.isPeerLifecycleCurrent(peer, lifecycleGeneration)) return;
         this.recordDebugEvent("signal", "应用 SOAC answer 失败", {
           type,
           error: error instanceof Error ? error.message : String(error),
-          signalingState: this.peer.signalingState,
+          signalingState: peer.signalingState,
           appControlId: readStringField(data, "app_control_id", "appControlId"),
           iceId: readStringField(data, "ice_id", "iceId"),
           sdpLength: sdp.length,
         });
         return;
       }
+      if (!this.isPeerLifecycleCurrent(peer, lifecycleGeneration)) return;
       this.recordDebugEvent("signal", type === "restart_ice" ? "应用 restart_ice answer" : "应用 answer", {
         type,
         appControlId: readStringField(data, "app_control_id", "appControlId"),
@@ -843,15 +896,21 @@ export class BrowserRemoteSession {
         ...this.state,
         stage: "connected",
       });
-      await this.flushQueuedCandidates();
+      await this.flushQueuedCandidates(peer, lifecycleGeneration);
       return;
     }
 
     if (type === "candidate") {
       const candidate = normalizeCandidate(data.candidate);
       if (!candidate) return;
-      if (this.peer.remoteDescription) {
-        await this.peer.addIceCandidate(candidate);
+      if (peer.remoteDescription) {
+        try {
+          await peer.addIceCandidate(candidate);
+        } catch (error) {
+          if (!this.isPeerLifecycleCurrent(peer, lifecycleGeneration)) return;
+          throw error;
+        }
+        if (!this.isPeerLifecycleCurrent(peer, lifecycleGeneration)) return;
         this.recordDebugEvent("signal", "应用远端 candidate", {
           iceId: readStringField(data, "ice_id", "iceId"),
           sdpMid: candidate.sdpMid,
@@ -859,6 +918,7 @@ export class BrowserRemoteSession {
           candidateType: candidate.candidate ? extractCandidateType(candidate.candidate) : undefined,
         });
       } else {
+        if (!this.isPeerLifecycleCurrent(peer, lifecycleGeneration)) return;
         this.queuedCandidates.push(candidate);
         this.recordDebugEvent("signal", "缓存远端 candidate", {
           iceId: readStringField(data, "ice_id", "iceId"),
@@ -881,10 +941,15 @@ export class BrowserRemoteSession {
   private async createAndSendLocalOffer(
     type: "offer" | "restart_ice" = "offer",
     options?: RTCOfferOptions,
+    lifecycleGeneration = this.lifecycleGeneration,
   ): Promise<void> {
-    if (!this.peer) return;
-    const offer = await this.peer.createOffer(options);
-    await this.peer.setLocalDescription(offer);
+    const peer = this.peer;
+    if (!peer) return;
+    this.assertLifecycleGeneration(lifecycleGeneration);
+    const offer = await peer.createOffer(options);
+    this.assertLifecycleGeneration(lifecycleGeneration);
+    await peer.setLocalDescription(offer);
+    this.assertLifecycleGeneration(lifecycleGeneration);
     await this.options.api.sendSignalSoac({
       type,
       clientId: this.clientId,
@@ -894,10 +959,12 @@ export class BrowserRemoteSession {
       gzipSdp: this.gzipSdp,
       iceNetworkType: this.iceNetworkType,
     });
+    this.assertLifecycleGeneration(lifecycleGeneration);
   }
 
-  private async applySwitchNetworkNotify(payload: unknown): Promise<void> {
-    if (!this.peer) return;
+  private async applySwitchNetworkNotify(payload: unknown, lifecycleGeneration: number): Promise<void> {
+    const peer = this.peer;
+    if (!peer || !this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
     const notify = normalizeSwitchNetworkNotify(payload, this.iceId);
     if (!notify) return;
 
@@ -907,20 +974,26 @@ export class BrowserRemoteSession {
     console.warn(
       `[uurc] 收到切网通知 → 发起 ICE restart（transportType=${notify.transportType ?? "?"}），画面可能短暂停滞`,
     );
-    this.peer.restartIce?.();
+    peer.restartIce?.();
     this.recordDebugEvent("signal", "发起 ICE restart", {
       iceId: notify.iceId ?? this.iceId,
       transportType: notify.transportType,
     });
-    await this.createAndSendLocalOffer("restart_ice", { iceRestart: true });
+    await this.createAndSendLocalOffer("restart_ice", { iceRestart: true }, lifecycleGeneration);
   }
 
-  private async flushQueuedCandidates(): Promise<void> {
-    if (!this.peer || !this.peer.remoteDescription) return;
+  private async flushQueuedCandidates(peer: BrowserRemotePeerConnection, lifecycleGeneration: number): Promise<void> {
+    if (!this.isPeerLifecycleCurrent(peer, lifecycleGeneration) || !peer.remoteDescription) return;
     const candidates = this.queuedCandidates;
     this.queuedCandidates = [];
     for (const candidate of candidates) {
-      await this.peer.addIceCandidate(candidate);
+      try {
+        await peer.addIceCandidate(candidate);
+      } catch (error) {
+        if (!this.isPeerLifecycleCurrent(peer, lifecycleGeneration)) return;
+        throw error;
+      }
+      if (!this.isPeerLifecycleCurrent(peer, lifecycleGeneration)) return;
       this.recordDebugEvent("signal", "应用缓存 candidate", {
         candidateType: candidate.candidate ? extractCandidateType(candidate.candidate) : undefined,
       });
@@ -1115,16 +1188,29 @@ export class BrowserRemoteSession {
   }
 
   private flushPendingMouseMove(): void {
-    const pending = this.pendingMouseMove;
     const channel = this.dataChannels.get(STREAMER_DATA_CHANNEL_LABELS.control);
     if (
-      !pending ||
       !channel ||
       channel.readyState !== "open" ||
       (channel.bufferedAmount ?? 0) > BrowserRemoteSession.mouseMoveBufferedAmountLowThreshold
     ) {
       return;
     }
+
+    if (this.pendingCriticalMouseMove) {
+      try {
+        this.flushPendingCriticalMouseMove();
+      } catch (error) {
+        this.recordDebugEvent("data_send", "补发关键鼠标位置失败", {
+          bufferedAmount: channel.bufferedAmount,
+          error: getErrorMessage(error),
+        });
+        return;
+      }
+    }
+
+    const pending = this.pendingMouseMove;
+    if (!pending || (channel.bufferedAmount ?? 0) > BrowserRemoteSession.mouseMoveBufferedAmountLowThreshold) return;
     this.pendingMouseMove = undefined;
     try {
       this.sendMouseMove(pending);
@@ -1135,6 +1221,13 @@ export class BrowserRemoteSession {
         error: getErrorMessage(error),
       });
     }
+  }
+
+  private flushPendingCriticalMouseMove(): void {
+    const pending = this.pendingCriticalMouseMove;
+    if (!pending) return;
+    this.sendInputData(this.buildMouseMoveAbsoluteInput(pending), { recordDebugEvent: false });
+    if (this.pendingCriticalMouseMove === pending) this.pendingCriticalMouseMove = undefined;
   }
 
   private sendEchoResponse(responseSequence: number): void {
@@ -1251,6 +1344,21 @@ export class BrowserRemoteSession {
       return buildStreamerWindowsKeyboardInputMessage(input);
     }
     return buildStreamerKeyboardInputMessage(input);
+  }
+
+  private isLifecycleGenerationCurrent(generation: number): boolean {
+    return this.lifecycleGeneration === generation;
+  }
+
+  private isPeerLifecycleCurrent(peer: BrowserRemotePeerConnection, generation: number): boolean {
+    return this.peer === peer && this.isLifecycleGenerationCurrent(generation);
+  }
+
+  private assertLifecycleGeneration(generation: number): void {
+    if (this.isLifecycleGenerationCurrent(generation)) return;
+    const error = new Error("browser remote session start was superseded or closed");
+    error.name = "AbortError";
+    throw error;
   }
 
   private updateDataChannelState(label: StreamerDataChannelLabel): void {

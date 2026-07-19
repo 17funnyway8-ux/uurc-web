@@ -488,7 +488,7 @@ describe("App console", () => {
 
     await openOfficeMacControl(user, { waitForReady: false });
     await user.click(getPrimaryAction("开始连接"));
-    await user.click(await screen.findByRole("button", { name: "接管控制" }));
+    await user.click(await screen.findByRole("button", { name: /^接管控制/ }));
 
     await waitFor(() => {
       expect(document.body.textContent).toContain("服务端拒绝加入房间");

@@ -36,8 +36,61 @@ import {
   buildStreamerSignalHeaders,
 } from "./streamer/signal.js";
 import { STREAMER_DATA_CHANNEL_LABELS } from "./streamer/transport.js";
-import { summarizeStreamerRoomConfig } from "./roomConfig.js";
-import type { RemoteControlBootstrap, RemoteRoomJoinContext, StreamerRoomConfig } from "./types.js";
+import { summarizeStreamerRoomConfig, type StreamerRoomConfig, type StreamerRoomConfigSummary } from "./roomConfig.js";
+import type { RemoteRoomJoinContext } from "./roomSession.js";
+
+export interface RemoteControlBootstrap {
+  status: "ready";
+  strategy: "backend_signal_gateway";
+  selectedSignalServer: string;
+  signalServers: string[];
+  signalHeaders: Record<string, string>;
+  signalEvents: readonly string[];
+  soac: {
+    event: string;
+    types: readonly string[];
+    controllerOutboundTypes: readonly string[];
+    controllerInboundTypes: readonly string[];
+    payloadKeys: readonly string[];
+  };
+  signalControl: {
+    socketEvents: Record<string, string>;
+    event: string;
+    payloadKeys: readonly string[];
+    payloadTypes: Record<string, string>;
+    wireArgumentOrder: readonly string[];
+    streamerDataJsonKeys: readonly string[];
+    ackTimeoutMs: number;
+  };
+  dataChannels: Record<string, string>;
+  connectOptions: {
+    fields: readonly { tag: number; name: string; repeated: boolean }[];
+    appClientVersion: string;
+    clientTypes: Record<string, number>;
+    captureTypes: Record<string, number>;
+    controlConnectTypes: Record<string, number>;
+    defaultFeatureFlags: Record<string, number>;
+    captureParams: {
+      fields: readonly { tag: number; name: string; defaultValue: unknown }[];
+      resolutionFields: readonly { tag: number; name: string; defaultValue: unknown }[];
+      fpsValues: Record<string, number>;
+      videoQualityValues: Record<string, number>;
+      chooseResolutionTypes: Record<string, number>;
+      chromaFormats: Record<string, number>;
+      staticDefaults: Record<string, unknown>;
+    };
+  };
+  input: {
+    supportedBuilders: readonly string[];
+    sendToRomWireFields: Record<string, number>;
+    imeControlCodes: Record<string, number>;
+    mumuSystemKeyCodes: Record<string, number>;
+    touchSlots: readonly number[];
+  };
+  joinContext?: RemoteRoomJoinContext;
+  roomConfigSummary: StreamerRoomConfigSummary;
+  gatewayRequiredReason: string;
+}
 
 export function createRemoteControlBootstrap({
   roomConfig,

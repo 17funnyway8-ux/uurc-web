@@ -166,7 +166,11 @@ export function useRemoteClipboardController({
             reading: false,
           }));
           if (!shouldSend) return;
-          if (synchronizedTextRef.current.hasValue && synchronizedTextRef.current.text === text) {
+          if (
+            source === "resume" &&
+            synchronizedTextRef.current.hasValue &&
+            synchronizedTextRef.current.text === text
+          ) {
             setState((current) => ({
               ...current,
               localStatus: `本机剪贴板未变化（${text.length} 字符）`,
@@ -229,6 +233,7 @@ export function useRemoteClipboardController({
     readSequenceRef.current += 1;
     sendSequenceRef.current += 1;
     remoteWriteSequenceRef.current += 1;
+    remoteWriteTailRef.current = Promise.resolve();
     setState((current) => ({
       ...current,
       enabled,
@@ -254,6 +259,7 @@ export function useRemoteClipboardController({
 
   const handleRemoteClipboard = useCallback((text: string): void => {
     if (!syncEnabledRef.current) return;
+    autoReadAllowedRef.current = false;
     synchronizedTextRef.current = { hasValue: true, text };
     const generation = generationRef.current;
     const enabledRevision = enabledRevisionRef.current;
@@ -273,6 +279,7 @@ export function useRemoteClipboardController({
           await writeLocalClipboardText(text);
           if (!isCurrentOperation(generationRef, enabledRevisionRef, generation, enabledRevision)) return;
           if (remoteWriteSequenceRef.current !== sequence) return;
+          autoReadAllowedRef.current = true;
           setState((current) => ({
             ...current,
             remoteFallback: null,
@@ -300,6 +307,7 @@ export function useRemoteClipboardController({
     try {
       await writeLocalClipboardText(fallback.text);
       if (!isCurrentOperation(generationRef, enabledRevisionRef, generation, enabledRevision)) return;
+      autoReadAllowedRef.current = syncEnabledRef.current;
       setState((current) =>
         current.remoteFallback?.id === fallback.id
           ? {

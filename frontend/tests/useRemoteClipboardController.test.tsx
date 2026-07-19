@@ -58,6 +58,10 @@ describe("useRemoteClipboardController", () => {
     await waitFor(() => expect(session.sendClipboardText).toHaveBeenCalledWith("  hello\n"));
     await waitFor(() => expect(controller?.localClipboardStatusLabel).toBe("已同步到远端（8 字符）"));
     expect(controller?.canSendClipboardText).toBe(true);
+
+    act(() => controller?.handleRemoteClipboard("ignored while disabled"));
+    act(() => controller?.handleReadLocalClipboard());
+    await waitFor(() => expect(session.sendClipboardText).toHaveBeenCalledTimes(2));
   });
 
   it("reads once when enabled and progressively syncs after focus without duplicate permission attempts", async () => {
@@ -119,6 +123,11 @@ describe("useRemoteClipboardController", () => {
     act(() => controller?.handleRemoteClipboard(" remote\ntext "));
     await waitFor(() => expect(controller?.remoteClipboardPendingText).toBe(" remote\ntext "));
     expect(controller?.remoteClipboardStatusLabel).toContain("请点击复制收到内容");
+
+    act(() => window.dispatchEvent(new Event("focus")));
+    await Promise.resolve();
+    expect(readText).toHaveBeenCalledTimes(1);
+    expect(session.sendClipboardText).toHaveBeenCalledTimes(1);
 
     act(() => controller?.handleCopyRemoteClipboard());
     await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(" remote\ntext "));
@@ -207,6 +216,36 @@ describe("useRemoteClipboardController", () => {
     await waitFor(() => expect(controller?.remoteClipboardStatusLabel).toBe("已同步到本机（11 字符）"));
     await act(async () => oldWrite.resolve());
     expect(controller?.remoteClipboardStatusLabel).toBe("已同步到本机（11 字符）");
+  });
+
+  it("does not let a pending write survive disabling and re-enabling sync", async () => {
+    const oldWrite = deferred<void>();
+    writeText.mockReturnValueOnce(oldWrite.promise).mockResolvedValueOnce(undefined);
+    const session = createSession();
+    let controller: ClipboardController | undefined;
+    render(
+      <Harness
+        session={session}
+        onController={(nextController) => {
+          controller = nextController;
+        }}
+      />,
+    );
+    await waitFor(() => expect(controller).toBeDefined());
+    act(() => controller?.handleClipboardSyncEnabledChange(true));
+    await waitFor(() => expect(controller?.clipboardSyncEnabled).toBe(true));
+
+    act(() => controller?.handleRemoteClipboard("before disable"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("before disable"));
+    act(() => controller?.handleClipboardSyncEnabledChange(false));
+    act(() => controller?.handleClipboardSyncEnabledChange(true));
+    await waitFor(() => expect(controller?.clipboardSyncEnabled).toBe(true));
+    act(() => controller?.handleRemoteClipboard("after re-enable"));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("after re-enable"));
+    await waitFor(() => expect(controller?.remoteClipboardStatusLabel).toBe("已同步到本机（15 字符）"));
+    await act(async () => oldWrite.resolve());
+    expect(controller?.remoteClipboardStatusLabel).toBe("已同步到本机（15 字符）");
   });
 
   it("reports insecure contexts before requesting clipboard permission", async () => {

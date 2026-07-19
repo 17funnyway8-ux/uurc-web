@@ -11,6 +11,7 @@ export function createDiagnosticsRouter(config: BackendConfig): Router {
     res.json({
       diagnosticsEnabled: config.enableDiagnostics,
       wisp: {
+        enabled: config.enableWisp,
         ports: policy.portWhitelist,
         hosts: policy.hostWhitelist.map((rule) => rule.source),
         allowDirectIp: policy.allowDirectIp,

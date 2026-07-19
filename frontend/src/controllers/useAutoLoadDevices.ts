@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export function useAutoLoadDevices({
   loggedIn,
@@ -11,8 +11,17 @@ export function useAutoLoadDevices({
   busy: unknown;
   loadDevices: () => void;
 }) {
+  const attemptedRef = useRef(false);
+  const loadDevicesRef = useRef(loadDevices);
+  loadDevicesRef.current = loadDevices;
+
   useEffect(() => {
-    if (!loggedIn || devicesLoaded || busy !== null) return;
-    loadDevices();
-  }, [loggedIn, devicesLoaded, busy, loadDevices]);
+    if (!loggedIn) {
+      attemptedRef.current = false;
+      return;
+    }
+    if (devicesLoaded || busy !== null || attemptedRef.current) return;
+    attemptedRef.current = true;
+    loadDevicesRef.current();
+  }, [loggedIn, devicesLoaded, busy]);
 }

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { REMOTE_SESSION_HEADER } from "@uurc/shared/remoteSession";
 
 import {
   cancelRemoteAssistance,
@@ -15,6 +16,7 @@ import {
 
 describe("frontend API client remote signal helpers", () => {
   beforeEach(() => {
+    window.sessionStorage.setItem("uurc.remoteSessionId", "0123456789abcdef0123456789abcdef");
     window.localStorage.setItem(
       "uurc.loginState",
       JSON.stringify({
@@ -28,6 +30,7 @@ describe("frontend API client remote signal helpers", () => {
 
   afterEach(() => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
     vi.unstubAllGlobals();
   });
 
@@ -47,7 +50,7 @@ describe("frontend API client remote signal helpers", () => {
             uuProxyPath: "/api/proxy/uu",
             signalGateway: "node-socket-io",
             remoteApiBase: "/api/remote",
-            wispProxy: true,
+            wispProxy: false,
           });
         }
         if (String(input) === "/api/remote/signal/diagnostics") {
@@ -68,7 +71,13 @@ describe("frontend API client remote signal helpers", () => {
           });
         }
         if (String(input) === "/api/remote/signal/control") {
-          return jsonResponse({ event: "control", ack: [], control: { ackStatus: "success" }, emittedAt: "now", ackReceivedAt: "now" });
+          return jsonResponse({
+            event: "control",
+            ack: [],
+            control: { ackStatus: "success" },
+            emittedAt: "now",
+            ackReceivedAt: "now",
+          });
         }
         if (String(input) === "/api/remote/signal/soac") {
           return jsonResponse({ event: "soac", payload: {}, emittedAt: "now" });
@@ -113,7 +122,13 @@ describe("frontend API client remote signal helpers", () => {
       appFlag: { controlMode: null },
     });
 
-    expect(calls.map((call) => [call.path, call.init?.method ?? "GET", call.init?.body ? JSON.parse(String(call.init.body)) : null])).toEqual([
+    expect(
+      calls.map((call) => [
+        call.path,
+        call.init?.method ?? "GET",
+        call.init?.body ? JSON.parse(String(call.init.body)) : null,
+      ]),
+    ).toEqual([
       ["/api/runtime", "GET", null],
       ["/api/remote/signal/events", "GET", null],
       ["/api/remote/signal/diagnostics", "GET", null],
@@ -153,6 +168,9 @@ describe("frontend API client remote signal helpers", () => {
         },
       ],
     ]);
+    for (const call of calls.filter((item) => item.path.startsWith("/api/remote/signal"))) {
+      expect(new Headers(call.init?.headers).get(REMOTE_SESSION_HEADER)).toBe("0123456789abcdef0123456789abcdef");
+    }
   });
 
   it("calls UU remote assistance routes through the signed proxy", async () => {
@@ -166,13 +184,15 @@ describe("frontend API client remote signal helpers", () => {
           return jsonResponse({});
         }
         if (request.path === "/api/v2/room/share/control_mode") {
-          return jsonResponse(proxyResponse({
-            code: 0,
-            data: {
-              can_remote_control: true,
-              control_mode: "by_password",
-            },
-          }));
+          return jsonResponse(
+            proxyResponse({
+              code: 0,
+              data: {
+                can_remote_control: true,
+                control_mode: "by_password",
+              },
+            }),
+          );
         }
         if (request.path === "/api/v2/room/join/share/by_code") {
           return jsonResponse(proxyResponse(remoteAssistanceRoomBody("assist-room-token")));
@@ -232,7 +252,13 @@ describe("frontend API client remote signal helpers", () => {
       },
     });
 
-    expect(calls.map((call) => [call.path, call.init?.method ?? "GET", call.init?.body ? JSON.parse(String(call.init.body)) : null])).toEqual([
+    expect(
+      calls.map((call) => [
+        call.path,
+        call.init?.method ?? "GET",
+        call.init?.body ? JSON.parse(String(call.init.body)) : null,
+      ]),
+    ).toEqual([
       [
         "/api/proxy/uu",
         "POST",

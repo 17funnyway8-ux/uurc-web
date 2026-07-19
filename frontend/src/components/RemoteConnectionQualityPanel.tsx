@@ -1,6 +1,6 @@
 import { Activity, RotateCcw } from "lucide-react";
 
-import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
+import type { RemoteConnectionQualityPanelProps } from "../app/remoteControlPageProps.js";
 
 // 普通用户一眼能看懂的核心指标常驻显示；其余专业/诊断指标收进“更多指标”，减少信息过载。
 const PRIMARY_METRIC_LABELS = new Set(["路径", "画面", "输入", "延迟", "帧率", "分辨率"]);
@@ -10,13 +10,7 @@ export function RemoteConnectionQualityPanel({
   autoReconnectLabel,
   connectionQuality,
   onAutoReconnectEnabledChange,
-}: Pick<
-  RemoteControlPageProps,
-  | "autoReconnectEnabled"
-  | "autoReconnectLabel"
-  | "connectionQuality"
-  | "onAutoReconnectEnabledChange"
->) {
+}: RemoteConnectionQualityPanelProps) {
   const primaryMetrics = connectionQuality.metrics.filter((metric) => PRIMARY_METRIC_LABELS.has(metric.label));
   const advancedMetrics = connectionQuality.metrics.filter((metric) => !PRIMARY_METRIC_LABELS.has(metric.label));
 

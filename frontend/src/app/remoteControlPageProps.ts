@@ -9,10 +9,7 @@ import type {
   UuParticipantInfo,
 } from "@uurc/shared/types";
 
-import type {
-  BrowserRemoteSessionState,
-  BrowserRemoteVideoElementSample,
-} from "../remote/browserRemoteSession.js";
+import type { BrowserRemoteSessionState, BrowserRemoteVideoElementSample } from "../remote/browserRemoteSession.js";
 import type { RemoteShortcut } from "../remote/remoteShortcuts.js";
 import type {
   BusyAction,
@@ -25,7 +22,7 @@ import type {
   SdpTransportMode,
 } from "./remoteControlTypes.js";
 
-export interface RemoteControlPageProps {
+export interface RemoteControlViewProps {
   autoSwitchThresholdLabel: string;
   browserIceServers: number;
   browserRemoteState: BrowserRemoteSessionState;
@@ -137,4 +134,323 @@ export interface RemoteControlPageProps {
   onSendClipboardText: () => void;
   onToggleInputControl: () => void;
   onToggleFullscreen: () => void;
+}
+
+export type RemoteControlShellProps = Pick<
+  RemoteControlViewProps,
+  "deviceNotFound" | "error" | "isFullscreen" | "onReturnToDevices" | "remoteStageFrameRef"
+>;
+
+export type RemoteControlTopbarProps = Pick<
+  RemoteControlViewProps,
+  | "browserRemoteState"
+  | "busy"
+  | "canDisconnectRemote"
+  | "onReturnToDevices"
+  | "onStopSignalGateway"
+  | "selectedDevice"
+  | "selectedTargetLabel"
+  | "signalGatewayDisplay"
+>;
+
+export type RemoteCommandBarProps = Pick<
+  RemoteControlViewProps,
+  | "busy"
+  | "canReconnectRemote"
+  | "controlChannelState"
+  | "inputControlActive"
+  | "isFullscreen"
+  | "nextAction"
+  | "onNextAction"
+  | "onReconnectRemote"
+  | "onRemoteShortcut"
+  | "onStageViewModeChange"
+  | "onToggleInputControl"
+  | "onToggleFullscreen"
+  | "remoteRecoveryLabel"
+  | "remoteShortcutPlatform"
+  | "remoteStageViewMode"
+>;
+
+export type RemoteControlStageProps = Pick<
+  RemoteControlViewProps,
+  | "browserStageLabel"
+  | "hasRemoteVideo"
+  | "inputControlActive"
+  | "inputControlLabel"
+  | "onRemoteStageKeyDown"
+  | "onRemoteStageKeyUp"
+  | "onRemoteStageBlur"
+  | "onRemoteStagePaste"
+  | "onRemoteStagePointerCancel"
+  | "onRemoteStagePointerDown"
+  | "onRemoteStagePointerMove"
+  | "onRemoteStagePointerUp"
+  | "onRemoteStageWheel"
+  | "onRemoteVideoSample"
+  | "primaryRemoteVideoActive"
+  | "primaryRemoteVideoId"
+  | "remoteStageRef"
+  | "remoteStageViewMode"
+  | "remoteVideoCount"
+  | "remoteVideoStreams"
+  | "selectedDevice"
+  | "stageStatusLabel"
+  | "videoFlowLabel"
+>;
+
+export type RemoteControlWarningsProps = Pick<
+  RemoteControlViewProps,
+  | "browserWebRtcUnavailableReason"
+  | "forceJoin"
+  | "normalJoinTakeoverHint"
+  | "occupiedBySelfClient"
+  | "occupyingParticipantLabel"
+  | "roomJoinFailureMessage"
+  | "selectedDeviceOccupied"
+  | "selfDeviceBlockedReason"
+  | "signalGatewayErrorHint"
+>;
+
+export type RemoteConnectionQualityPanelProps = Pick<
+  RemoteControlViewProps,
+  "autoReconnectEnabled" | "autoReconnectLabel" | "connectionQuality" | "onAutoReconnectEnabledChange"
+>;
+
+export type RemoteClipboardPanelProps = Pick<
+  RemoteControlViewProps,
+  | "busy"
+  | "canReadLocalClipboard"
+  | "canSendClipboardText"
+  | "clipboardPreviewLabel"
+  | "clipboardStatusLabel"
+  | "onReadLocalClipboard"
+  | "onSendClipboardText"
+>;
+
+export type RemoteVideoSourcePanelProps = Pick<
+  RemoteControlViewProps,
+  "onRemoteVideoSourceChange" | "primaryRemoteVideoId" | "remoteVideoSources"
+>;
+
+export interface RemoteControlInsightsProps {
+  quality: RemoteConnectionQualityPanelProps;
+  clipboard: RemoteClipboardPanelProps;
+  videoSources: RemoteVideoSourcePanelProps;
+}
+
+export type RemoteControlSettingsDrawerProps = Pick<
+  RemoteControlViewProps,
+  | "autoConnect"
+  | "browserRtcReady"
+  | "busy"
+  | "connectionRouteMode"
+  | "forceJoin"
+  | "onAutoConnectChange"
+  | "onConnectionRouteModeChange"
+  | "onForceJoinChange"
+  | "onSignalServerIndexChange"
+  | "onSdpTransportModeChange"
+  | "onStartBrowserRemote"
+  | "onStartSignalGateway"
+  | "onStopSignalGateway"
+  | "sdpTransportMode"
+  | "selectedDevice"
+  | "selectedParticipants"
+  | "signalServerIndex"
+  | "signalServerOptions"
+>;
+
+export type RemoteControlDiagnosticsDrawerProps = Pick<
+  RemoteControlViewProps,
+  | "autoSwitchThresholdLabel"
+  | "browserIceServers"
+  | "browserRemoteState"
+  | "browserRtcDescription"
+  | "browserStageLabel"
+  | "candidatePairSummary"
+  | "connectionPathLabel"
+  | "controlChannelLabel"
+  | "debugEvents"
+  | "effectiveConnectionRouteLabel"
+  | "iceControlStatusLabel"
+  | "inboundVideoStatsLabel"
+  | "inputControlActive"
+  | "joinModeLabel"
+  | "networkSwitchSummary"
+  | "remoteBootstrap"
+  | "roomDebugPayload"
+  | "roomJoinModeDebugLabel"
+  | "roomReleaseDetail"
+  | "roomReleaseLabel"
+  | "runtimeProfile"
+  | "selectedDevice"
+  | "selectedDeviceId"
+  | "serviceRoutePolicyLabel"
+  | "signalEvents"
+  | "signalGatewayDisplay"
+  | "signalHeaderSummary"
+  | "signalReadiness"
+  | "sdpTransportLabel"
+  | "textChannelLabel"
+  | "unexpectedSignalEventSummary"
+  | "videoElementLabel"
+  | "videoFlowLabel"
+>;
+
+export interface RemoteControlPageProps {
+  shell: RemoteControlShellProps;
+  topbar: RemoteControlTopbarProps;
+  commandBar: RemoteCommandBarProps;
+  stage: RemoteControlStageProps;
+  warnings: RemoteControlWarningsProps;
+  insights: RemoteControlInsightsProps;
+  settings: RemoteControlSettingsDrawerProps;
+  diagnostics: RemoteControlDiagnosticsDrawerProps;
+}
+
+export function createRemoteControlPageProps(props: RemoteControlViewProps): RemoteControlPageProps {
+  return {
+    shell: pick(props, ["deviceNotFound", "error", "isFullscreen", "onReturnToDevices", "remoteStageFrameRef"]),
+    topbar: pick(props, [
+      "browserRemoteState",
+      "busy",
+      "canDisconnectRemote",
+      "onReturnToDevices",
+      "onStopSignalGateway",
+      "selectedDevice",
+      "selectedTargetLabel",
+      "signalGatewayDisplay",
+    ]),
+    commandBar: pick(props, [
+      "busy",
+      "canReconnectRemote",
+      "controlChannelState",
+      "inputControlActive",
+      "isFullscreen",
+      "nextAction",
+      "onNextAction",
+      "onReconnectRemote",
+      "onRemoteShortcut",
+      "onStageViewModeChange",
+      "onToggleInputControl",
+      "onToggleFullscreen",
+      "remoteRecoveryLabel",
+      "remoteShortcutPlatform",
+      "remoteStageViewMode",
+    ]),
+    stage: pick(props, [
+      "browserStageLabel",
+      "hasRemoteVideo",
+      "inputControlActive",
+      "inputControlLabel",
+      "onRemoteStageKeyDown",
+      "onRemoteStageKeyUp",
+      "onRemoteStageBlur",
+      "onRemoteStagePaste",
+      "onRemoteStagePointerCancel",
+      "onRemoteStagePointerDown",
+      "onRemoteStagePointerMove",
+      "onRemoteStagePointerUp",
+      "onRemoteStageWheel",
+      "onRemoteVideoSample",
+      "primaryRemoteVideoActive",
+      "primaryRemoteVideoId",
+      "remoteStageRef",
+      "remoteStageViewMode",
+      "remoteVideoCount",
+      "remoteVideoStreams",
+      "selectedDevice",
+      "stageStatusLabel",
+      "videoFlowLabel",
+    ]),
+    warnings: pick(props, [
+      "browserWebRtcUnavailableReason",
+      "forceJoin",
+      "normalJoinTakeoverHint",
+      "occupiedBySelfClient",
+      "occupyingParticipantLabel",
+      "roomJoinFailureMessage",
+      "selectedDeviceOccupied",
+      "selfDeviceBlockedReason",
+      "signalGatewayErrorHint",
+    ]),
+    insights: {
+      quality: pick(props, [
+        "autoReconnectEnabled",
+        "autoReconnectLabel",
+        "connectionQuality",
+        "onAutoReconnectEnabledChange",
+      ]),
+      clipboard: pick(props, [
+        "busy",
+        "canReadLocalClipboard",
+        "canSendClipboardText",
+        "clipboardPreviewLabel",
+        "clipboardStatusLabel",
+        "onReadLocalClipboard",
+        "onSendClipboardText",
+      ]),
+      videoSources: pick(props, ["onRemoteVideoSourceChange", "primaryRemoteVideoId", "remoteVideoSources"]),
+    },
+    settings: pick(props, [
+      "autoConnect",
+      "browserRtcReady",
+      "busy",
+      "connectionRouteMode",
+      "forceJoin",
+      "onAutoConnectChange",
+      "onConnectionRouteModeChange",
+      "onForceJoinChange",
+      "onSignalServerIndexChange",
+      "onSdpTransportModeChange",
+      "onStartBrowserRemote",
+      "onStartSignalGateway",
+      "onStopSignalGateway",
+      "sdpTransportMode",
+      "selectedDevice",
+      "selectedParticipants",
+      "signalServerIndex",
+      "signalServerOptions",
+    ]),
+    diagnostics: pick(props, [
+      "autoSwitchThresholdLabel",
+      "browserIceServers",
+      "browserRemoteState",
+      "browserRtcDescription",
+      "browserStageLabel",
+      "candidatePairSummary",
+      "connectionPathLabel",
+      "controlChannelLabel",
+      "debugEvents",
+      "effectiveConnectionRouteLabel",
+      "iceControlStatusLabel",
+      "inboundVideoStatsLabel",
+      "inputControlActive",
+      "joinModeLabel",
+      "networkSwitchSummary",
+      "remoteBootstrap",
+      "roomDebugPayload",
+      "roomJoinModeDebugLabel",
+      "roomReleaseDetail",
+      "roomReleaseLabel",
+      "runtimeProfile",
+      "selectedDevice",
+      "selectedDeviceId",
+      "serviceRoutePolicyLabel",
+      "signalEvents",
+      "signalGatewayDisplay",
+      "signalHeaderSummary",
+      "signalReadiness",
+      "sdpTransportLabel",
+      "textChannelLabel",
+      "unexpectedSignalEventSummary",
+      "videoElementLabel",
+      "videoFlowLabel",
+    ]),
+  };
+}
+
+function pick<T extends object, K extends keyof T>(value: T, keys: readonly K[]): Pick<T, K> {
+  return Object.fromEntries(keys.map((key) => [key, value[key]])) as Pick<T, K>;
 }

@@ -11,7 +11,10 @@ export function ReadinessStrip({ diagnostics }: { diagnostics: RemoteSignalReadi
         <code>{diagnostics.stage}</code>
       </header>
       <div className="readiness-steps">
-        <ReadinessStep ok={diagnostics.checks.signalGatewayConnected} label={diagnostics.checks.signalGatewayConnected ? "连接服务已就绪" : "等待连接服务"} />
+        <ReadinessStep
+          ok={diagnostics.checks.signalGatewayConnected}
+          label={diagnostics.checks.signalGatewayConnected ? "连接服务已就绪" : "等待连接服务"}
+        />
         <ReadinessStep
           ok={diagnostics.checks.controlAckReceived}
           blocked={diagnostics.blocker === "control_ack_failed"}
@@ -23,10 +26,15 @@ export function ReadinessStrip({ diagnostics }: { diagnostics: RemoteSignalReadi
                 : "等待连接确认"
           }
         />
-        <ReadinessStep ok={diagnostics.checks.offerSent} label={diagnostics.checks.offerSent ? "offer 已发送" : "等待 offer"} />
+        <ReadinessStep
+          ok={diagnostics.checks.offerSent}
+          label={diagnostics.checks.offerSent ? "offer 已发送" : "等待 offer"}
+        />
         <ReadinessStep
           ok={diagnostics.checks.answerReceived || diagnostics.counts.inboundBmsgPush > 0}
-          blocked={diagnostics.blocker === "be_controlled_failed" || diagnostics.blocker === "controlled_left_before_answer"}
+          blocked={
+            diagnostics.blocker === "be_controlled_failed" || diagnostics.blocker === "controlled_left_before_answer"
+          }
           label={formatSignalReturnStepLabel(diagnostics)}
         />
         <ReadinessStep
@@ -94,7 +102,9 @@ function formatControlAckError(error: NonNullable<RemoteSignalReadinessDiagnosti
     typeof error.code === "number" ? `code=${error.code}` : null,
     error.protocolError ? `protocol=${error.protocolError}` : null,
     error.message ? `msg=${error.message}` : null,
-  ].filter(Boolean).join(" · ");
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function formatBeControlledError(error: NonNullable<RemoteSignalReadinessDiagnostics["beControlledError"]>): string {
@@ -102,7 +112,9 @@ function formatBeControlledError(error: NonNullable<RemoteSignalReadinessDiagnos
     typeof error.code === "number" ? `code=${error.code}` : null,
     error.protocolError ? `protocol=${error.protocolError}` : null,
     error.message ? `msg=${error.message}` : null,
-  ].filter(Boolean).join(" · ");
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function formatTerminalSignal(terminalSignal: NonNullable<RemoteSignalReadinessDiagnostics["terminalSignal"]>): string {
@@ -111,7 +123,9 @@ function formatTerminalSignal(terminalSignal: NonNullable<RemoteSignalReadinessD
     terminalSignal.event,
     terminalSignal.traceId,
     getTerminalSignalIceLabel(terminalSignal),
-  ].filter(Boolean).join(" · ");
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function getTerminalSignalIceLabel(

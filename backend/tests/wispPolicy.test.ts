@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  createDefaultWispPolicy,
-  isWispTargetAllowed,
-} from "../src/services/wispPolicy.js";
+import { createDefaultWispPolicy, isWispTargetAllowed } from "../src/services/wispPolicy.js";
 
 describe("Wisp target policy", () => {
   it("allows known UU API hosts on port 443", () => {

@@ -1,6 +1,6 @@
 import { Clipboard, ClipboardCheck } from "lucide-react";
 
-import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
+import type { RemoteClipboardPanelProps } from "../app/remoteControlPageProps.js";
 
 export function RemoteClipboardPanel({
   busy,
@@ -10,16 +10,7 @@ export function RemoteClipboardPanel({
   clipboardStatusLabel,
   onReadLocalClipboard,
   onSendClipboardText,
-}: Pick<
-  RemoteControlPageProps,
-  | "busy"
-  | "canReadLocalClipboard"
-  | "canSendClipboardText"
-  | "clipboardPreviewLabel"
-  | "clipboardStatusLabel"
-  | "onReadLocalClipboard"
-  | "onSendClipboardText"
->) {
+}: RemoteClipboardPanelProps) {
   return (
     <section className="control-insight-panel" aria-label="剪贴板">
       <header>

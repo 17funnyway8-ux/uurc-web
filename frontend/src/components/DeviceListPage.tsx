@@ -58,7 +58,9 @@ export function DeviceListPage({
     <main className="product-shell">
       <header className="product-topbar">
         <div className="brand-block">
-          <span className="wordmark">UU Remote<span className="wordmark-sub">Web</span></span>
+          <span className="wordmark">
+            UU Remote<span className="wordmark-sub">Web</span>
+          </span>
           <h1>我的设备</h1>
         </div>
         <a

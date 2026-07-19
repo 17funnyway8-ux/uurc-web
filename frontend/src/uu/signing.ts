@@ -1,10 +1,4 @@
-import {
-  API_BASE,
-  APP_PACKAGE,
-  APP_SIGNING_KEY,
-  VERSION_CODE,
-  VERSION_NAME,
-} from "@uurc/shared/constants";
+import { API_BASE, APP_PACKAGE, APP_SIGNING_KEY, VERSION_CODE, VERSION_NAME } from "@uurc/shared/constants";
 import type { LoginState } from "@uurc/shared/types";
 
 interface HeaderOverrides {
@@ -62,10 +56,7 @@ export function buildUuApiUrl(path: string): string {
   return `${API_BASE}${path}`;
 }
 
-function buildCommonHeaders(
-  state: Partial<LoginState>,
-  overrides: HeaderOverrides = {},
-): Record<string, string> {
+function buildCommonHeaders(state: Partial<LoginState>, overrides: HeaderOverrides = {}): Record<string, string> {
   return {
     "X-Param-CHN": overrides.channel ?? state.channel ?? "nochannel",
     "X-Param-OPR": overrides.operator ?? "",
@@ -113,13 +104,9 @@ async function hmacSha256Hex(input: string): Promise<string> {
   }
 
   const encoder = new TextEncoder();
-  const key = await subtle.importKey(
-    "raw",
-    encoder.encode(APP_SIGNING_KEY),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
+  const key = await subtle.importKey("raw", encoder.encode(APP_SIGNING_KEY), { name: "HMAC", hash: "SHA-256" }, false, [
+    "sign",
+  ]);
   const signature = await subtle.sign("HMAC", key, encoder.encode(input));
   return [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }

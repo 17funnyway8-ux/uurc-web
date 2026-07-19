@@ -15,7 +15,11 @@ export function flattenDeviceGroups(input: unknown): UuDeviceGroups {
 }
 
 export function pickControllableDesktop(devices: UuDevice[], excludedDeviceId = ""): UuDevice | null {
-  return devices.find((device) => device.controllable && device.deviceId !== excludedDeviceId) ?? devices.find((device) => device.controllable) ?? null;
+  return (
+    devices.find((device) => device.controllable && device.deviceId !== excludedDeviceId) ??
+    devices.find((device) => device.controllable) ??
+    null
+  );
 }
 
 function toDevices(value: unknown): UuDevice[] {

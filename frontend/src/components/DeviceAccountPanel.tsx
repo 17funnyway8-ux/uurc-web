@@ -79,7 +79,9 @@ export function DeviceAccountPanel({
             </button>
           </div>
           <textarea id="auth-json-export" name="auth-json-export" value={authJson} readOnly spellCheck={false} />
-          <p className="field-hint">妥善保管：任何人拿到它即可登录你的账号。可在其他设备的「导入账号凭证」中粘贴恢复。</p>
+          <p className="field-hint">
+            妥善保管：任何人拿到它即可登录你的账号。可在其他设备的「导入账号凭证」中粘贴恢复。
+          </p>
         </details>
       ) : null}
 

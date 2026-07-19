@@ -15,7 +15,7 @@ describe("room config normalization", () => {
           report_token: "report-secret-token",
           report_url: "https://report.example/qos",
           report_server_address: "report.example:443",
-          app_data: "{\"network\":\"auto\"}",
+          app_data: '{"network":"auto"}',
         },
       },
     });
@@ -28,7 +28,7 @@ describe("room config normalization", () => {
       reportToken: "report-secret-token",
       reportUrl: "https://report.example/qos",
       reportServerAddress: "report.example:443",
-      appData: "{\"network\":\"auto\"}",
+      appData: '{"network":"auto"}',
     });
   });
 

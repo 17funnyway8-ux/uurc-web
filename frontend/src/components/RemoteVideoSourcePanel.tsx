@@ -1,12 +1,12 @@
 import { Monitor } from "lucide-react";
 
-import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
+import type { RemoteVideoSourcePanelProps } from "../app/remoteControlPageProps.js";
 
 export function RemoteVideoSourcePanel({
   onRemoteVideoSourceChange,
   primaryRemoteVideoId,
   remoteVideoSources,
-}: Pick<RemoteControlPageProps, "onRemoteVideoSourceChange" | "primaryRemoteVideoId" | "remoteVideoSources">) {
+}: RemoteVideoSourcePanelProps) {
   const hasSources = remoteVideoSources.length > 0;
 
   return (

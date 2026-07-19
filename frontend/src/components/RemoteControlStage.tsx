@@ -1,6 +1,6 @@
 import { Monitor } from "lucide-react";
 
-import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
+import type { RemoteControlStageProps } from "../app/remoteControlPageProps.js";
 import { RemoteVideoTile } from "./RemoteVideoTile.js";
 
 export function RemoteControlStage({
@@ -27,32 +27,7 @@ export function RemoteControlStage({
   selectedDevice,
   stageStatusLabel,
   videoFlowLabel,
-}: Pick<
-  RemoteControlPageProps,
-  | "browserStageLabel"
-  | "hasRemoteVideo"
-  | "inputControlActive"
-  | "inputControlLabel"
-  | "onRemoteStageKeyDown"
-  | "onRemoteStageKeyUp"
-  | "onRemoteStageBlur"
-  | "onRemoteStagePaste"
-  | "onRemoteStagePointerCancel"
-  | "onRemoteStagePointerDown"
-  | "onRemoteStagePointerMove"
-  | "onRemoteStagePointerUp"
-  | "onRemoteStageWheel"
-  | "onRemoteVideoSample"
-  | "primaryRemoteVideoActive"
-  | "primaryRemoteVideoId"
-  | "remoteStageRef"
-  | "remoteStageViewMode"
-  | "remoteVideoCount"
-  | "remoteVideoStreams"
-  | "selectedDevice"
-  | "stageStatusLabel"
-  | "videoFlowLabel"
->) {
+}: RemoteControlStageProps) {
   return (
     <div
       ref={remoteStageRef}

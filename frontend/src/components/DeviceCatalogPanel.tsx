@@ -54,9 +54,33 @@ export function DeviceCatalogPanel({
         </button>
       }
     >
-      <DeviceSection title="桌面端" devices={devices.desktopDevices} loading={devicesLoading} selected={selectedDeviceId} currentDeviceId={authStatus?.deviceId} onSelect={onSelectDevice} onConnect={onOpenDevice} />
-      <DeviceSection title="移动端" devices={devices.mobileDevices} loading={devicesLoading} selected={selectedDeviceId} currentDeviceId={authStatus?.deviceId} onSelect={onSelectDevice} onConnect={onOpenDevice} />
-      <DeviceSection title="TV" devices={devices.tvDevices} loading={devicesLoading} selected={selectedDeviceId} currentDeviceId={authStatus?.deviceId} onSelect={onSelectDevice} onConnect={onOpenDevice} />
+      <DeviceSection
+        title="桌面端"
+        devices={devices.desktopDevices}
+        loading={devicesLoading}
+        selected={selectedDeviceId}
+        currentDeviceId={authStatus?.deviceId}
+        onSelect={onSelectDevice}
+        onConnect={onOpenDevice}
+      />
+      <DeviceSection
+        title="移动端"
+        devices={devices.mobileDevices}
+        loading={devicesLoading}
+        selected={selectedDeviceId}
+        currentDeviceId={authStatus?.deviceId}
+        onSelect={onSelectDevice}
+        onConnect={onOpenDevice}
+      />
+      <DeviceSection
+        title="TV"
+        devices={devices.tvDevices}
+        loading={devicesLoading}
+        selected={selectedDeviceId}
+        currentDeviceId={authStatus?.deviceId}
+        onSelect={onSelectDevice}
+        onConnect={onOpenDevice}
+      />
       <RemoteAssistanceCard
         busy={busy}
         connectCode={assistanceConnectCode}

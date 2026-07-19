@@ -1,7 +1,9 @@
 import { Router } from "express";
 import {
+  REMOTE_SESSION_HEADER,
   STREAMER_ICE_NETWORK_TYPES,
   STREAMER_SOAC_TYPES,
+  isRemoteSessionId,
   type RemoteSignalGatewayStartRequest,
   type RemoteSignalSoacCandidate,
   type RemoteRoomJoinContext,
@@ -11,12 +13,25 @@ import {
 } from "@uurc/shared";
 
 import type { RemoteControlService } from "../services/remoteControlService.js";
+import type { RemoteControlSessionRegistry } from "../services/remoteControlSessionRegistry.js";
 
-export function createRemoteRouter(remoteControl: RemoteControlService): Router {
+export function createRemoteRouter(remoteControlSessions: RemoteControlSessionRegistry): Router {
   const router = Router();
+
+  router.use("/remote", (req, res, next) => {
+    const sessionId = req.get(REMOTE_SESSION_HEADER);
+    if (!isRemoteSessionId(sessionId)) {
+      res.status(401).json({ error: "A valid remote session capability is required" });
+      return;
+    }
+    res.locals.remoteSessionId = sessionId;
+    res.locals.remoteControl = remoteControlSessions.getOrCreate(sessionId);
+    next();
+  });
 
   router.get("/remote/bootstrap", async (_req, res, next) => {
     try {
+      const remoteControl = getRemoteControl(res.locals);
       const bootstrap = await remoteControl.createBootstrap();
       if (!bootstrap) {
         res.status(404).json({ error: "Join a room before starting remote control" });
@@ -31,6 +46,7 @@ export function createRemoteRouter(remoteControl: RemoteControlService): Router 
 
   router.post("/remote/signal/start", async (req, res, next) => {
     try {
+      const remoteControl = getRemoteControl(res.locals);
       const input = parseSignalGatewayStartRequest(req.body);
       const status = await remoteControl.startSignalGateway(input);
       if (!status) {
@@ -49,19 +65,32 @@ export function createRemoteRouter(remoteControl: RemoteControlService): Router 
   });
 
   router.get("/remote/signal/status", (_req, res) => {
+    const remoteControl = getRemoteControl(res.locals);
     res.json(remoteControl.getSignalGatewayStatus());
   });
 
-  router.get("/remote/signal/events", (_req, res) => {
-    res.json(remoteControl.getSignalGatewayEvents());
+  router.get("/remote/signal/events", (req, res) => {
+    try {
+      const remoteControl = getRemoteControl(res.locals);
+      const afterEventId = parseOptionalEventId(req.query.after);
+      res.json(remoteControl.getSignalGatewayEvents(afterEventId));
+    } catch (error) {
+      if (error instanceof BadRequestError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
   });
 
   router.get("/remote/signal/diagnostics", (_req, res) => {
+    const remoteControl = getRemoteControl(res.locals);
     res.json(remoteControl.getSignalReadinessDiagnostics());
   });
 
   router.post("/remote/signal/control", async (req, res, next) => {
     try {
+      const remoteControl = getRemoteControl(res.locals);
       const input = parseSignalControlRequest(req.body);
       const result = await remoteControl.sendSignalControl(input);
       if (!result) {
@@ -81,6 +110,7 @@ export function createRemoteRouter(remoteControl: RemoteControlService): Router 
 
   router.post("/remote/signal/soac", async (req, res, next) => {
     try {
+      const remoteControl = getRemoteControl(res.locals);
       const input = parseSignalSoacRequest(req.body);
       const result = await remoteControl.sendSignalSoac(input);
       if (!result) {
@@ -100,13 +130,32 @@ export function createRemoteRouter(remoteControl: RemoteControlService): Router 
 
   router.delete("/remote/signal", async (_req, res, next) => {
     try {
+      const remoteControl = getRemoteControl(res.locals);
+      const sessionId = getRemoteSessionId(res.locals);
       res.json(await remoteControl.stopSignalGateway());
+      remoteControlSessions.release(sessionId);
     } catch (error) {
       next(error);
     }
   });
 
   return router;
+}
+
+function getRemoteControl(locals: Record<string, unknown>): RemoteControlService {
+  return locals.remoteControl as RemoteControlService;
+}
+
+function getRemoteSessionId(locals: Record<string, unknown>): string {
+  return locals.remoteSessionId as string;
+}
+
+function parseOptionalEventId(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !/^\d+$/.test(value)) {
+    throw new BadRequestError("after must be a non-negative integer");
+  }
+  return Number.parseInt(value, 10);
 }
 
 class BadRequestError extends Error {}
@@ -138,7 +187,10 @@ function parseOptionalRoomConfig(value: unknown): StreamerRoomConfig | undefined
   if (typeof record.token !== "string" || record.token.length === 0) {
     throw new BadRequestError("roomConfig.token is required");
   }
-  if (!Array.isArray(record.signalServers) || !record.signalServers.every((item) => typeof item === "string" && item.length > 0)) {
+  if (
+    !Array.isArray(record.signalServers) ||
+    !record.signalServers.every((item) => typeof item === "string" && item.length > 0)
+  ) {
     throw new BadRequestError("roomConfig.signalServers must be a string array");
   }
   assertOptionalNonNegativeInteger(record.timeout, "roomConfig.timeout");
@@ -276,9 +328,16 @@ function assertOptionalNonNegativeInteger(value: unknown, fieldName: string): as
   }
 }
 
-function assertOptionalStreamerIceNetworkType(value: unknown, fieldName: string): asserts value is StreamerIceNetworkType | undefined {
+function assertOptionalStreamerIceNetworkType(
+  value: unknown,
+  fieldName: string,
+): asserts value is StreamerIceNetworkType | undefined {
   if (value === undefined) return;
-  if (typeof value !== "number" || !Number.isInteger(value) || !Object.values(STREAMER_ICE_NETWORK_TYPES).includes(value as StreamerIceNetworkType)) {
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    !Object.values(STREAMER_ICE_NETWORK_TYPES).includes(value as StreamerIceNetworkType)
+  ) {
     throw new BadRequestError(`${fieldName} must be a known streamer ICE network type`);
   }
 }

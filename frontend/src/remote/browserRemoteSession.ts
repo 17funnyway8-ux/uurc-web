@@ -1,6 +1,7 @@
 import {
   STREAMER_DATA_CHANNEL_LABELS,
   STREAMER_ICE_NETWORK_TYPES,
+  STREAMER_MAX_DATA_BUFFER_BYTES,
   buildStreamerMouseButtonInputMessage,
   buildStreamerKeyboardInputMessage,
   buildStreamerMacKeyboardInputMessage,
@@ -61,6 +62,7 @@ export interface BrowserRemotePeerConnection {
 export interface BrowserRemoteDataChannel {
   label: string;
   readyState: RTCDataChannelState;
+  bufferedAmount?: number;
   binaryType?: BinaryType;
   onopen: ((event: Event) => void) | null;
   onclose: ((event: Event) => void) | null;
@@ -201,13 +203,7 @@ export interface BrowserRemoteVideoFlowDiagnostics {
 }
 
 export type BrowserRemoteDebugEventKind =
-  | "session"
-  | "signal"
-  | "data_channel"
-  | "data_send"
-  | "data_recv"
-  | "stats"
-  | "video_element";
+  "session" | "signal" | "data_channel" | "data_send" | "data_recv" | "stats" | "video_element";
 
 export interface BrowserRemoteDebugEvent {
   id: number;
@@ -255,6 +251,7 @@ export class BrowserRemoteSession {
   private readonly dataChannels = new Map<StreamerDataChannelLabel, BrowserRemoteDataChannel>();
   private echoHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
   private lastEchoHeartbeatDebugAtMs = 0;
+  private lastMouseMoveBackpressureDebugAtMs = 0;
   private readonly lastDataReceiveDebugAtMs = new Map<StreamerDataChannelLabel, number>();
   private debugEventId = 1;
   private debugEvents: BrowserRemoteDebugEvent[] = [];
@@ -390,7 +387,9 @@ export class BrowserRemoteSession {
     this.iceNetworkType = input.iceNetworkType ?? STREAMER_ICE_NETWORK_TYPES.appAuto;
     this.targetPlatform = input.targetPlatform;
     this.processedSignalEventIds.clear();
-    this.peer = this.createPeerConnection(buildStreamerRtcConfiguration(result, { forceRelay: input.forceRelay === true }));
+    this.peer = this.createPeerConnection(
+      buildStreamerRtcConfiguration(result, { forceRelay: input.forceRelay === true }),
+    );
     this.createStreamerDataChannels(this.peer);
     this.createStreamerMediaTransceivers(this.peer);
     this.peer.onicecandidate = (event) => {
@@ -402,10 +401,7 @@ export class BrowserRemoteSession {
       appControlId: input.appControlId,
       clientId: result.clientId,
       connectionPath: "unknown",
-      controlIceIdMatch:
-        input.iceId && result.iceId
-          ? input.iceId === result.iceId
-          : undefined,
+      controlIceIdMatch: input.iceId && result.iceId ? input.iceId === result.iceId : undefined,
       controlResult: result,
       controlResultIceId: result.iceId,
       dataChannels: this.getDataChannelStates(),
@@ -465,6 +461,19 @@ export class BrowserRemoteSession {
   }
 
   sendMouseMove(input: BrowserRemoteMousePositionInput): void {
+    const channel = this.dataChannels.get(STREAMER_DATA_CHANNEL_LABELS.control);
+    const bufferedAmount = channel?.bufferedAmount ?? 0;
+    if (bufferedAmount >= STREAMER_MAX_DATA_BUFFER_BYTES) {
+      const nowMs = this.now();
+      if (this.lastMouseMoveBackpressureDebugAtMs === 0 || nowMs - this.lastMouseMoveBackpressureDebugAtMs >= 5000) {
+        this.lastMouseMoveBackpressureDebugAtMs = nowMs;
+        this.recordDebugEvent("data_send", "控制通道拥塞，跳过鼠标移动", {
+          bufferedAmount,
+          threshold: STREAMER_MAX_DATA_BUFFER_BYTES,
+        });
+      }
+      return;
+    }
     this.sendInputData(this.buildMouseMoveAbsoluteInput(input));
   }
 
@@ -476,7 +485,11 @@ export class BrowserRemoteSession {
   }
 
   sendMouseScroll(input: BrowserRemoteMouseScrollInput): void {
-    this.sendInputData(isDesktopPlatform(this.targetPlatform) ? buildStreamerMacMouseScrollInputMessage(input) : buildStreamerMouseScrollInputMessage(input));
+    this.sendInputData(
+      isDesktopPlatform(this.targetPlatform)
+        ? buildStreamerMacMouseScrollInputMessage(input)
+        : buildStreamerMouseScrollInputMessage(input),
+    );
   }
 
   sendKeyboardInput(input: BrowserRemoteKeyboardInput): void {
@@ -587,7 +600,7 @@ export class BrowserRemoteSession {
             delta: dropUndefinedFields(delta) as BrowserRemoteVideoFlowDelta,
             updatedAtMs: this.now(),
           }
-        : this.state.videoFlow ??
+        : (this.state.videoFlow ??
           diagnoseVideoFlow({
             nowMs: this.now(),
             previous: this.previousStatsSample,
@@ -598,7 +611,7 @@ export class BrowserRemoteSession {
             },
             previousVideoElement: this.state.videoElement,
             currentVideoElement: nextPrimarySample,
-          });
+          }));
     this.setState({
       ...this.state,
       videoElement: nextPrimarySample,
@@ -665,7 +678,7 @@ export class BrowserRemoteSession {
       };
       channel.onerror = () => {
         this.recordDebugEvent("data_channel", `${label} error`, { label, readyState: channel.readyState });
-        if (label === STREAMER_DATA_CHANNEL_LABELS.control) {
+        if (label === STREAMER_DATA_CHANNEL_LABELS.control && channel.readyState !== "open") {
           console.warn(`[uurc] 控制数据通道错误（${label}），readyState=${channel.readyState}`);
           this.stopEchoHeartbeat();
         }
@@ -786,10 +799,7 @@ export class BrowserRemoteSession {
     }
   }
 
-  private isCurrentSoacPayload(
-    record: Record<string, unknown> | null,
-    data: Record<string, unknown> | null,
-  ): boolean {
+  private isCurrentSoacPayload(record: Record<string, unknown> | null, data: Record<string, unknown> | null): boolean {
     return (
       matchesScopedString(readStringField(record, "client_id", "clientId"), this.clientId) &&
       matchesScopedString(readStringField(data, "app_control_id", "appControlId"), this.appControlId) &&
@@ -797,7 +807,10 @@ export class BrowserRemoteSession {
     );
   }
 
-  private async createAndSendLocalOffer(type: "offer" | "restart_ice" = "offer", options?: RTCOfferOptions): Promise<void> {
+  private async createAndSendLocalOffer(
+    type: "offer" | "restart_ice" = "offer",
+    options?: RTCOfferOptions,
+  ): Promise<void> {
     if (!this.peer) return;
     const offer = await this.peer.createOffer(options);
     await this.peer.setLocalDescription(offer);
@@ -852,7 +865,10 @@ export class BrowserRemoteSession {
       stream.addTrack(event.track);
     }
     this.remoteStream = stream;
-    const nextTrackCount = typeof stream.getTracks === "function" ? stream.getTracks().length : this.state.remoteTrackCount + (existingTrack ? 0 : 1);
+    const nextTrackCount =
+      typeof stream.getTracks === "function"
+        ? stream.getTracks().length
+        : this.state.remoteTrackCount + (existingTrack ? 0 : 1);
     this.setState({
       ...this.state,
       remoteTrackCount: nextTrackCount,
@@ -1198,17 +1214,27 @@ function diagnoseVideoFlow(input: {
   currentVideoElement?: BrowserRemoteVideoElementSample;
 }): BrowserRemoteVideoFlowDiagnostics {
   const delta: BrowserRemoteVideoFlowDelta = {
-    packetsReceived: diffNumber(input.previous?.inboundVideo?.packetsReceived, input.current.inboundVideo?.packetsReceived),
+    packetsReceived: diffNumber(
+      input.previous?.inboundVideo?.packetsReceived,
+      input.current.inboundVideo?.packetsReceived,
+    ),
     bytesReceived: diffNumber(input.previous?.inboundVideo?.bytesReceived, input.current.inboundVideo?.bytesReceived),
     framesDecoded: diffNumber(input.previous?.inboundVideo?.framesDecoded, input.current.inboundVideo?.framesDecoded),
-    framesReceived: diffNumber(input.previous?.inboundVideo?.framesReceived, input.current.inboundVideo?.framesReceived),
+    framesReceived: diffNumber(
+      input.previous?.inboundVideo?.framesReceived,
+      input.current.inboundVideo?.framesReceived,
+    ),
     framesDropped: diffNumber(input.previous?.inboundVideo?.framesDropped, input.current.inboundVideo?.framesDropped),
-    keyFramesDecoded: diffNumber(input.previous?.inboundVideo?.keyFramesDecoded, input.current.inboundVideo?.keyFramesDecoded),
+    keyFramesDecoded: diffNumber(
+      input.previous?.inboundVideo?.keyFramesDecoded,
+      input.current.inboundVideo?.keyFramesDecoded,
+    ),
     pliCount: diffNumber(input.previous?.inboundVideo?.pliCount, input.current.inboundVideo?.pliCount),
     nackCount: diffNumber(input.previous?.inboundVideo?.nackCount, input.current.inboundVideo?.nackCount),
     firCount: diffNumber(input.previous?.inboundVideo?.firCount, input.current.inboundVideo?.firCount),
     freezeCount: diffNumber(input.previous?.inboundVideo?.freezeCount, input.current.inboundVideo?.freezeCount),
-    sampleIntervalMs: diffNumber(input.previous?.inboundVideo?.timestampMs, input.current.inboundVideo?.timestampMs) ??
+    sampleIntervalMs:
+      diffNumber(input.previous?.inboundVideo?.timestampMs, input.current.inboundVideo?.timestampMs) ??
       diffNumber(input.previous?.sampledAtMs, input.current.sampledAtMs),
     candidateBytesReceived: diffNumber(
       input.previous?.selectedCandidatePair?.bytesReceived,
@@ -1242,7 +1268,8 @@ function diagnoseVideoFlow(input: {
     };
   }
 
-  const frameDelta = positive(delta.framesDecoded) || positive(delta.framesReceived) || positive(delta.videoElementFrames);
+  const frameDelta =
+    positive(delta.framesDecoded) || positive(delta.framesReceived) || positive(delta.videoElementFrames);
   if (frameDelta) {
     return {
       status: "receiving",
@@ -1253,7 +1280,8 @@ function diagnoseVideoFlow(input: {
     };
   }
 
-  const rtpDelta = positive(delta.packetsReceived) || positive(delta.bytesReceived) || positive(delta.candidateBytesReceived);
+  const rtpDelta =
+    positive(delta.packetsReceived) || positive(delta.bytesReceived) || positive(delta.candidateBytesReceived);
   if (rtpDelta) {
     return {
       status: "decode_stalled",
@@ -1305,22 +1333,24 @@ function positive(value: number | undefined): boolean {
 }
 
 function formatVideoFlowDelta(delta: BrowserRemoteVideoFlowDelta): string {
-  return [
-    delta.framesDecoded === undefined ? null : `decoded +${delta.framesDecoded}`,
-    delta.framesReceived === undefined ? null : `received +${delta.framesReceived}`,
-    delta.keyFramesDecoded === undefined || delta.keyFramesDecoded === 0 ? null : `key +${delta.keyFramesDecoded}`,
-    delta.framesDropped === undefined || delta.framesDropped === 0 ? null : `dropped +${delta.framesDropped}`,
-    delta.packetsReceived === undefined ? null : `pkt +${delta.packetsReceived}`,
-    delta.bytesReceived === undefined ? null : `bytes +${delta.bytesReceived}`,
-    delta.pliCount === undefined || delta.pliCount === 0 ? null : `pli +${delta.pliCount}`,
-    delta.nackCount === undefined || delta.nackCount === 0 ? null : `nack +${delta.nackCount}`,
-    delta.firCount === undefined || delta.firCount === 0 ? null : `fir +${delta.firCount}`,
-    delta.freezeCount === undefined || delta.freezeCount === 0 ? null : `freeze +${delta.freezeCount}`,
-    delta.sampleIntervalMs === undefined ? null : `interval ${Math.round(delta.sampleIntervalMs)}ms`,
-    delta.videoElementFrames === undefined ? null : `video +${delta.videoElementFrames}`,
-  ]
-    .filter(Boolean)
-    .join(" · ") || "本次采样没有可比较增量";
+  return (
+    [
+      delta.framesDecoded === undefined ? null : `decoded +${delta.framesDecoded}`,
+      delta.framesReceived === undefined ? null : `received +${delta.framesReceived}`,
+      delta.keyFramesDecoded === undefined || delta.keyFramesDecoded === 0 ? null : `key +${delta.keyFramesDecoded}`,
+      delta.framesDropped === undefined || delta.framesDropped === 0 ? null : `dropped +${delta.framesDropped}`,
+      delta.packetsReceived === undefined ? null : `pkt +${delta.packetsReceived}`,
+      delta.bytesReceived === undefined ? null : `bytes +${delta.bytesReceived}`,
+      delta.pliCount === undefined || delta.pliCount === 0 ? null : `pli +${delta.pliCount}`,
+      delta.nackCount === undefined || delta.nackCount === 0 ? null : `nack +${delta.nackCount}`,
+      delta.firCount === undefined || delta.firCount === 0 ? null : `fir +${delta.firCount}`,
+      delta.freezeCount === undefined || delta.freezeCount === 0 ? null : `freeze +${delta.freezeCount}`,
+      delta.sampleIntervalMs === undefined ? null : `interval ${Math.round(delta.sampleIntervalMs)}ms`,
+      delta.videoElementFrames === undefined ? null : `video +${delta.videoElementFrames}`,
+    ]
+      .filter(Boolean)
+      .join(" · ") || "本次采样没有可比较增量"
+  );
 }
 
 function summarizeInputMessage(inputMessage: string): Record<string, unknown> {
@@ -1422,7 +1452,8 @@ function normalizeSwitchNetworkNotify(payload: unknown, currentIceId: string | u
     if (!record) continue;
     const iceId = typeof record.ice_id === "string" ? record.ice_id : undefined;
     if (iceId && currentIceId && iceId !== currentIceId) continue;
-    const transportType = typeof record.transport_type === "number" ? (record.transport_type as StreamerIceNetworkType) : undefined;
+    const transportType =
+      typeof record.transport_type === "number" ? (record.transport_type as StreamerIceNetworkType) : undefined;
     return { iceId, transportType };
   }
   return null;
@@ -1497,7 +1528,7 @@ function readSelectedCandidatePair(report: BrowserRemoteStatsReport): {
   const candidateType =
     pair.localCandidateType === "relay" || pair.remoteCandidateType === "relay"
       ? "relay"
-      : pair.localCandidateType ?? pair.remoteCandidateType;
+      : (pair.localCandidateType ?? pair.remoteCandidateType);
   return {
     connectionPath: classifyStreamerConnectionPath({
       candidateType,

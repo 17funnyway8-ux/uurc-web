@@ -1,7 +1,4 @@
-import {
-  normalizeStreamerRoomConfig,
-  summarizeStreamerRoomConfig,
-} from "@uurc/shared/roomConfig";
+import { normalizeStreamerRoomConfig, summarizeStreamerRoomConfig } from "@uurc/shared/roomConfig";
 import type {
   RemoteAssistanceControlMode,
   RemoteRoomJoinContext,
@@ -62,10 +59,7 @@ export function saveRemoteAssistanceRoomJoinResult(input: {
   });
 }
 
-function saveRoomSessionResult(input: {
-  upstream: UuResponse;
-  joinContext: RemoteRoomJoinContext;
-}): RoomJoinResult {
+function saveRoomSessionResult(input: { upstream: UuResponse; joinContext: RemoteRoomJoinContext }): RoomJoinResult {
   const roomConfig = normalizeStreamerRoomConfig(input.upstream.body);
   const upstream = summarizeUpstreamForClient(input.upstream);
 

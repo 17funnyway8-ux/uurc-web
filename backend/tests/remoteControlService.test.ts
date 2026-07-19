@@ -1,7 +1,12 @@
 import { gzipSync, gunzipSync } from "node:zlib";
 
-import { describe, expect, it } from "vitest";
-import { STREAMER_ICE_NETWORK_TYPES, type RemoteRoomJoinContext, type RoomJoinUpstreamSummary, type StreamerRoomConfig } from "@uurc/shared";
+import { describe, expect, it, vi } from "vitest";
+import {
+  STREAMER_ICE_NETWORK_TYPES,
+  type RemoteRoomJoinContext,
+  type RoomJoinUpstreamSummary,
+  type StreamerRoomConfig,
+} from "@uurc/shared";
 
 import {
   RemoteControlService,
@@ -36,12 +41,7 @@ describe("RemoteControlService", () => {
         streamer_version: "V3.1.14",
         streamer_flag: '{"sdp_flags":{"gzip_sdp":true}}',
       },
-      signalEvents: [
-        "soac",
-        "streamer_push",
-        "forward_setting",
-        "device_capability",
-      ],
+      signalEvents: ["soac", "streamer_push", "forward_setting", "device_capability"],
       soac: {
         controllerOutboundTypes: ["offer", "candidate", "restart_ice"],
         controllerInboundTypes: ["answer", "candidate", "restart_ice"],
@@ -86,7 +86,14 @@ describe("RemoteControlService", () => {
         },
       },
       input: {
-        supportedBuilders: ["desktop_mouse", "desktop_keyboard", "ime_text", "ime_control", "mumu_system_key", "mumu_touch"],
+        supportedBuilders: [
+          "desktop_mouse",
+          "desktop_keyboard",
+          "ime_text",
+          "ime_control",
+          "mumu_system_key",
+          "mumu_touch",
+        ],
         imeControlCodes: {
           BACKSPACE: 14,
           ENTER: 28,
@@ -239,6 +246,59 @@ describe("RemoteControlService", () => {
       },
     });
     expect(JSON.stringify(status)).not.toContain("do-not-return");
+  });
+
+  it("keeps a stop request authoritative when an older connection finishes late", async () => {
+    const connector = new DeferredSignalGatewayConnector();
+    const service = new RemoteControlService(createRoomConfigSource(), connector);
+    const starting = service.startSignalGateway();
+    await vi.waitFor(() => expect(connector.connectCalls).toHaveLength(1));
+
+    await service.stopSignalGateway();
+    const lateConnection = connector.resolve(0, "late-connection");
+    await starting;
+
+    expect(lateConnection.closed).toBe(true);
+    expect(service.getSignalGatewayStatus().status).toBe("closed");
+  });
+
+  it("lets the newest concurrent start own the active connection", async () => {
+    const connector = new DeferredSignalGatewayConnector();
+    const concurrentService = new RemoteControlService(undefined, connector);
+    const olderStart = concurrentService.startSignalGateway({ roomConfig: roomConfigFor("wss://signal-a.example") });
+    await vi.waitFor(() => expect(connector.connectCalls).toHaveLength(1));
+    const newerStart = concurrentService.startSignalGateway({ roomConfig: roomConfigFor("wss://signal-b.example") });
+    await vi.waitFor(() => expect(connector.connectCalls).toHaveLength(2));
+
+    const newerConnection = connector.resolve(1, "newer-connection");
+    await newerStart;
+    const olderConnection = connector.resolve(0, "older-connection");
+    await olderStart;
+
+    expect(olderConnection.closed).toBe(true);
+    expect(newerConnection.closed).toBe(false);
+    expect(concurrentService.getSignalGatewayStatus()).toMatchObject({
+      status: "connected",
+      selectedSignalServer: "wss://signal-b.example",
+      connectionId: "newer-connection",
+    });
+  });
+
+  it("propagates an upstream disconnect into the gateway status", async () => {
+    const connector = new FakeSignalGatewayConnector();
+    const service = new RemoteControlService(createRoomConfigSource(), connector);
+    await service.startSignalGateway();
+
+    connector.connectCalls[0].onConnectionStateChange?.({
+      status: "closed",
+      reason: "transport closed room-secret-token",
+    });
+
+    expect(service.getSignalGatewayStatus()).toMatchObject({
+      status: "closed",
+      error: "transport closed <redacted room token>",
+    });
+    await expect(service.sendSignalControl({ appControlId: "app-control-1" })).resolves.toBeNull();
   });
 
   it("records inbound App signal events from the backend gateway", async () => {
@@ -704,9 +764,7 @@ describe("SocketIoSignalGatewayConnector", () => {
       Buffer.from([0x04, 0x08, 0x01]),
       Buffer.from([0x04, 0x08, 0x01]),
     ]);
-    expect(rawInboundFrames.map((frame) => Buffer.from(frame as Buffer))).toEqual([
-      Buffer.from([0x08, 0x01]),
-    ]);
+    expect(rawInboundFrames.map((frame) => Buffer.from(frame as Buffer))).toEqual([Buffer.from([0x08, 0x01])]);
   });
 
   it("captures unknown direct socket.io events for live signal diagnostics", async () => {
@@ -746,9 +804,11 @@ describe("SocketIoSignalGatewayConnector", () => {
   });
 });
 
-function createRoomConfigSource(overrides: {
-  clearByDevice?: (input: { deviceId: string }) => Promise<RoomJoinUpstreamSummary>;
-} = {}) {
+function createRoomConfigSource(
+  overrides: {
+    clearByDevice?: (input: { deviceId: string }) => Promise<RoomJoinUpstreamSummary>;
+  } = {},
+) {
   const roomConfig: StreamerRoomConfig = {
     token: "room-secret-token",
     signalServers: ["wss://signal-a.example", "wss://signal-b.example"],
@@ -767,6 +827,36 @@ function createRoomConfigSource(overrides: {
     getLatestJoinContext: async () => joinContext,
     clearByDevice: overrides.clearByDevice,
   };
+}
+
+function roomConfigFor(signalServer: string): StreamerRoomConfig {
+  return {
+    token: "room-secret-token",
+    signalServers: [signalServer],
+    timeout: 12000,
+    signalReconnectDelay: 1500,
+    appData: "{}",
+  };
+}
+
+class DeferredSignalGatewayConnector implements SignalGatewayConnector {
+  readonly connectCalls: SignalGatewayConnectOptions[] = [];
+  private readonly pending: Array<{
+    resolve(connection: FakeSignalGatewayConnection): void;
+  }> = [];
+
+  connect(options: SignalGatewayConnectOptions): Promise<FakeSignalGatewayConnection> {
+    this.connectCalls.push(options);
+    return new Promise((resolve) => {
+      this.pending.push({ resolve });
+    });
+  }
+
+  resolve(index: number, connectionId: string): FakeSignalGatewayConnection {
+    const connection = new FakeSignalGatewayConnection(connectionId);
+    this.pending[index].resolve(connection);
+    return connection;
+  }
 }
 
 class FakeSignalGatewayConnector implements SignalGatewayConnector {
@@ -812,7 +902,11 @@ class FakeSignalGatewayConnection {
     this.emitCalls.push({ event, payload });
   }
 
-  async emitWithOptionalAck(event: string, payload: Record<string, unknown>, onAck: (ack: unknown[]) => void): Promise<void> {
+  async emitWithOptionalAck(
+    event: string,
+    payload: Record<string, unknown>,
+    onAck: (ack: unknown[]) => void,
+  ): Promise<void> {
     this.emitWithOptionalAckCalls.push({ event, payload, onAck });
   }
 
@@ -869,8 +963,14 @@ class FakeSocketIoClient {
   }
 
   off(event: string, handler: (...payload: unknown[]) => void): this {
-    this.handlers.set(event, (this.handlers.get(event) ?? []).filter((item) => item !== handler));
-    this.onceHandlers.set(event, (this.onceHandlers.get(event) ?? []).filter((item) => item !== handler));
+    this.handlers.set(
+      event,
+      (this.handlers.get(event) ?? []).filter((item) => item !== handler),
+    );
+    this.onceHandlers.set(
+      event,
+      (this.onceHandlers.get(event) ?? []).filter((item) => item !== handler),
+    );
     return this;
   }
 

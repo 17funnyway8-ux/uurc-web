@@ -32,6 +32,10 @@
       "types": "./dist/remoteBootstrap.d.ts",
       "default": "./dist/remoteBootstrap.js"
     },
+    "./remoteSession": {
+      "types": "./dist/remoteSession.d.ts",
+      "default": "./dist/remoteSession.js"
+    },
     "./roomConfig": {
       "types": "./dist/roomConfig.d.ts",
       "default": "./dist/roomConfig.js"

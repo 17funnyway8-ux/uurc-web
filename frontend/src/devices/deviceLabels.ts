@@ -41,8 +41,10 @@ export function formatAppFlagControlMode(appFlag: unknown): string {
 
 export function formatParticipantMeta(participant: NonNullable<UuDevice["participantsInfo"]>[number]): string {
   const parts = [formatPlatform(participant.platform)];
-  if (participant.joinType !== undefined) parts.push(participant.joinType === 1 ? "主控" : `类型 ${participant.joinType}`);
-  if (participant.controlledSeconds !== undefined && participant.controlledSeconds >= 0) parts.push(formatDuration(participant.controlledSeconds));
+  if (participant.joinType !== undefined)
+    parts.push(participant.joinType === 1 ? "主控" : `类型 ${participant.joinType}`);
+  if (participant.controlledSeconds !== undefined && participant.controlledSeconds >= 0)
+    parts.push(formatDuration(participant.controlledSeconds));
   const controlMode = formatAppFlagControlMode(participant.appFlag);
   if (controlMode !== "-") parts.push(`模式：${controlMode}`);
   return parts.filter(Boolean).join(" · ") || "控制端";

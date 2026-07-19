@@ -48,14 +48,16 @@ describe("signal gateway protocol helpers", () => {
       "wss://a.example",
       "wss://c.example",
     ]);
-    expect(createSignalGatewayStatus({
-      status: "connected",
-      roomConfig,
-      rawHeaders: { "X-NRD-AUTH": "room-token" },
-      selectedSignalServer: "wss://b.example",
-      startedAt: "2026-05-18T00:00:00.000Z",
-      updatedAt: "2026-05-18T00:00:01.000Z",
-    })).toMatchObject({
+    expect(
+      createSignalGatewayStatus({
+        status: "connected",
+        roomConfig,
+        rawHeaders: { "X-NRD-AUTH": "room-token" },
+        selectedSignalServer: "wss://b.example",
+        startedAt: "2026-05-18T00:00:00.000Z",
+        updatedAt: "2026-05-18T00:00:01.000Z",
+      }),
+    ).toMatchObject({
       status: "connected",
       selectedSignalServer: "wss://b.example",
       signalHeaders: { "X-NRD-AUTH": "<redacted room token>" },
@@ -68,11 +70,14 @@ describe("signal gateway protocol helpers", () => {
   });
 
   it("builds and normalizes binary control and SOAC payloads", () => {
-    const control = buildSignalGatewayControlPayload({
-      appControlId: "control-1",
-      appDataBase64: Buffer.from("app-data").toString("base64"),
-      streamerData: "{}",
-    }, binaryCodec);
+    const control = buildSignalGatewayControlPayload(
+      {
+        appControlId: "control-1",
+        appDataBase64: Buffer.from("app-data").toString("base64"),
+        streamerData: "{}",
+      },
+      binaryCodec,
+    );
 
     expect(Buffer.from(control.app_data as Buffer).toString()).toBe("app-data");
     expect(normalizeSignalGatewayPayload(control, binaryCodec)).toMatchObject({
@@ -84,14 +89,17 @@ describe("signal gateway protocol helpers", () => {
       },
     });
 
-    const soac = buildSignalGatewaySoacPayload({
-      type: "offer",
-      clientId: "controlled-1",
-      appControlId: "control-1",
-      iceId: "ice-1",
-      sdp: "v=0",
-      gzipSdp: true,
-    }, binaryCodec);
+    const soac = buildSignalGatewaySoacPayload(
+      {
+        type: "offer",
+        clientId: "controlled-1",
+        appControlId: "control-1",
+        iceId: "ice-1",
+        sdp: "v=0",
+        gzipSdp: true,
+      },
+      binaryCodec,
+    );
 
     const data = soac.data as Record<string, unknown>;
     expect(data.sdp).toBe("");
@@ -99,19 +107,23 @@ describe("signal gateway protocol helpers", () => {
   });
 
   it("normalizes pushed and direct SOAC events including gzip SDP", () => {
-    const pushed = normalizeSignalGatewayInboundEvents("bmsg_push", [
-      {
-        type: "answer",
-        data: {
-          client_id: "controlled-1",
+    const pushed = normalizeSignalGatewayInboundEvents(
+      "bmsg_push",
+      [
+        {
+          type: "answer",
           data: {
-            ice_id: "ice-1",
-            sdp: "",
-            gzip_sdp: gzipSync(Buffer.from("v=0 answer", "utf8")),
+            client_id: "controlled-1",
+            data: {
+              ice_id: "ice-1",
+              sdp: "",
+              gzip_sdp: gzipSync(Buffer.from("v=0 answer", "utf8")),
+            },
           },
         },
-      },
-    ], binaryCodec);
+      ],
+      binaryCodec,
+    );
 
     expect(pushed).toMatchObject([
       { event: "bmsg_push" },
@@ -130,15 +142,21 @@ describe("signal gateway protocol helpers", () => {
       },
     ]);
 
-    expect(normalizeSignalGatewayInboundEvents("answer", [
-      {
-        client_id: "controlled-1",
-        data: {
-          ice_id: "ice-1",
-          sdp: "v=0 direct answer",
-        },
-      },
-    ], binaryCodec)).toMatchObject([
+    expect(
+      normalizeSignalGatewayInboundEvents(
+        "answer",
+        [
+          {
+            client_id: "controlled-1",
+            data: {
+              ice_id: "ice-1",
+              sdp: "v=0 direct answer",
+            },
+          },
+        ],
+        binaryCodec,
+      ),
+    ).toMatchObject([
       {
         event: "soac",
         payload: [

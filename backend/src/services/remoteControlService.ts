@@ -20,6 +20,7 @@ import {
   normalizeStreamerSignalControlAck,
   orderSignalGatewayServers,
   redactSignalGatewayToken,
+  SIGNAL_GATEWAY_EVENT_RETENTION_MS,
   SIGNAL_GATEWAY_MAX_EVENTS,
   type SignalGatewayBinaryCodec,
   type RoomJoinUpstreamSummary,
@@ -54,6 +55,13 @@ export interface SignalGatewayConnectOptions {
   socketEvents: Record<string, string>;
   controlEvent: string;
   onSignalEvent(event: string, payload: unknown[]): void;
+  onConnectionStateChange?(update: SignalGatewayConnectionStateUpdate): void;
+}
+
+export interface SignalGatewayConnectionStateUpdate {
+  status: "connecting" | "connected" | "closed" | "error";
+  connectionId?: string;
+  reason?: string;
 }
 
 export interface SignalGatewayConnection {
@@ -76,10 +84,12 @@ export class RemoteControlService {
   private signalEvents: RemoteSignalGatewayEvent[] = [];
   private nextSignalEventId = 1;
   private activeJoinContext: RemoteRoomJoinContext | null = null;
+  private signalGeneration = 0;
 
   constructor(
     private readonly roomConfigSource?: RoomConfigSource,
     private readonly signalConnector: SignalGatewayConnector = new SocketIoSignalGatewayConnector(),
+    private readonly sessionLogId = "standalone",
   ) {}
 
   async createBootstrap(): Promise<RemoteControlBootstrap | null> {
@@ -94,11 +104,13 @@ export class RemoteControlService {
     return this.signalStatus;
   }
 
-  getSignalGatewayEvents(): RemoteSignalGatewayEvent[] {
-    return this.signalEvents;
+  getSignalGatewayEvents(afterEventId = 0): RemoteSignalGatewayEvent[] {
+    this.pruneSignalEvents();
+    return this.signalEvents.filter((event) => event.id > afterEventId);
   }
 
   getSignalReadinessDiagnostics(): RemoteSignalReadinessDiagnostics {
+    this.pruneSignalEvents();
     return analyzeRemoteSignalReadiness({
       events: this.signalEvents,
       signalStatus: this.signalStatus,
@@ -106,9 +118,12 @@ export class RemoteControlService {
   }
 
   async startSignalGateway(input: RemoteSignalGatewayStartRequest = {}): Promise<RemoteSignalGatewayStatus | null> {
-    const roomConfig = input.roomConfig ?? await this.roomConfigSource?.getLatestRoomConfig();
+    const generation = ++this.signalGeneration;
+    const roomConfig = input.roomConfig ?? (await this.roomConfigSource?.getLatestRoomConfig());
     if (!roomConfig) return null;
-    this.activeJoinContext = input.joinContext ?? await this.roomConfigSource?.getLatestJoinContext?.() ?? null;
+    const joinContext = input.joinContext ?? (await this.roomConfigSource?.getLatestJoinContext?.()) ?? null;
+    if (generation !== this.signalGeneration) return this.signalStatus;
+    this.activeJoinContext = joinContext;
 
     this.signalConnection?.close();
     this.signalConnection = null;
@@ -123,6 +138,7 @@ export class RemoteControlService {
       rawHeaders,
       startedAt,
     });
+    this.logLifecycle("signal_start", generation, "connecting");
 
     let lastError: unknown;
     for (const signalServer of orderSignalGatewayServers(roomConfig.signalServers, input.signalServerIndex)) {
@@ -141,6 +157,7 @@ export class RemoteControlService {
           socketEvents: STREAMER_SIGNAL_SOCKET_EVENTS,
           controlEvent: STREAMER_CONTROL_EVENT_NAME,
           onSignalEvent: (event, payload) => {
+            if (generation !== this.signalGeneration) return;
             for (const normalized of normalizeSignalGatewayInboundEvents(event, payload, nodeSignalGatewayBinary)) {
               this.recordSignalEvent({
                 direction: "inbound",
@@ -149,7 +166,21 @@ export class RemoteControlService {
               });
             }
           },
+          onConnectionStateChange: (update) => {
+            this.applyConnectionStateUpdate({
+              generation,
+              update,
+              roomConfig,
+              rawHeaders,
+              startedAt,
+              signalServer,
+            });
+          },
         });
+        if (generation !== this.signalGeneration) {
+          connection.close();
+          return this.signalStatus;
+        }
         this.signalConnection = connection;
         this.signalStatus = createSignalGatewayStatus({
           status: "connected",
@@ -159,21 +190,26 @@ export class RemoteControlService {
           connectionId: connection.id,
           selectedSignalServer: signalServer,
         });
+        this.logLifecycle("signal_start", generation, "connected");
         return this.signalStatus;
       } catch (error) {
+        if (generation !== this.signalGeneration) return this.signalStatus;
         lastError = error;
-        this.signalConnection?.close();
-        this.signalConnection = null;
       }
     }
 
+    if (generation !== this.signalGeneration) return this.signalStatus;
     this.signalStatus = createSignalGatewayStatus({
       status: "error",
       roomConfig,
       rawHeaders,
       startedAt,
-      error: redactSignalGatewayToken(lastError instanceof Error ? lastError.message : String(lastError), roomConfig.token),
+      error: redactSignalGatewayToken(
+        lastError instanceof Error ? lastError.message : String(lastError),
+        roomConfig.token,
+      ),
     });
+    this.logLifecycle("signal_start", generation, "error", this.signalStatus.error);
     return this.signalStatus;
   }
 
@@ -193,7 +229,8 @@ export class RemoteControlService {
       STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS,
     );
     const normalizedAck = normalizeSignalGatewayPayload(ack, nodeSignalGatewayBinary);
-    const ackStatus = Array.isArray(normalizedAck) && typeof normalizedAck[0] === "string" ? normalizedAck[0] : undefined;
+    const ackStatus =
+      Array.isArray(normalizedAck) && typeof normalizedAck[0] === "string" ? normalizedAck[0] : undefined;
     const result: RemoteSignalControlResult = {
       event: STREAMER_CONTROL_EVENT_NAME,
       ackStatus,
@@ -235,9 +272,11 @@ export class RemoteControlService {
   }
 
   async stopSignalGateway(): Promise<RemoteSignalGatewayStatus> {
-    const joinContext = this.activeJoinContext ?? await this.roomConfigSource?.getLatestJoinContext?.();
+    const generation = ++this.signalGeneration;
+    const activeJoinContext = this.activeJoinContext;
     this.signalConnection?.close();
     this.signalConnection = null;
+    this.activeJoinContext = null;
 
     this.signalStatus = {
       ...this.signalStatus,
@@ -247,6 +286,9 @@ export class RemoteControlService {
       roomClearError: undefined,
       updatedAt: new Date().toISOString(),
     };
+    this.logLifecycle("signal_stop", generation, "closed");
+    const joinContext = activeJoinContext ?? (await this.roomConfigSource?.getLatestJoinContext?.());
+    if (generation !== this.signalGeneration) return this.signalStatus;
     if (joinContext?.deviceId && this.roomConfigSource?.clearByDevice) {
       try {
         this.signalStatus = {
@@ -265,6 +307,55 @@ export class RemoteControlService {
     return this.signalStatus;
   }
 
+  private applyConnectionStateUpdate(input: {
+    generation: number;
+    update: SignalGatewayConnectionStateUpdate;
+    roomConfig: StreamerRoomConfig;
+    rawHeaders: Record<string, string>;
+    startedAt: string;
+    signalServer: string;
+  }): void {
+    if (input.generation !== this.signalGeneration) return;
+
+    if (input.update.status === "connected") {
+      this.signalStatus = createSignalGatewayStatus({
+        status: "connected",
+        roomConfig: input.roomConfig,
+        rawHeaders: input.rawHeaders,
+        startedAt: input.startedAt,
+        connectionId: input.update.connectionId,
+        selectedSignalServer: input.signalServer,
+      });
+      return;
+    }
+
+    this.signalStatus = {
+      ...this.signalStatus,
+      status: input.update.status,
+      connectionId: undefined,
+      updatedAt: new Date().toISOString(),
+      error: input.update.reason ? redactSignalGatewayToken(input.update.reason, input.roomConfig.token) : undefined,
+    };
+    if (input.update.status === "closed" || input.update.status === "error") {
+      this.signalConnection = null;
+    }
+    this.logLifecycle("signal_connection_state", input.generation, input.update.status, this.signalStatus.error);
+  }
+
+  private logLifecycle(event: string, generation: number, status: string, reason?: string): void {
+    console.log(
+      JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: status === "error" ? "error" : "info",
+        event,
+        remoteSession: this.sessionLogId,
+        generation,
+        status,
+        reason,
+      }),
+    );
+  }
+
   private recordSignalEvent(input: {
     direction: RemoteSignalGatewayEventDirection;
     event: string;
@@ -277,9 +368,16 @@ export class RemoteControlService {
       receivedAt: new Date().toISOString(),
       payload: normalizeSignalGatewayPayload(input.payload, nodeSignalGatewayBinary),
     };
-    this.signalEvents = [...this.signalEvents, record].slice(-SIGNAL_GATEWAY_MAX_EVENTS);
+    this.signalEvents = [...this.signalEvents, record]
+      .filter((event) => Date.parse(event.receivedAt) >= Date.now() - SIGNAL_GATEWAY_EVENT_RETENTION_MS)
+      .slice(-SIGNAL_GATEWAY_MAX_EVENTS);
     console.log(`signal event ${summarizeSignalEventForLog(record)}`);
     return record;
+  }
+
+  private pruneSignalEvents(): void {
+    const cutoff = Date.now() - SIGNAL_GATEWAY_EVENT_RETENTION_MS;
+    this.signalEvents = this.signalEvents.filter((event) => Date.parse(event.receivedAt) >= cutoff);
   }
 }
 
@@ -318,10 +416,7 @@ export class SocketIoSignalGatewayConnector implements SignalGatewayConnector {
         reject(error);
       };
 
-      const inboundEvents = new Set<string>([
-        ...options.inboundEvents,
-        ...Object.values(options.socketEvents),
-      ]);
+      const inboundEvents = new Set<string>([...options.inboundEvents, ...Object.values(options.socketEvents)]);
       for (const event of inboundEvents) {
         socket.on(event, (...payload: unknown[]) => {
           options.onSignalEvent(event, payload);
@@ -331,7 +426,7 @@ export class SocketIoSignalGatewayConnector implements SignalGatewayConnector {
         if (inboundEvents.has(event) || isSocketIoLifecycleEvent(event)) return;
         options.onSignalEvent(event, payload);
       });
-      installSocketLifecycleLogging(socket, options.signalServer);
+      installSocketLifecycleLogging(socket, options.signalServer, options.onConnectionStateChange);
       socket.once("connect", onConnect);
       socket.once("connect_error", onConnectError);
       socket.connect();
@@ -389,7 +484,11 @@ class SocketIoSignalGatewayConnection implements SignalGatewayConnection {
     this.socket.emit(event, payload);
   }
 
-  async emitWithOptionalAck(event: string, payload: Record<string, unknown>, onAck: (ack: unknown[]) => void): Promise<void> {
+  async emitWithOptionalAck(
+    event: string,
+    payload: Record<string, unknown>,
+    onAck: (ack: unknown[]) => void,
+  ): Promise<void> {
     if (!this.socket.connected) {
       throw new Error("signal gateway socket is not connected");
     }
@@ -504,20 +603,44 @@ function toSignalBuffer(value: unknown): Buffer | null {
   return null;
 }
 
-function installSocketLifecycleLogging(socket: Socket, signalServer: string): void {
+function installSocketLifecycleLogging(
+  socket: Socket,
+  signalServer: string,
+  onConnectionStateChange?: (update: SignalGatewayConnectionStateUpdate) => void,
+): void {
+  let hasConnected = false;
   socket.on("connect", () => {
+    hasConnected = true;
     console.log(`signal socket connect server=${signalServer} id=${socket.id ?? "<no id>"}`);
+    onConnectionStateChange?.({ status: "connected", connectionId: socket.id });
   });
   socket.on("disconnect", (reason: unknown, description: unknown) => {
     const parts = [`reason=${formatLifecycleValue(reason)}`];
     if (description !== undefined) parts.push(`description=${formatLifecycleValue(description)}`);
     console.log(`signal socket disconnect server=${signalServer} ${parts.join(" ")}`);
+    if (hasConnected) {
+      onConnectionStateChange?.({
+        status: socket.active ? "connecting" : "closed",
+        reason: parts.join(" "),
+      });
+    }
   });
   socket.on("connect_error", (error: unknown) => {
     console.log(`signal socket connect_error server=${signalServer} ${formatLifecycleValue(error)}`);
+    if (hasConnected) {
+      onConnectionStateChange?.({
+        status: socket.active ? "connecting" : "error",
+        reason: formatLifecycleValue(error),
+      });
+    }
   });
   const manager = (socket as Socket & { io?: unknown }).io;
-  if (manager && typeof manager === "object" && "on" in manager && typeof (manager as { on: unknown }).on === "function") {
+  if (
+    manager &&
+    typeof manager === "object" &&
+    "on" in manager &&
+    typeof (manager as { on: unknown }).on === "function"
+  ) {
     const on = (manager as { on: (event: string, listener: (...args: unknown[]) => void) => void }).on.bind(manager);
     on("reconnect_attempt", (attempt: unknown) => {
       console.log(`signal manager reconnect_attempt server=${signalServer} attempt=${formatLifecycleValue(attempt)}`);
@@ -530,6 +653,9 @@ function installSocketLifecycleLogging(socket: Socket, signalServer: string): vo
     });
     on("reconnect_failed", () => {
       console.log(`signal manager reconnect_failed server=${signalServer}`);
+      if (hasConnected) {
+        onConnectionStateChange?.({ status: "error", reason: "signal socket reconnect failed" });
+      }
     });
   }
 }

@@ -29,6 +29,10 @@ curl -O https://raw.githubusercontent.com/iola1999/uurc-web/main/compose.yml
 docker compose up -d
 ```
 
+信令 API 会给每个浏览器标签页生成随机会话凭据，避免不同访问者共用同一条进程内信令连接。这项机制不承担部署入口鉴权；服务暴露到公网时，请在前面配置带身份验证的反向代理或访问网关。
+
+前端当前固定使用本地代理传输，因此 Wisp 默认关闭。只有测试可选的 WASM curl 传输时，才需要设置 `ENABLE_WISP=true`。
+
 ## Cloudflare
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/iola1999/uurc-web)

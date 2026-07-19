@@ -11,6 +11,7 @@ import {
   STREAMER_DATA_CHANNEL_LABELS,
   STREAMER_CAPTURE_CHANGE_TYPES,
   STREAMER_ICE_NETWORK_TYPES,
+  STREAMER_MAX_DATA_BUFFER_BYTES,
   buildStreamerMouseButtonInputMessage,
   buildStreamerKeyboardInputMessage,
   buildStreamerMacKeyboardInputMessage,
@@ -154,10 +155,7 @@ describe("BrowserRemoteSession", () => {
         streamerData: "{}",
       });
 
-      expect(peer.videoCodecPreferenceCalls[0].map((codec) => codec.mimeType)).toEqual([
-        "video/H264",
-        "video/rtx",
-      ]);
+      expect(peer.videoCodecPreferenceCalls[0].map((codec) => codec.mimeType)).toEqual(["video/H264", "video/rtx"]);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -494,9 +492,7 @@ describe("BrowserRemoteSession", () => {
     expect(peer.remoteDescriptions).toEqual([{ type: "answer", sdp: "v=0 controlled answer" }]);
     const debugEvents = session.getState().debugEvents;
     expect(
-      debugEvents.some(
-        (event) => event.kind === "signal" && event.summary === "忽略状态不匹配的 SOAC answer",
-      ),
+      debugEvents.some((event) => event.kind === "signal" && event.summary === "忽略状态不匹配的 SOAC answer"),
     ).toBe(true);
   });
 
@@ -530,11 +526,9 @@ describe("BrowserRemoteSession", () => {
     expect(peer.remoteDescriptions).toEqual([]);
     expect(session.getState().stage).not.toBe("connected");
     const debugEvents = session.getState().debugEvents;
-    expect(
-      debugEvents.some(
-        (event) => event.kind === "signal" && event.summary === "应用 SOAC answer 失败",
-      ),
-    ).toBe(true);
+    expect(debugEvents.some((event) => event.kind === "signal" && event.summary === "应用 SOAC answer 失败")).toBe(
+      true,
+    );
   });
 
   it("handles App switch_network_notify by sending one restart_ice offer for the same ICE connection", async () => {
@@ -859,6 +853,37 @@ describe("BrowserRemoteSession", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("drops only mouse-move frames while the control channel is backpressured", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api,
+      createPeerConnection: () => peer,
+      now: () => 6000,
+    });
+    await session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+    });
+    const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)!;
+    control.bufferedAmount = STREAMER_MAX_DATA_BUFFER_BYTES;
+
+    session.sendMouseMove({ absX: 120, absY: 80 });
+    session.sendMouseButton({ action: "mousePress", button: "primary" });
+
+    expect(control.sent).toEqual([
+      encodeStreamerInputMessage({
+        sequence: 1,
+        timestampMs: 6,
+        inputMessage: buildStreamerMouseButtonInputMessage({ action: "mousePress", button: "primary" }),
+      }),
+    ]);
+    expect(session.getState().debugEvents).toEqual(
+      expect.arrayContaining([expect.objectContaining({ summary: "控制通道拥塞，跳过鼠标移动" })]),
+    );
   });
 
   it("records throttled inbound data channel messages for control debugging", async () => {
@@ -1281,9 +1306,8 @@ describe("BrowserRemoteSession", () => {
 
     const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control);
     control?.emitMessage(
-      new Uint8Array([
-        0x08, 0x01, 0x10, 0x02, 0x42, 0x04, 0x08, STREAMER_CAPTURE_CHANGE_TYPES.CT_MUMU, 0x10, 0x05,
-      ]).buffer,
+      new Uint8Array([0x08, 0x01, 0x10, 0x02, 0x42, 0x04, 0x08, STREAMER_CAPTURE_CHANGE_TYPES.CT_MUMU, 0x10, 0x05])
+        .buffer,
     );
     session.sendMouseButton({ action: "mousePress", button: "primary" });
 
@@ -1359,7 +1383,10 @@ describe("BrowserRemoteSession", () => {
           remoteCandidateId: "remote-1",
         },
       ],
-      ["local-1", { id: "local-1", type: "local-candidate", candidateType: "relay", protocol: "udp", address: "203.0.113.10" }],
+      [
+        "local-1",
+        { id: "local-1", type: "local-candidate", candidateType: "relay", protocol: "udp", address: "203.0.113.10" },
+      ],
       ["remote-1", { id: "remote-1", type: "remote-candidate", candidateType: "relay", address: "203.0.113.11" }],
     ]);
 
@@ -1801,7 +1828,9 @@ class FakeRemoteApi {
   readonly controlCalls: RemoteSignalControlRequest[] = [];
   readonly soacCalls: RemoteSignalSoacRequest[] = [];
 
-  constructor(private readonly controlResultOverrides: Partial<NonNullable<RemoteSignalControlResult["control"]["result"]>> = {}) {}
+  constructor(
+    private readonly controlResultOverrides: Partial<NonNullable<RemoteSignalControlResult["control"]["result"]>> = {},
+  ) {}
 
   async sendSignalControl(input: RemoteSignalControlRequest): Promise<RemoteSignalControlResult> {
     this.controlCalls.push(input);
@@ -1928,6 +1957,7 @@ class FakeDataChannel {
   onerror: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
   readyState: RTCDataChannelState = "open";
+  bufferedAmount = 0;
   readonly sent: Array<string | Blob | ArrayBuffer | ArrayBufferView> = [];
   closed = false;
 

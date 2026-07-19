@@ -1,12 +1,12 @@
 import type { RuntimeProfile, UurcRuntime } from "./types.js";
 
-export function createRuntimeProfile(runtime: UurcRuntime): RuntimeProfile {
+export function createRuntimeProfile(runtime: UurcRuntime, options: { wispProxy?: boolean } = {}): RuntimeProfile {
   return {
     ok: true,
     runtime,
     uuProxyPath: "/api/proxy/uu",
     signalGateway: runtime === "node" ? "node-socket-io" : "cloudflare-durable-object",
     remoteApiBase: "/api/remote",
-    wispProxy: runtime === "node",
+    wispProxy: runtime === "node" && options.wispProxy === true,
   };
 }

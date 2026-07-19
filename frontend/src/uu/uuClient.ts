@@ -37,7 +37,13 @@ import {
   patchStoredLoginState,
 } from "./loginStateStore.js";
 import { createSyntheticAndroidProfile } from "./profile.js";
-import { clearRoomSession, getRoomSession, saveRemoteAssistanceRoomJoinResult, saveRoomJoinResult, summarizeUpstreamForClient } from "./roomSessionStore.js";
+import {
+  clearRoomSession,
+  getRoomSession,
+  saveRemoteAssistanceRoomJoinResult,
+  saveRoomJoinResult,
+  summarizeUpstreamForClient,
+} from "./roomSessionStore.js";
 import { buildSignedHeaders, assertAllowedUuApiPath } from "./signing.js";
 
 const REMOTE_ASSISTANCE_CONFIRMATION_REQUIRED_CODE = 0x470;
@@ -114,7 +120,9 @@ export function exportAuthState(): LoginState {
   return exportStoredLoginState();
 }
 
-export async function createMobileDevice(profileOverrides: Partial<AndroidDeviceInitProfile> = {}): Promise<{ status: AuthStatus; deviceId: string; upstream: UuResponse }> {
+export async function createMobileDevice(
+  profileOverrides: Partial<AndroidDeviceInitProfile> = {},
+): Promise<{ status: AuthStatus; deviceId: string; upstream: UuResponse }> {
   const currentState = getStoredLoginState() ?? {};
   if (currentState.deviceId) {
     return {
@@ -149,7 +157,10 @@ export async function createMobileDevice(profileOverrides: Partial<AndroidDevice
   return { status, deviceId, upstream };
 }
 
-export async function sendMobileCode(input: { regionCode: string; mobile: string }): Promise<{ status: AuthStatus; deviceId: string; upstream: UuResponse }> {
+export async function sendMobileCode(input: {
+  regionCode: string;
+  mobile: string;
+}): Promise<{ status: AuthStatus; deviceId: string; upstream: UuResponse }> {
   const device = await createMobileDevice();
   const request = buildMobileCodeRequest(normalizeMobileInput(input));
   const upstream = await uuApi.signedRequest({
@@ -168,7 +179,11 @@ export async function sendMobileCode(input: { regionCode: string; mobile: string
   };
 }
 
-export async function loginByMobile(input: { regionCode: string; mobile: string; code: string }): Promise<{ status: AuthStatus; login: Omit<MobileLoginResult, "token">; upstream: UuResponse }> {
+export async function loginByMobile(input: {
+  regionCode: string;
+  mobile: string;
+  code: string;
+}): Promise<{ status: AuthStatus; login: Omit<MobileLoginResult, "token">; upstream: UuResponse }> {
   await createMobileDevice();
   const request = buildMobileLoginRequest(normalizeMobileLoginInput(input));
   const upstream = await uuApi.signedRequest({
@@ -239,7 +254,9 @@ export async function getRemoteAssistanceControlMode(connectId: string): Promise
   };
 }
 
-export async function joinRemoteAssistanceByCode(input: RemoteAssistanceJoinInput): Promise<RemoteAssistanceJoinResult> {
+export async function joinRemoteAssistanceByCode(
+  input: RemoteAssistanceJoinInput,
+): Promise<RemoteAssistanceJoinResult> {
   const connectId = normalizeRemoteAssistanceConnectId(input.connectId);
   const connectCode = normalizeRemoteAssistanceConnectCode(input.connectCode);
   const upstream = await uuApi.signedRequest({
@@ -261,7 +278,9 @@ export async function joinRemoteAssistanceByCode(input: RemoteAssistanceJoinInpu
   });
 }
 
-export async function joinRemoteAssistanceByConfirmation(input: RemoteAssistanceJoinInput): Promise<RemoteAssistanceJoinResult> {
+export async function joinRemoteAssistanceByConfirmation(
+  input: RemoteAssistanceJoinInput,
+): Promise<RemoteAssistanceJoinResult> {
   const connectId = normalizeRemoteAssistanceConnectId(input.connectId);
   const controlId = normalizeOptionalString(input.controlId);
   const upstream = await uuApi.signedRequest({
@@ -390,10 +409,11 @@ function buildRemoteAssistanceJoinResult(input: {
   usedConfirmation: boolean;
 }): RemoteAssistanceJoinResult {
   const deviceName = readNestedString(input.upstream.body, "device_name");
-  const targetPlatform = input.targetPlatform
-    ?? readNestedNumber(input.upstream.body, "platform")
-    ?? readNestedNumber(input.upstream.body, "device_platform")
-    ?? readNestedNumber(input.upstream.body, "publisher_platform");
+  const targetPlatform =
+    input.targetPlatform ??
+    readNestedNumber(input.upstream.body, "platform") ??
+    readNestedNumber(input.upstream.body, "device_platform") ??
+    readNestedNumber(input.upstream.body, "publisher_platform");
   const controlId = input.controlId ?? readNestedString(input.upstream.body, "control_id");
   const result = saveRemoteAssistanceRoomJoinResult({
     connectId: input.connectId,
@@ -423,7 +443,9 @@ function buildRemoteAssistanceJoinResult(input: {
 
 function remoteAssistanceControlModeValue(value: unknown): RemoteAssistanceControlMode | null {
   if (typeof value !== "string") return null;
-  return REMOTE_ASSISTANCE_CONTROL_MODES.has(value as RemoteAssistanceControlMode) ? (value as RemoteAssistanceControlMode) : null;
+  return REMOTE_ASSISTANCE_CONTROL_MODES.has(value as RemoteAssistanceControlMode)
+    ? (value as RemoteAssistanceControlMode)
+    : null;
 }
 
 function readNestedString(value: unknown, key: string): string | undefined {
@@ -476,7 +498,12 @@ function assertUpstreamOk(body: unknown): void {
   if (!isRecord(body)) return;
   const code = body.code;
   if (typeof code === "number" && code !== 0) {
-    const message = typeof body.msg === "string" ? body.msg : typeof body.message === "string" ? body.message : `UU upstream code ${code}`;
+    const message =
+      typeof body.msg === "string"
+        ? body.msg
+        : typeof body.message === "string"
+          ? body.message
+          : `UU upstream code ${code}`;
     throw new Error(message);
   }
 }

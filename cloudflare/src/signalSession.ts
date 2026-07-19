@@ -17,6 +17,7 @@ import {
   normalizeSignalGatewayRoomConfig,
   orderSignalGatewayServers,
   redactSignalGatewayToken,
+  SIGNAL_GATEWAY_EVENT_RETENTION_MS,
   SIGNAL_GATEWAY_MAX_EVENTS,
   type AsyncSignalGatewayBinaryCodec,
 } from "@uurc/shared/signalGatewayProtocol";
@@ -77,6 +78,7 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
   private pendingAcks = new Map<number, PendingAck>();
   private pendingBinaryPacket: PendingBinaryPacket | null = null;
   private manualClose = false;
+  private signalGeneration = 0;
 
   constructor(ctx: DurableObjectState, env: SignalSessionEnv) {
     super(ctx, env);
@@ -114,8 +116,8 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
     return status;
   }
 
-  async getEvents(): Promise<RemoteSignalGatewayEvent[]> {
-    return this.readEvents();
+  async getEvents(afterEventId = 0): Promise<RemoteSignalGatewayEvent[]> {
+    return this.readEvents(afterEventId);
   }
 
   async getDiagnostics() {
@@ -126,6 +128,7 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
   }
 
   async start(input: RemoteSignalGatewayStartRequest = {}): Promise<RemoteSignalGatewayStatus> {
+    const generation = ++this.signalGeneration;
     const roomConfig = normalizeSignalGatewayRoomConfig(input.roomConfig);
     if (!roomConfig) {
       return this.setStatus({
@@ -137,6 +140,7 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
     }
 
     await this.closeSocket();
+    if (generation !== this.signalGeneration) return this.readStatus();
     this.ctx.storage.sql.exec("DELETE FROM signal_events");
     this.pendingAcks.clear();
     this.pendingBinaryPacket = null;
@@ -148,34 +152,41 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
       gzipSdp: input.gzipSdp ?? true,
     });
 
-    this.setStatus(createSignalGatewayStatus({
-      status: "connecting",
-      roomConfig,
-      rawHeaders: this.rawHeaders,
-      startedAt,
-    }));
+    this.setStatus(
+      createSignalGatewayStatus({
+        status: "connecting",
+        roomConfig,
+        rawHeaders: this.rawHeaders,
+        startedAt,
+      }),
+    );
 
     let lastError: unknown;
     for (const signalServer of orderSignalGatewayServers(roomConfig.signalServers, input.signalServerIndex)) {
       try {
-        await this.connectToSignalServer(signalServer, roomConfig, startedAt);
+        await this.connectToSignalServer(signalServer, roomConfig, startedAt, generation);
+        if (generation !== this.signalGeneration) return this.readStatus();
         return this.readStatus();
       } catch (error) {
+        if (generation !== this.signalGeneration) return this.readStatus();
         lastError = error;
         await this.closeSocket();
       }
     }
 
-    return this.setStatus(createSignalGatewayStatus({
-      status: "error",
-      roomConfig,
-      rawHeaders: this.rawHeaders,
-      startedAt,
-      error: redactSignalGatewayToken(errorMessage(lastError), roomConfig.token),
-    }));
+    return this.setStatus(
+      createSignalGatewayStatus({
+        status: "error",
+        roomConfig,
+        rawHeaders: this.rawHeaders,
+        startedAt,
+        error: redactSignalGatewayToken(errorMessage(lastError), roomConfig.token),
+      }),
+    );
   }
 
   async stop(): Promise<RemoteSignalGatewayStatus> {
+    ++this.signalGeneration;
     await this.closeSocket();
     this.ctx.storage.sql.exec("DELETE FROM signal_events");
     return this.setStatus({
@@ -190,7 +201,11 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
 
     const emittedAt = new Date().toISOString();
     const payload = buildSignalGatewayControlPayload(input, workerSignalGatewayBinary);
-    this.recordEvent({ direction: "outbound", event: STREAMER_CONTROL_EVENT_NAME, payload: normalizeSignalGatewayPayload(payload, workerSignalGatewayBinary) });
+    this.recordEvent({
+      direction: "outbound",
+      event: STREAMER_CONTROL_EVENT_NAME,
+      payload: normalizeSignalGatewayPayload(payload, workerSignalGatewayBinary),
+    });
     const ack = await this.emitWithAck(STREAMER_CONTROL_EVENT_NAME, payload, STREAMER_CONTROL_EVENT_ACK_TIMEOUT_MS);
     const normalizedAck = normalizeSignalGatewayPayload(ack, workerSignalGatewayBinary);
     const ackArray = Array.isArray(normalizedAck) ? normalizedAck : [normalizedAck];
@@ -211,9 +226,17 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
 
     const emittedAt = new Date().toISOString();
     const payload = await buildSignalGatewaySoacPayloadAsync(input, workerSignalGatewayBinary);
-    this.recordEvent({ direction: "outbound", event: STREAMER_SOAC_EVENT, payload: normalizeSignalGatewayPayload(payload, workerSignalGatewayBinary) });
+    this.recordEvent({
+      direction: "outbound",
+      event: STREAMER_SOAC_EVENT,
+      payload: normalizeSignalGatewayPayload(payload, workerSignalGatewayBinary),
+    });
     this.emitWithOptionalAck(STREAMER_SOAC_EVENT, payload, (ack) => {
-      this.recordEvent({ direction: "inbound", event: `${STREAMER_SOAC_EVENT}:ack`, payload: normalizeSignalGatewayPayload(ack, workerSignalGatewayBinary) });
+      this.recordEvent({
+        direction: "inbound",
+        event: `${STREAMER_SOAC_EVENT}:ack`,
+        payload: normalizeSignalGatewayPayload(ack, workerSignalGatewayBinary),
+      });
     });
     return {
       event: STREAMER_SOAC_EVENT,
@@ -222,8 +245,17 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
     };
   }
 
-  private async connectToSignalServer(signalServer: string, roomConfig: StreamerRoomConfig, startedAt: string): Promise<void> {
+  private async connectToSignalServer(
+    signalServer: string,
+    roomConfig: StreamerRoomConfig,
+    startedAt: string,
+    generation: number,
+  ): Promise<void> {
     const socket = await openSignalWebSocket(signalServer, this.rawHeaders, roomConfig.timeout);
+    if (generation !== this.signalGeneration) {
+      socket.close(1000, "stale signal generation");
+      return;
+    }
     this.socket = socket;
     this.manualClose = false;
 
@@ -239,6 +271,11 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
         socket.removeEventListener("error", onErrorBeforeConnect);
       };
       const onMessage = (event: MessageEvent) => {
+        if (!this.isCurrentSocket(socket, generation)) {
+          cleanup();
+          reject(new Error("signal gateway start was superseded"));
+          return;
+        }
         void this.handleSocketMessage(event.data, {
           onConnected: () => {
             cleanup();
@@ -252,10 +289,18 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
       };
       const onCloseBeforeConnect = (event: CloseEvent) => {
         cleanup();
+        if (!this.isCurrentSocket(socket, generation)) {
+          reject(new Error("signal gateway start was superseded"));
+          return;
+        }
         reject(new Error(`signal socket closed before connect code=${event.code} reason=${event.reason}`));
       };
       const onErrorBeforeConnect = () => {
         cleanup();
+        if (!this.isCurrentSocket(socket, generation)) {
+          reject(new Error("signal gateway start was superseded"));
+          return;
+        }
         reject(new Error("signal socket error before connect"));
       };
 
@@ -264,24 +309,35 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
       socket.addEventListener("error", onErrorBeforeConnect);
     });
 
+    if (!this.isCurrentSocket(socket, generation)) return;
+
     socket.addEventListener("message", (event) => {
+      if (!this.isCurrentSocket(socket, generation)) return;
       void this.handleSocketMessage(event.data);
     });
     socket.addEventListener("close", (event) => {
+      if (!this.isCurrentSocket(socket, generation)) return;
       this.handleSocketClose(event);
     });
     socket.addEventListener("error", () => {
+      if (!this.isCurrentSocket(socket, generation)) return;
       this.handleSocketError();
     });
 
-    this.setStatus(createSignalGatewayStatus({
-      status: "connected",
-      roomConfig,
-      rawHeaders: this.rawHeaders,
-      startedAt,
-      selectedSignalServer: signalServer,
-      connectionId: this.connectionId,
-    }));
+    this.setStatus(
+      createSignalGatewayStatus({
+        status: "connected",
+        roomConfig,
+        rawHeaders: this.rawHeaders,
+        startedAt,
+        selectedSignalServer: signalServer,
+        connectionId: this.connectionId,
+      }),
+    );
+  }
+
+  private isCurrentSocket(socket: WebSocket, generation: number): boolean {
+    return generation === this.signalGeneration && socket === this.socket;
   }
 
   private async handleSocketMessage(
@@ -295,7 +351,10 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
     await this.handleBinaryFrame(await toBytes(value));
   }
 
-  private async handleTextFrame(frame: string, callbacks: { onConnected?: () => void; onConnectError?: (error: Error) => void }): Promise<void> {
+  private async handleTextFrame(
+    frame: string,
+    callbacks: { onConnected?: () => void; onConnectError?: (error: Error) => void },
+  ): Promise<void> {
     if (frame.startsWith(ENGINE_IO_OPEN)) {
       const openPacket = parseEngineOpenPacket(frame.slice(1));
       this.connectionId = openPacket.sid;
@@ -366,7 +425,11 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
     if (!Array.isArray(data) || typeof data[0] !== "string") return;
     const event = data[0];
     const payload = data.slice(1);
-    for (const normalized of await normalizeSignalGatewayInboundEventsAsync(event, payload, workerSignalGatewayBinary)) {
+    for (const normalized of await normalizeSignalGatewayInboundEventsAsync(
+      event,
+      payload,
+      workerSignalGatewayBinary,
+    )) {
       // 诊断：把入站信令事件打到 Workers Logs，便于定位卡死时是否伴随 leave / 切网通知 / 重协商。
       console.log(`[uurc-do] inbound ${normalized.event}`);
       this.recordEvent({
@@ -437,7 +500,9 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
     console.log(`[uurc-do] upstream socket close code=${event.code} reason=${event.reason} manual=${this.manualClose}`);
     for (const [id, pending] of this.pendingAcks) {
       clearTimeout(pending.timeout);
-      pending.reject(new Error(`signal socket closed before ${pending.event} ack code=${event.code} reason=${event.reason}`));
+      pending.reject(
+        new Error(`signal socket closed before ${pending.event} ack code=${event.code} reason=${event.reason}`),
+      );
       this.pendingAcks.delete(id);
     }
     this.socket = null;
@@ -520,7 +585,8 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
     );
   }
 
-  private readEvents(): RemoteSignalGatewayEvent[] {
+  private readEvents(afterEventId = 0): RemoteSignalGatewayEvent[] {
+    this.pruneEvents();
     return this.ctx.storage.sql
       .exec<{
         id: number;
@@ -529,7 +595,8 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
         received_at: string;
         payload_json: string;
       }>(
-        "SELECT id, direction, event, received_at, payload_json FROM signal_events ORDER BY id ASC LIMIT ?",
+        "SELECT id, direction, event, received_at, payload_json FROM signal_events WHERE id > ? ORDER BY id ASC LIMIT ?",
+        afterEventId,
         SIGNAL_GATEWAY_MAX_EVENTS,
       )
       .toArray()
@@ -543,6 +610,7 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
   }
 
   private recordEvent(input: Omit<RemoteSignalGatewayEvent, "id" | "receivedAt">): void {
+    this.pruneEvents();
     this.ctx.storage.sql.exec(
       "INSERT INTO signal_events (direction, event, received_at, payload_json) VALUES (?, ?, ?, ?)",
       input.direction,
@@ -554,6 +622,11 @@ export class RemoteSignalSession extends DurableObject<SignalSessionEnv> {
       "DELETE FROM signal_events WHERE id NOT IN (SELECT id FROM signal_events ORDER BY id DESC LIMIT ?)",
       SIGNAL_GATEWAY_MAX_EVENTS,
     );
+  }
+
+  private pruneEvents(): void {
+    const cutoff = new Date(Date.now() - SIGNAL_GATEWAY_EVENT_RETENTION_MS).toISOString();
+    this.ctx.storage.sql.exec("DELETE FROM signal_events WHERE received_at < ?", cutoff);
   }
 }
 
@@ -601,7 +674,7 @@ function buildEngineIoWebSocketUrl(signalServer: string): string {
 function parseEngineOpenPacket(value: string): EngineOpenPacket {
   try {
     const parsed = JSON.parse(value);
-    return asRecord(parsed) ? parsed as EngineOpenPacket : {};
+    return asRecord(parsed) ? (parsed as EngineOpenPacket) : {};
   } catch {
     return {};
   }
@@ -707,9 +780,10 @@ async function transformBytes(
   mode: "compress" | "decompress",
 ): Promise<Uint8Array> {
   const stream = new Blob([bytes]).stream();
-  const transformed = mode === "compress"
-    ? stream.pipeThrough(new CompressionStream(format))
-    : stream.pipeThrough(new DecompressionStream(format));
+  const transformed =
+    mode === "compress"
+      ? stream.pipeThrough(new CompressionStream(format))
+      : stream.pipeThrough(new DecompressionStream(format));
   return new Uint8Array(await new Response(transformed).arrayBuffer());
 }
 
@@ -780,7 +854,7 @@ async function toBytes(value: unknown): Promise<Uint8Array> {
 }
 
 function asRecord(value: unknown): JsonRecord | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : null;
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
 }
 
 function parseJson(text: string): unknown {

@@ -308,7 +308,9 @@ export function getRoomJoinFailureMessage(result: RoomJoinResult | null): string
   const upstreamStatus = result.upstream.status;
   const refused = (typeof upstreamCode === "number" && upstreamCode !== 0) || upstreamStatus >= 400;
   if (!refused) return "";
-  const reason = result.upstream.body.msg?.trim() || (typeof upstreamCode === "number" ? `code ${upstreamCode}` : `HTTP ${upstreamStatus}`);
+  const reason =
+    result.upstream.body.msg?.trim() ||
+    (typeof upstreamCode === "number" ? `code ${upstreamCode}` : `HTTP ${upstreamStatus}`);
   return `服务端拒绝加入房间：${reason}`;
 }
 
@@ -340,7 +342,12 @@ export type RemotePointerLike = {
   currentTarget: HTMLDivElement;
 };
 
-export function toRemoteMousePosition(event: RemotePointerLike): { absX: number; absY: number; surfaceWidth: number; surfaceHeight: number } {
+export function toRemoteMousePosition(event: RemotePointerLike): {
+  absX: number;
+  absY: number;
+  surfaceWidth: number;
+  surfaceHeight: number;
+} {
   const stageRect = event.currentTarget.getBoundingClientRect();
   // 多路视频时优先取当前显示(primary)的画面元素；否则会按非显示画面的分辨率换算，导致鼠标坐标偏移。
   const video =
@@ -420,9 +427,10 @@ export function formatRoomReleaseDetail(
   if (status?.roomClearError) return status.roomClearError;
   if (status?.roomClear) {
     const message = status.roomClear.body.msg ? ` · ${status.roomClear.body.msg}` : "";
-    const endpoint = context?.kind === "remote_assistance"
-      ? "/api/v2/room/share/cancel_remote_assist"
-      : "/api/v1/room/clear/by_device";
+    const endpoint =
+      context?.kind === "remote_assistance"
+        ? "/api/v2/room/share/cancel_remote_assist"
+        : "/api/v1/room/clear/by_device";
     return `${endpoint}${message}`;
   }
   return context?.kind === "remote_assistance" ? "断开连接时取消本次远程协助" : "断开连接时释放 UU 房间占用";
@@ -565,8 +573,14 @@ function buildConnectionQualityMetrics(input: {
   const pair = input.state.selectedCandidatePair;
   const flowDelta = input.state.videoFlow?.delta;
   const videoElement = input.state.videoElement;
-  const receiveBitrateBps = bitrateFromBytes(flowDelta?.bytesReceived ?? flowDelta?.candidateBytesReceived, flowDelta?.sampleIntervalMs);
-  const decodedFps = fpsFromDelta(flowDelta?.framesDecoded ?? flowDelta?.framesReceived ?? flowDelta?.videoElementFrames, flowDelta?.sampleIntervalMs);
+  const receiveBitrateBps = bitrateFromBytes(
+    flowDelta?.bytesReceived ?? flowDelta?.candidateBytesReceived,
+    flowDelta?.sampleIntervalMs,
+  );
+  const decodedFps = fpsFromDelta(
+    flowDelta?.framesDecoded ?? flowDelta?.framesReceived ?? flowDelta?.videoElementFrames,
+    flowDelta?.sampleIntervalMs,
+  );
 
   return [
     ...baseMetrics,
@@ -575,12 +589,17 @@ function buildConnectionQualityMetrics(input: {
     { label: "延迟", value: formatSecondsAsMs(pair?.currentRoundTripTime) ?? "采样中" },
     {
       label: "分辨率",
-      value: formatResolution(stats?.frameWidth ?? videoElement?.width, stats?.frameHeight ?? videoElement?.height) ?? "暂无",
+      value:
+        formatResolution(stats?.frameWidth ?? videoElement?.width, stats?.frameHeight ?? videoElement?.height) ??
+        "暂无",
     },
     { label: "丢帧", value: formatFrameCount(stats?.framesDropped ?? videoElement?.droppedVideoFrames) ?? "0 帧" },
     { label: "冻结", value: formatCount(stats?.freezeCount) ?? "0 次" },
     { label: "丢包", value: formatPacketLoss(stats?.packetsLost, stats?.packetsReceived) ?? "0 包 · 0%" },
-    { label: "抖动缓冲", value: formatAverageSecondsAsMs(stats?.jitterBufferDelay, stats?.jitterBufferEmittedCount) ?? "采样中" },
+    {
+      label: "抖动缓冲",
+      value: formatAverageSecondsAsMs(stats?.jitterBufferDelay, stats?.jitterBufferEmittedCount) ?? "采样中",
+    },
     { label: "下行余量", value: formatBitrate(pair?.availableIncomingBitrate) ?? "暂无" },
     { label: "上行余量", value: formatBitrate(pair?.availableOutgoingBitrate) ?? "暂无" },
     { label: "解码器", value: stats?.decoderImplementation ?? "暂无" },

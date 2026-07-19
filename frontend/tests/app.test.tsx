@@ -139,7 +139,9 @@ describe("App console", () => {
 
     await user.click(screen.getByRole("button", { name: "导出账号凭证" }));
     await waitFor(() => {
-      expect((screen.getByLabelText("账号凭证 JSON") as HTMLTextAreaElement).value).toContain('"token": "header.payload.signature"');
+      expect((screen.getByLabelText("账号凭证 JSON") as HTMLTextAreaElement).value).toContain(
+        '"token": "header.payload.signature"',
+      );
     });
   });
 
@@ -816,11 +818,9 @@ describe("App console", () => {
     await openAdvancedSettings(user);
 
     // 信令事件由后台自动轮询同步（已无手动同步入口），等待轮询应用 control:ack 失败事件。
-    await screen.findByText(
-      "ack=fail · code=100002 · protocol=protocol_error_2022 · msg=rejected",
-      undefined,
-      { timeout: 3000 },
-    );
+    await screen.findByText("ack=fail · code=100002 · protocol=protocol_error_2022 · msg=rejected", undefined, {
+      timeout: 3000,
+    });
     expect(screen.getAllByText("连接确认失败").length).toBeGreaterThan(0);
   });
 
@@ -933,9 +933,12 @@ describe("App console", () => {
     TestPeerConnection.closeDataChannel("CONTROL_DATA_CHANNEL");
 
     await screen.findByText(/自动重连将在/);
-    await waitFor(() => {
-      expect(requestLog.filter((call) => call.path === "/api/remote/signal/control")).toHaveLength(2);
-    }, { timeout: 2500 });
+    await waitFor(
+      () => {
+        expect(requestLog.filter((call) => call.path === "/api/remote/signal/control")).toHaveLength(2);
+      },
+      { timeout: 2500 },
+    );
     expect(uuCalls("/api/v1/room/join/by_device/desktop-1")).toHaveLength(1);
   });
 
@@ -1240,9 +1243,15 @@ describe("App console", () => {
     await waitFor(() => {
       expect(requestLog.some((call) => call.method === "DELETE" && call.path === "/api/remote/signal")).toBe(true);
     });
-    const deleteCallIndex = requestLog.findIndex((call) => call.method === "DELETE" && call.path === "/api/remote/signal");
+    const deleteCallIndex = requestLog.findIndex(
+      (call) => call.method === "DELETE" && call.path === "/api/remote/signal",
+    );
     await waitFor(() => {
-      expect(requestLog.slice(deleteCallIndex + 1).some((call) => call.method === "GET" && call.path === "/api/v1/device/groups/of/my")).toBe(true);
+      expect(
+        requestLog
+          .slice(deleteCallIndex + 1)
+          .some((call) => call.method === "GET" && call.path === "/api/v1/device/groups/of/my"),
+      ).toBe(true);
     });
     expect(TestPeerConnection.closed).toBe(true);
     expect(screen.getAllByText("已关闭").length).toBeGreaterThan(0);
@@ -1354,7 +1363,7 @@ async function handleFetch(input: string | URL | Request, init?: RequestInit): P
       uuProxyPath: "/api/proxy/uu",
       signalGateway: "node-socket-io",
       remoteApiBase: "/api/remote",
-      wispProxy: true,
+      wispProxy: false,
     });
   }
 
@@ -1374,7 +1383,7 @@ async function handleFetch(input: string | URL | Request, init?: RequestInit): P
           "X-NRD-AUTH": "<redacted room token>",
           "X-NRD-CONTROLLING": "0",
           streamer_version: "V3.1.14",
-          streamer_flag: "{\"sdp_flags\":{\"gzip_sdp\":false}}",
+          streamer_flag: '{"sdp_flags":{"gzip_sdp":false}}',
         },
         signalControl: {
           socketEvents: {
@@ -1403,7 +1412,7 @@ async function handleFetch(input: string | URL | Request, init?: RequestInit): P
         "X-NRD-AUTH": "<redacted room token>",
         "X-NRD-CONTROLLING": "0",
         streamer_version: "V3.1.14",
-        streamer_flag: "{\"sdp_flags\":{\"gzip_sdp\":false}}",
+        streamer_flag: '{"sdp_flags":{"gzip_sdp":false}}',
       },
       signalControl: {
         socketEvents: {
@@ -1483,8 +1492,14 @@ async function handleFetch(input: string | URL | Request, init?: RequestInit): P
     });
   }
 
-  if (path === "/api/remote/signal/events") {
-    return jsonResponse(currentRemoteSignalEvents);
+  if (path.startsWith("/api/remote/signal/events")) {
+    const after = Number.parseInt(new URL(path, "https://uurc.test").searchParams.get("after") ?? "0", 10);
+    return jsonResponse(
+      currentRemoteSignalEvents.filter((event) => {
+        const id = (event as { id?: unknown }).id;
+        return typeof id === "number" && id > after;
+      }),
+    );
   }
 
   if (path === "/api/remote/signal/diagnostics") {
@@ -1578,57 +1593,68 @@ async function handleUuProxyFetch(body: unknown): Promise<Response> {
 
   if (request.path === "/api/v1/login/by_mobile" && request.method === "POST") {
     expect(request.body).toEqual({ country_code: "86", mobile: "13800000000", code: "123456" });
-    return jsonResponse(uuResponse({
-      code: 0,
-      data: {
-        user_id: "user-1",
-        nickname: "Local User",
-        token: "header.payload.signature",
-      },
-    }));
+    return jsonResponse(
+      uuResponse({
+        code: 0,
+        data: {
+          user_id: "user-1",
+          nickname: "Local User",
+          token: "header.payload.signature",
+        },
+      }),
+    );
   }
 
   if (request.path === "/api/v1/device/groups/of/my" && request.method === "GET") {
-    return jsonResponse(uuResponse({
-      code: 0,
-      data: {
-        desktop_devices: [
-          {
-            device_id: "desktop-1",
-            alias: "Office Mac",
-            controllable: true,
-            status: "CONNECTED",
-            app_flag: { control_mode: null },
-            participants_info: currentParticipants,
-          },
-        ],
-        mobile_devices: [],
-        tv_devices: [],
-      },
-    }));
+    return jsonResponse(
+      uuResponse({
+        code: 0,
+        data: {
+          desktop_devices: [
+            {
+              device_id: "desktop-1",
+              alias: "Office Mac",
+              controllable: true,
+              status: "CONNECTED",
+              app_flag: { control_mode: null },
+              participants_info: currentParticipants,
+            },
+          ],
+          mobile_devices: [],
+          tv_devices: [],
+        },
+      }),
+    );
   }
 
   if (request.path === "/api/v1/room/join/by_device/desktop-1" && request.method === "POST") {
     expect(request.body).toMatchObject({ force_join: expect.any(Boolean) });
     if (joinRoomFailure) {
-      return jsonResponse(uuResponse({
-        code: 2002,
-        msg: "被控端正在被远控中，无法发起连接",
-      }, 400));
+      return jsonResponse(
+        uuResponse(
+          {
+            code: 2002,
+            msg: "被控端正在被远控中，无法发起连接",
+          },
+          400,
+        ),
+      );
     }
-    return jsonResponse(uuResponse({
-      code: 0,
-      data: {
-        room_config: {
-          token: "room-token-1",
-          signal_servers: currentSignalServers,
-          timeout: 12000,
-          signal_reconnect_delay: 1500,
-          report_token: "report-token-1",
-          app_data: "{}",
+    return jsonResponse(
+      uuResponse({
+        code: 0,
+        data: {
+          room_config: {
+            token: "room-token-1",
+            signal_servers: currentSignalServers,
+            timeout: 12000,
+            signal_reconnect_delay: 1500,
+            report_token: "report-token-1",
+            app_data: "{}",
+          },
         },
-      },
-    }));
+      }),
+    );
   }
 
   if (request.path === "/api/v1/room/clear/by_device/desktop-1" && request.method === "POST") {
@@ -1637,52 +1663,58 @@ async function handleUuProxyFetch(body: unknown): Promise<Response> {
 
   if (request.path === "/api/v2/room/share/control_mode" && request.method === "POST") {
     expect(request.body).toEqual({ connect_id: "982123456" });
-    return jsonResponse(uuResponse({
-      code: 0,
-      data: {
-        can_remote_control: true,
-        control_mode: currentAssistControlMode,
-      },
-    }));
+    return jsonResponse(
+      uuResponse({
+        code: 0,
+        data: {
+          can_remote_control: true,
+          control_mode: currentAssistControlMode,
+        },
+      }),
+    );
   }
 
   if (request.path === "/api/v2/room/join/share/by_code" && request.method === "POST") {
     expect(request.body).toEqual({ connect_id: "982123456", connect_code: "L6026CCD" });
-    return jsonResponse(uuResponse({
-      code: 0,
-      data: {
-        control_id: "assist-control-1",
-        device_name: "Partner PC",
-        platform: 1,
-        room_config: {
-          token: "assist-room-token",
-          signaling_server: "wss://assist-primary.example",
-          signaling_list: ["wss://assist-primary.example"],
-          ws_connect_timeout_ms: 12000,
-          streamer_retry_delta_ms: 900,
-          report_token: "assist-report-token",
-          report_url: "https://report.example/qos",
+    return jsonResponse(
+      uuResponse({
+        code: 0,
+        data: {
+          control_id: "assist-control-1",
+          device_name: "Partner PC",
+          platform: 1,
+          room_config: {
+            token: "assist-room-token",
+            signaling_server: "wss://assist-primary.example",
+            signaling_list: ["wss://assist-primary.example"],
+            ws_connect_timeout_ms: 12000,
+            streamer_retry_delta_ms: 900,
+            report_token: "assist-report-token",
+            report_url: "https://report.example/qos",
+          },
         },
-      },
-    }));
+      }),
+    );
   }
 
   if (request.path === "/api/v2/room/join/share/by_confirmation" && request.method === "POST") {
     expect(request.body).toMatchObject({ connect_id: "982123456" });
-    return jsonResponse(uuResponse({
-      code: 0,
-      data: {
-        control_id: "assist-control-1",
-        device_name: "Partner PC",
-        platform: 1,
-        room_config: {
-          token: "assist-room-token",
-          signaling_server: "wss://assist-primary.example",
-          ws_connect_timeout_ms: 12000,
-          streamer_retry_delta_ms: 900,
+    return jsonResponse(
+      uuResponse({
+        code: 0,
+        data: {
+          control_id: "assist-control-1",
+          device_name: "Partner PC",
+          platform: 1,
+          room_config: {
+            token: "assist-room-token",
+            signaling_server: "wss://assist-primary.example",
+            ws_connect_timeout_ms: 12000,
+            streamer_retry_delta_ms: 900,
+          },
         },
-      },
-    }));
+      }),
+    );
   }
 
   if (request.path === "/api/v2/room/share/cancel_remote_assist" && request.method === "POST") {
@@ -1772,7 +1804,10 @@ function buildStatsReport(input: {
         currentRoundTripTime: input.currentRoundTripTime,
       },
     ],
-    ["local-1", { id: "local-1", type: "local-candidate", candidateType: "relay", protocol: "udp", address: "203.0.113.10" }],
+    [
+      "local-1",
+      { id: "local-1", type: "local-candidate", candidateType: "relay", protocol: "udp", address: "203.0.113.10" },
+    ],
     ["remote-1", { id: "remote-1", type: "remote-candidate", candidateType: "relay", address: "203.0.113.11" }],
     [
       "codec-1",
@@ -1825,13 +1860,14 @@ class TestPeerConnection {
       onclose: null,
       onerror: null,
       send: (data: string | Blob | ArrayBuffer | ArrayBufferView) => {
-        const bytes = data instanceof ArrayBuffer
-          ? data.byteLength
-          : ArrayBuffer.isView(data)
+        const bytes =
+          data instanceof ArrayBuffer
             ? data.byteLength
-            : typeof data === "string"
-              ? data.length
-              : 0;
+            : ArrayBuffer.isView(data)
+              ? data.byteLength
+              : typeof data === "string"
+                ? data.length
+                : 0;
         TestPeerConnection.sentByLabel[label] = [...(TestPeerConnection.sentByLabel[label] ?? []), bytes];
       },
       close: () => {},
@@ -1878,7 +1914,10 @@ class TestPeerConnection {
           remoteCandidateId: "remote-1",
         },
       ],
-      ["local-1", { id: "local-1", type: "local-candidate", candidateType: "relay", protocol: "udp", address: "203.0.113.10" }],
+      [
+        "local-1",
+        { id: "local-1", type: "local-candidate", candidateType: "relay", protocol: "udp", address: "203.0.113.10" },
+      ],
       ["remote-1", { id: "remote-1", type: "remote-candidate", candidateType: "relay", address: "203.0.113.11" }],
     ]);
   }

@@ -2,14 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 
 import express from "express";
+import compression from "compression";
 import { createRuntimeProfile } from "@uurc/shared";
 
 import { createConfig, type BackendConfigOverrides } from "./config.js";
 import { errorHandler } from "./middleware/errorHandler.js";
+import { requestLogger } from "./middleware/requestLogger.js";
 import { createDiagnosticsRouter } from "./routes/diagnostics.js";
 import { createProxyRouter } from "./routes/proxy.js";
 import { createRemoteRouter } from "./routes/remote.js";
-import { RemoteControlService, type SignalGatewayConnector } from "./services/remoteControlService.js";
+import type { SignalGatewayConnector } from "./services/remoteControlService.js";
+import { RemoteControlSessionRegistry } from "./services/remoteControlSessionRegistry.js";
 
 export interface AppOverrides extends BackendConfigOverrides {
   signalGatewayConnector?: SignalGatewayConnector;
@@ -18,18 +21,21 @@ export interface AppOverrides extends BackendConfigOverrides {
 export function createApp(overrides: AppOverrides = {}) {
   const { signalGatewayConnector, ...configOverrides } = overrides;
   const config = createConfig(configOverrides);
-  const remoteControl = new RemoteControlService(undefined, signalGatewayConnector);
+  const remoteControlSessions = new RemoteControlSessionRegistry(signalGatewayConnector);
   const app = express();
 
+  app.disable("x-powered-by");
+  app.use(requestLogger);
+  app.use(compression({ threshold: 1024 }));
   app.use(express.json({ limit: "10mb" }));
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, runtime: "node" });
   });
   app.get("/api/runtime", (_req, res) => {
-    res.json(createRuntimeProfile("node"));
+    res.json(createRuntimeProfile("node", { wispProxy: config.enableWisp }));
   });
 
-  app.use("/api", createRemoteRouter(remoteControl));
+  app.use("/api", createRemoteRouter(remoteControlSessions));
   app.use("/api", createProxyRouter());
 
   if (config.enableDiagnostics) {
@@ -38,12 +44,17 @@ export function createApp(overrides: AppOverrides = {}) {
 
   const frontendDist = resolveFrontendDist();
   if (frontendDist) {
-    app.use(express.static(frontendDist));
+    app.use(
+      express.static(frontendDist, {
+        setHeaders: setStaticCacheHeaders,
+      }),
+    );
     app.get("*", (req, res, next) => {
       if (req.path.startsWith("/api") || req.path.startsWith("/wisp")) {
         next();
         return;
       }
+      res.setHeader("Cache-Control", "no-cache");
       res.sendFile(path.join(frontendDist, "index.html"));
     });
   }
@@ -54,15 +65,25 @@ export function createApp(overrides: AppOverrides = {}) {
     app,
     config,
     services: {
-      remoteControl,
+      remoteControlSessions,
     },
   };
 }
 
+function setStaticCacheHeaders(res: express.Response, filePath: string): void {
+  const cacheControl = getStaticCacheControl(filePath);
+  if (cacheControl) res.setHeader("Cache-Control", cacheControl);
+}
+
+export function getStaticCacheControl(filePath: string): string | undefined {
+  if (/[/\\]assets[/\\].+-[A-Za-z0-9_-]{8,}\.[^/\\]+$/.test(filePath)) {
+    return "public, max-age=31536000, immutable";
+  }
+  if (path.basename(filePath) === "index.html") return "no-cache";
+  return undefined;
+}
+
 function resolveFrontendDist(): string | null {
-  const candidates = [
-    path.resolve(process.cwd(), "../frontend/dist"),
-    path.resolve(process.cwd(), "frontend/dist"),
-  ];
+  const candidates = [path.resolve(process.cwd(), "../frontend/dist"), path.resolve(process.cwd(), "frontend/dist")];
   return candidates.find((candidate) => fs.existsSync(path.join(candidate, "index.html"))) ?? null;
 }

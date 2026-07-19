@@ -29,6 +29,10 @@ curl -O https://raw.githubusercontent.com/iola1999/uurc-web/main/compose.yml
 docker compose up -d
 ```
 
+The signal API gives each browser tab an opaque session capability, so separate visitors do not share one in-process signal connection. This does not authenticate access to the deployment. Put any public instance behind an authenticated reverse proxy or access gateway.
+
+Wisp is disabled by default because the frontend currently uses the local proxy transport. Set `ENABLE_WISP=true` only when testing the optional WASM curl transport.
+
 ## Cloudflare
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/iola1999/uurc-web)

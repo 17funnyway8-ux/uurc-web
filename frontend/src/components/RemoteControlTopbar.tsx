@@ -1,6 +1,6 @@
 import { CircleStop, LoaderCircle } from "lucide-react";
 
-import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
+import type { RemoteControlTopbarProps } from "../app/remoteControlPageProps.js";
 import { StatusPill } from "./StatusPill.js";
 
 export function RemoteControlTopbar({
@@ -12,17 +12,7 @@ export function RemoteControlTopbar({
   selectedDevice,
   selectedTargetLabel,
   signalGatewayDisplay,
-}: Pick<
-  RemoteControlPageProps,
-  | "browserRemoteState"
-  | "busy"
-  | "canDisconnectRemote"
-  | "onReturnToDevices"
-  | "onStopSignalGateway"
-  | "selectedDevice"
-  | "selectedTargetLabel"
-  | "signalGatewayDisplay"
->) {
+}: RemoteControlTopbarProps) {
   return (
     <header className="control-topbar">
       <button className="secondary-button" onClick={onReturnToDevices} disabled={busy !== null}>

@@ -38,17 +38,20 @@ export function RemoteVideoTile({
       return { eventName, handler };
     });
     emitSample("attached");
-    const timer = window.setInterval(() => emitSample("sample"), 1000);
+    const timer = window.setInterval(() => emitSample("sample"), visible ? 1000 : 5000);
     return () => {
       window.clearInterval(timer);
       for (const { eventName, handler } of handlers) {
         video.removeEventListener(eventName, handler);
       }
     };
-  }, [onVideoSample, stream, videoId]);
+  }, [onVideoSample, stream, videoId, visible]);
 
   return (
-    <div className={visible ? "remote-video-tile" : "remote-video-tile remote-video-tile-hidden"} aria-hidden={visible ? undefined : true}>
+    <div
+      className={visible ? "remote-video-tile" : "remote-video-tile remote-video-tile-hidden"}
+      aria-hidden={visible ? undefined : true}
+    >
       <video
         ref={videoRef}
         className="remote-video"

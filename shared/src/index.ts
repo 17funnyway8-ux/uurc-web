@@ -3,6 +3,7 @@ export * from "./constants.js";
 export * from "./loginFlow.js";
 export * from "./redact.js";
 export * from "./remoteBootstrap.js";
+export * from "./remoteSession.js";
 export * from "./roomConfig.js";
 export * from "./runtimeProfile.js";
 export * from "./signing.js";

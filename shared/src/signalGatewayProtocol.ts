@@ -18,6 +18,7 @@ import type {
 } from "./types.js";
 
 export const SIGNAL_GATEWAY_MAX_EVENTS = 200;
+export const SIGNAL_GATEWAY_EVENT_RETENTION_MS = 15 * 60 * 1000;
 
 export interface SignalGatewayBinaryCodec<TBinary> {
   decodeBase64(value: string | undefined): TBinary;
@@ -28,7 +29,10 @@ export interface SignalGatewayBinaryCodec<TBinary> {
   gunzipText(value: unknown): string | null;
 }
 
-export interface AsyncSignalGatewayBinaryCodec<TBinary> extends Omit<SignalGatewayBinaryCodec<TBinary>, "gzipText" | "gunzipText"> {
+export interface AsyncSignalGatewayBinaryCodec<TBinary> extends Omit<
+  SignalGatewayBinaryCodec<TBinary>,
+  "gzipText" | "gunzipText"
+> {
   gzipText(value: string): Promise<TBinary> | TBinary;
   gunzipText(value: unknown): Promise<string | null> | string | null;
 }
@@ -172,7 +176,10 @@ export function normalizeSignalGatewayPayload<TBinary>(
 
   if (value && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, normalizeSignalGatewayPayload(item, binary)]),
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        key,
+        normalizeSignalGatewayPayload(item, binary),
+      ]),
     );
   }
 
@@ -186,10 +193,12 @@ export function normalizeSignalGatewayInboundEvents<TBinary>(
 ): Array<{ event: string; payload: unknown }> {
   if (event !== STREAMER_SIGNAL_SOCKET_EVENTS.bmsgPush) {
     if (isControllerInboundSoacType(event)) {
-      return [{
-        event: STREAMER_SOAC_EVENT,
-        payload: payload.map((item) => normalizeInboundTypedPayload(event, item, binary)),
-      }];
+      return [
+        {
+          event: STREAMER_SOAC_EVENT,
+          payload: payload.map((item) => normalizeInboundTypedPayload(event, item, binary)),
+        },
+      ];
     }
     return [{ event, payload: normalizeInboundTypedPayload(event, payload, binary) }];
   }
@@ -221,10 +230,12 @@ export async function normalizeSignalGatewayInboundEventsAsync<TBinary>(
 ): Promise<Array<{ event: string; payload: unknown }>> {
   if (event !== STREAMER_SIGNAL_SOCKET_EVENTS.bmsgPush) {
     if (isControllerInboundSoacType(event)) {
-      return [{
-        event: STREAMER_SOAC_EVENT,
-        payload: await Promise.all(payload.map((item) => normalizeInboundTypedPayloadAsync(event, item, binary))),
-      }];
+      return [
+        {
+          event: STREAMER_SOAC_EVENT,
+          payload: await Promise.all(payload.map((item) => normalizeInboundTypedPayloadAsync(event, item, binary))),
+        },
+      ];
     }
     return [{ event, payload: await normalizeInboundTypedPayloadAsync(event, payload, binary) }];
   }
@@ -234,27 +245,28 @@ export async function normalizeSignalGatewayInboundEventsAsync<TBinary>(
     return [{ event, payload }];
   }
 
-  const normalized = await Promise.all(pushes.map(async (push) => {
-    const normalizedEvent = isControllerInboundSoacType(push.type) ? STREAMER_SOAC_EVENT : push.type;
-    const data = isControllerInboundSoacType(push.type)
-      ? normalizeTypedSoacPushPayload(push.type, push.data)
-      : push.data;
-    return {
-      event: normalizedEvent,
-      payload: data === undefined ? [] : [await normalizeInboundTypedPayloadAsync(normalizedEvent, data, binary)],
-    };
-  }));
-  return [
-    { event, payload },
-    ...normalized,
-  ];
+  const normalized = await Promise.all(
+    pushes.map(async (push) => {
+      const normalizedEvent = isControllerInboundSoacType(push.type) ? STREAMER_SOAC_EVENT : push.type;
+      const data = isControllerInboundSoacType(push.type)
+        ? normalizeTypedSoacPushPayload(push.type, push.data)
+        : push.data;
+      return {
+        event: normalizedEvent,
+        payload: data === undefined ? [] : [await normalizeInboundTypedPayloadAsync(normalizedEvent, data, binary)],
+      };
+    }),
+  );
+  return [{ event, payload }, ...normalized];
 }
 
 export function normalizeSignalGatewayRoomConfig(value: unknown): StreamerRoomConfig | null {
   const record = asRecord(value);
   if (!record || typeof record.token !== "string" || record.token.length === 0) return null;
   if (!Array.isArray(record.signalServers)) return null;
-  const signalServers = record.signalServers.filter((item): item is string => typeof item === "string" && item.length > 0);
+  const signalServers = record.signalServers.filter(
+    (item): item is string => typeof item === "string" && item.length > 0,
+  );
   if (signalServers.length === 0) return null;
   return {
     token: record.token,
@@ -331,7 +343,7 @@ async function normalizeInboundSoacPayloadAsync<TBinary>(
   const hasPlainSdp = typeof soacData.data.sdp === "string" && soacData.data.sdp.length > 0;
   if (hasPlainSdp) return payload;
 
-  const plainSdp = await binary.gunzipText(soacData.data.gzip_sdp) ?? await binary.gunzipText(soacData.data.sdp);
+  const plainSdp = (await binary.gunzipText(soacData.data.gzip_sdp)) ?? (await binary.gunzipText(soacData.data.sdp));
   if (!plainSdp) return payload;
   return {
     ...soacData.record,
@@ -404,5 +416,5 @@ function readOptionalNumber(value: unknown): number | undefined {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }

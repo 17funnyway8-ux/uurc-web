@@ -62,7 +62,14 @@ function findRoomConfigRecord(value: unknown): UnknownRecord | null {
   const record = asRecord(value);
   if (!record) return null;
 
-  const directKeys = ["room_config", "roomConfig", "room_info", "roomInfo", "streamer_room_config", "streamerRoomConfig"];
+  const directKeys = [
+    "room_config",
+    "roomConfig",
+    "room_info",
+    "roomInfo",
+    "streamer_room_config",
+    "streamerRoomConfig",
+  ];
   for (const key of directKeys) {
     const direct = asRecord(record[key]);
     if (direct && looksLikeRoomConfig(direct)) return direct;

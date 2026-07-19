@@ -69,10 +69,7 @@ export function RemoteAssistanceCard({
 
         <label>
           <span>伙伴设备系统</span>
-          <select
-            onChange={(event) => onPlatformChange(Number(event.target.value))}
-            value={platform}
-          >
+          <select onChange={(event) => onPlatformChange(Number(event.target.value))} value={platform}>
             <option value={1}>Windows</option>
             <option value={4}>macOS</option>
             <option value={2}>Android</option>

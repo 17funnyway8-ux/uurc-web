@@ -1,4 +1,4 @@
-import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
+import type { RemoteControlDiagnosticsDrawerProps } from "../app/remoteControlPageProps.js";
 import { DebugEventList } from "./DebugEventList.js";
 import { formatAppFlagControlMode, getDeviceConnectionLabel } from "../devices/deviceLabels.js";
 import { StatusRow } from "./Panel.js";
@@ -38,42 +38,7 @@ export function RemoteControlDiagnosticsDrawer({
   unexpectedSignalEventSummary,
   videoElementLabel,
   videoFlowLabel,
-}: Pick<
-  RemoteControlPageProps,
-  | "autoSwitchThresholdLabel"
-  | "browserIceServers"
-  | "browserRemoteState"
-  | "browserRtcDescription"
-  | "browserStageLabel"
-  | "candidatePairSummary"
-  | "connectionPathLabel"
-  | "controlChannelLabel"
-  | "debugEvents"
-  | "effectiveConnectionRouteLabel"
-  | "iceControlStatusLabel"
-  | "inboundVideoStatsLabel"
-  | "inputControlActive"
-  | "joinModeLabel"
-  | "networkSwitchSummary"
-  | "remoteBootstrap"
-  | "roomDebugPayload"
-  | "roomJoinModeDebugLabel"
-  | "roomReleaseDetail"
-  | "roomReleaseLabel"
-  | "runtimeProfile"
-  | "selectedDevice"
-  | "selectedDeviceId"
-  | "serviceRoutePolicyLabel"
-  | "signalEvents"
-  | "signalGatewayDisplay"
-  | "signalHeaderSummary"
-  | "signalReadiness"
-  | "sdpTransportLabel"
-  | "textChannelLabel"
-  | "unexpectedSignalEventSummary"
-  | "videoElementLabel"
-  | "videoFlowLabel"
->) {
+}: RemoteControlDiagnosticsDrawerProps) {
   return (
     <details className="control-drawer">
       <summary>调试信息</summary>
@@ -91,7 +56,10 @@ export function RemoteControlDiagnosticsDrawer({
         <StatusRow label="候选链路" value={candidatePairSummary} />
         <StatusRow label="链路策略" value={effectiveConnectionRouteLabel} />
         <StatusRow label="服务链路" value={serviceRoutePolicyLabel} />
-        <StatusRow label="部署运行时" value={runtimeProfile ? `${runtimeProfile.runtime} · ${runtimeProfile.signalGateway}` : "-"} />
+        <StatusRow
+          label="部署运行时"
+          value={runtimeProfile ? `${runtimeProfile.runtime} · ${runtimeProfile.signalGateway}` : "-"}
+        />
         <StatusRow label="ICE" value={iceControlStatusLabel} />
         <StatusRow label="自动切换" value={autoSwitchThresholdLabel} />
         <StatusRow label="网络事件" value={networkSwitchSummary} />
@@ -120,7 +88,9 @@ export function RemoteControlDiagnosticsDrawer({
       </details>
       <details className="debug-details">
         <summary>脱敏调试摘要</summary>
-        <pre className="response-box">{roomDebugPayload ? JSON.stringify(roomDebugPayload, null, 2) : "No room response yet."}</pre>
+        <pre className="response-box">
+          {roomDebugPayload ? JSON.stringify(roomDebugPayload, null, 2) : "No room response yet."}
+        </pre>
       </details>
       <details className="debug-events-details">
         <summary>远控调试日志</summary>

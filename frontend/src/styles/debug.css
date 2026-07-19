@@ -341,7 +341,9 @@
   color: var(--text-muted);
   cursor: pointer;
   font-size: 12.5px;
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
 
 .advanced-actions summary::-webkit-details-marker,
@@ -370,7 +372,9 @@
   border-bottom: 2px solid currentColor;
   opacity: 0.72;
   transform: rotate(45deg);
-  transition: transform 0.14s ease, opacity 0.14s ease;
+  transition:
+    transform 0.14s ease,
+    opacity 0.14s ease;
 }
 
 .advanced-actions[open] summary::after,

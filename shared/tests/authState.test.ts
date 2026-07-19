@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decodeJwtPayload,
-  summarizeAuthState,
-  validateLoginState,
-} from "../src/index.js";
+import { decodeJwtPayload, summarizeAuthState, validateLoginState } from "../src/index.js";
 
 function fakeJwt(payload: Record<string, unknown>): string {
   const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");

@@ -1,6 +1,6 @@
 import { Info, TriangleAlert } from "lucide-react";
 
-import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
+import type { RemoteControlWarningsProps } from "../app/remoteControlPageProps.js";
 
 export function RemoteControlWarnings({
   browserWebRtcUnavailableReason,
@@ -12,18 +12,7 @@ export function RemoteControlWarnings({
   selectedDeviceOccupied,
   selfDeviceBlockedReason,
   signalGatewayErrorHint,
-}: Pick<
-  RemoteControlPageProps,
-  | "browserWebRtcUnavailableReason"
-  | "forceJoin"
-  | "normalJoinTakeoverHint"
-  | "occupiedBySelfClient"
-  | "occupyingParticipantLabel"
-  | "roomJoinFailureMessage"
-  | "selectedDeviceOccupied"
-  | "selfDeviceBlockedReason"
-  | "signalGatewayErrorHint"
->) {
+}: RemoteControlWarningsProps) {
   return (
     <>
       {browserWebRtcUnavailableReason ? (

@@ -3,11 +3,12 @@ import { LocalProxyTransport } from "../src/transport/localProxyTransport.js";
 
 describe("LocalProxyTransport", () => {
   it("normalizes successful JSON responses from the backend proxy", async () => {
-    const fetcher = vi.fn(async () =>
-      new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetcher = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
     );
     const transport = new LocalProxyTransport("/api", fetcher);
 

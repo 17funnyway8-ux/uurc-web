@@ -1,5 +1,4 @@
-import type { ClipboardEvent, KeyboardEvent, PointerEvent, WheelEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMatch, useNavigate } from "react-router";
 
 import {
@@ -9,28 +8,9 @@ import {
   buildDefaultStreamerConnectOptionsBase64,
   buildStreamerControlStreamerDataJson,
 } from "@uurc/shared/streamerProtocol";
-import type {
-  AuthStatus,
-  RemoteControlBootstrap,
-  RemoteSignalGatewayEvent,
-  RemoteSignalGatewayStatus,
-  RemoteSignalReadinessDiagnostics,
-  RuntimeProfile,
-  RemoteAssistanceJoinResult,
-  RoomJoinResult,
-  UuDeviceGroups,
-} from "@uurc/shared/types";
+import type { RemoteSignalGatewayStatus, RuntimeProfile, RemoteAssistanceJoinResult } from "@uurc/shared/types";
 
-import type {
-  BusyAction,
-  ConnectionRouteMode,
-  RemoteStageViewMode,
-  RemoteVideoSamplesById,
-  RemoteVideoSourceInfo,
-  RemoteVideoStream,
-  RoomJoinContext,
-  SdpTransportMode,
-} from "../app/remoteControlTypes.js";
+import type { BusyAction, RoomJoinContext } from "../app/remoteControlTypes.js";
 import { SELF_DEVICE_BLOCKED_REASON } from "../app/remoteControlTypes.js";
 import {
   cancelRemoteAssistance,
@@ -44,7 +24,6 @@ import {
   getRemoteBootstrap,
   getRuntimeProfile,
   getRemoteSignalDiagnostics,
-  getRemoteSignalEvents,
   importAuthState,
   joinRemoteAssistanceByCode,
   joinRemoteAssistanceByConfirmation,
@@ -56,16 +35,14 @@ import {
   startRemoteSignalGateway,
   stopRemoteSignalGateway,
 } from "../api/client.js";
-import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
-import { readLocalClipboardText } from "../browser/clipboard.js";
+import { createRemoteControlPageProps, type RemoteControlViewProps } from "../app/remoteControlPageProps.js";
 import { formatParticipantMeta } from "../devices/deviceLabels.js";
 import { pickControllableDesktop } from "../devices/deviceSummary.js";
-import { BrowserRemoteSession, type BrowserRemoteSessionState, type BrowserRemoteVideoElementSample } from "../remote/browserRemoteSession.js";
-import { remoteShortcutGroupTitleForPlatform, sendRemoteShortcut, type RemoteShortcut } from "../remote/remoteShortcuts.js";
+import { BrowserRemoteSession, type BrowserRemoteSessionState } from "../remote/browserRemoteSession.js";
+import { remoteShortcutGroupTitleForPlatform } from "../remote/remoteShortcuts.js";
 import {
   createAppControlId,
   createIdleBrowserRemoteState,
-  createSingleTrackMediaStream,
   formatAutoSwitchThresholds,
   formatBrowserRemoteStage,
   formatConnectionPath,
@@ -83,47 +60,25 @@ import {
   getNextAction,
   getRoomJoinFailureMessage,
   getRoomJoinFailureTakeoverHint,
-  resolvePrimaryRemoteVideoId,
   summarizeRoomJoinUpstream,
   summarizeSwitchNetworkNotify,
   summarizeUnexpectedSignalEvents,
-  toRemoteKeyValue,
-  toRemoteMouseButton,
-  toRemoteMousePosition,
 } from "../remote/remoteControlUiModel.js";
 import { useAutoLoadDevices } from "./useAutoLoadDevices.js";
-
-const REMOTE_ASSISTANCE_DEFAULT_TARGET_PLATFORM = 1;
-
-// 需要“按住保持”的修饰键(用于组合键);其余键采用瞬时一击。event.key 取值见 KeyboardEvent.key 规范。
-const HOLD_MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta", "AltGraph"]);
-
-function readAutoConnectPref(): boolean {
-  try {
-    return globalThis.localStorage?.getItem("uurc.autoConnect") !== "false";
-  } catch {
-    return true;
-  }
-}
-
-function detectBrowserWebRtcUnavailableReason(): string {
-  if (typeof RTCPeerConnection !== "function") {
-    return "当前浏览器未启用 WebRTC，无法建立远控画面。请允许 WebRTC 后重试。";
-  }
-
-  try {
-    const peer = new RTCPeerConnection({ iceServers: [] });
-    peer.close();
-    return "";
-  } catch {
-    return "当前浏览器无法创建 WebRTC 连接。请检查浏览器隐私设置或扩展拦截后重试。";
-  }
-}
+import { useAccountController } from "./useAccountController.js";
+import { useDeviceController } from "./useDeviceController.js";
+import { useRemoteVideoController } from "./useRemoteVideoController.js";
+import { useRemoteControlPreferences } from "./useRemoteControlPreferences.js";
+import { useRemoteInputController } from "./useRemoteInputController.js";
+import { useRoomController } from "./useRoomController.js";
+import { useSignalGatewayController } from "./useSignalGatewayController.js";
+import { useToastController } from "./useToastController.js";
 
 // 把底层/协议级英文错误映射成用户能看懂、带“怎么办”的中文；未知错误原样返回。
 function toFriendlyError(message: string): string {
   const text = message || "";
-  if (/Unexpected token|not valid JSON|Unexpected end of JSON|JSON at position/i.test(text)) return "账号凭证 JSON 格式不正确，请检查是否完整复制。";
+  if (/Unexpected token|not valid JSON|Unexpected end of JSON|JSON at position/i.test(text))
+    return "账号凭证 JSON 格式不正确，请检查是否完整复制。";
   if (/Join a room before starting remote control|请先加入房间/i.test(text)) return "请先加入设备房间再开始远控。";
   if (/ack timed out|timed out|timeout/i.test(text)) return "连接超时，请稍后重试。";
   if (/signal control ack failed/i.test(text)) return "对端拒绝了本次连接，请稍后重试或更换网络。";
@@ -144,58 +99,109 @@ function isValidMobileNumber(regionCode: string, mobile: string): boolean {
 }
 
 export function useRemoteControlController() {
-  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
-  const [authJson, setAuthJson] = useState("");
-  const [regionCode, setRegionCode] = useState("86");
-  const [mobile, setMobile] = useState("");
-  const [smsCode, setSmsCode] = useState("");
-  const [loginNotice, setLoginNotice] = useState("");
-  const [codeSent, setCodeSent] = useState(false);
-  const [smsCountdown, setSmsCountdown] = useState(0);
-  const [devices, setDevices] = useState<UuDeviceGroups>({ desktopDevices: [], mobileDevices: [], tvDevices: [] });
-  const [devicesLoaded, setDevicesLoaded] = useState(false);
-  const [selectedDeviceIdState, setSelectedDeviceId] = useState("");
-  const [forceJoin, setForceJoin] = useState(false);
-  const [assistanceConnectId, setAssistanceConnectId] = useState("");
-  const [assistanceConnectCode, setAssistanceConnectCode] = useState("");
-  const [assistanceNotice, setAssistanceNotice] = useState("");
-  const [assistanceTargetPlatform, setAssistanceTargetPlatform] = useState<number>(REMOTE_ASSISTANCE_DEFAULT_TARGET_PLATFORM);
-  const [roomResponse, setRoomResponse] = useState<RoomJoinResult | null>(null);
-  const [roomJoinContext, setRoomJoinContext] = useState<RoomJoinContext | null>(null);
-  const [signalGatewayContext, setSignalGatewayContext] = useState<RoomJoinContext | null>(null);
-  const [remoteBootstrap, setRemoteBootstrap] = useState<RemoteControlBootstrap | null>(null);
-  const [signalGatewayStatus, setSignalGatewayStatus] = useState<RemoteSignalGatewayStatus | null>(null);
-  const [signalEvents, setSignalEvents] = useState<RemoteSignalGatewayEvent[]>([]);
-  const [remoteSignalDiagnostics, setRemoteSignalDiagnostics] = useState<RemoteSignalReadinessDiagnostics | null>(null);
+  const {
+    authStatus,
+    setAuthStatus,
+    authJson,
+    setAuthJson,
+    regionCode,
+    setRegionCode,
+    mobile,
+    setMobile,
+    smsCode,
+    setSmsCode,
+    loginNotice,
+    setLoginNotice,
+    codeSent,
+    setCodeSent,
+    smsCountdown,
+    setSmsCountdown,
+  } = useAccountController();
+  const {
+    devices,
+    setDevices,
+    devicesLoaded,
+    setDevicesLoaded,
+    selectedDeviceIdState,
+    setSelectedDeviceId,
+    forceJoin,
+    setForceJoin,
+    assistanceConnectId,
+    setAssistanceConnectId,
+    assistanceConnectCode,
+    setAssistanceConnectCode,
+    assistanceNotice,
+    setAssistanceNotice,
+    assistanceTargetPlatform,
+    setAssistanceTargetPlatform,
+    resetDevices,
+  } = useDeviceController();
+  const {
+    roomResponse,
+    setRoomResponse,
+    roomJoinContext,
+    setRoomJoinContext,
+    remoteBootstrap,
+    setRemoteBootstrap,
+    resetRoom,
+  } = useRoomController();
   const [runtimeProfile, setRuntimeProfile] = useState<RuntimeProfile | null>(null);
   const [browserRemoteState, setBrowserRemoteState] = useState<BrowserRemoteSessionState>(createIdleBrowserRemoteState);
-  const [remoteVideoStreams, setRemoteVideoStreams] = useState<RemoteVideoStream[]>([]);
-  const [remoteVideoSamplesById, setRemoteVideoSamplesById] = useState<RemoteVideoSamplesById>({});
-  const [selectedRemoteVideoId, setSelectedRemoteVideoId] = useState("");
-  const [clipboardText, setClipboardText] = useState("");
-  const [clipboardStatus, setClipboardStatus] = useState("尚未读取本机剪贴板");
-  const [autoReconnectEnabled, setAutoReconnectEnabled] = useState(true);
   const [autoReconnectAttemptCount, setAutoReconnectAttemptCount] = useState(0);
   const [decodeStalledStreak, setDecodeStalledStreak] = useState(0);
   const [autoReconnectStatus, setAutoReconnectStatus] = useState("");
-  const [inputControlEnabled, setInputControlEnabled] = useState(false);
-  const [sdpTransportMode, setSdpTransportMode] = useState<SdpTransportMode>("gzip");
-  const [connectionRouteMode, setConnectionRouteMode] = useState<ConnectionRouteMode>("auto");
-  const [autoConnect, setAutoConnect] = useState<boolean>(readAutoConnectPref);
-  const [remoteStageViewMode, setRemoteStageViewMode] = useState<RemoteStageViewMode>("fit");
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [browserWebRtcUnavailableReason] = useState(detectBrowserWebRtcUnavailableReason);
-  const [signalServerIndex, setSignalServerIndex] = useState(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<BusyAction>("status");
-  const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
-  const toastIdRef = useRef(0);
+  const { toast, showToast, dismissToast } = useToastController();
   const browserRemoteSession = useRef<BrowserRemoteSession | null>(null);
-  const remoteStageRef = useRef<HTMLDivElement | null>(null);
   const remoteStageFrameRef = useRef<HTMLDivElement | null>(null);
   const autoConnectAttemptedDeviceRef = useRef<string>("");
-  const controlChannelOpenedRef = useRef(false);
-  const activePointerId = useRef<number | null>(null);
+  const {
+    autoReconnectEnabled,
+    setAutoReconnectEnabled,
+    sdpTransportMode,
+    setSdpTransportMode,
+    connectionRouteMode,
+    setConnectionRouteMode,
+    autoConnect,
+    setAutoConnect,
+    remoteStageViewMode,
+    setRemoteStageViewMode,
+    signalServerIndex,
+    setSignalServerIndex,
+    browserWebRtcUnavailableReason,
+  } = useRemoteControlPreferences(remoteBootstrap?.signalServers.length ?? 0);
+  const {
+    signalGatewayContext,
+    setSignalGatewayContext,
+    signalGatewayStatus,
+    setSignalGatewayStatus,
+    signalEvents,
+    remoteSignalDiagnostics,
+    setRemoteSignalDiagnostics,
+    resetSignalEvents,
+    resetSignalGateway,
+    refreshSignalEvents,
+  } = useSignalGatewayController({
+    browserStage: browserRemoteState.stage,
+    browserSessionRef: browserRemoteSession,
+    onPollingError: setError,
+    onSessionStateChange: setBrowserRemoteState,
+  });
+  const {
+    remoteVideoStreams,
+    remoteVideoCount,
+    remoteVideoSources,
+    primaryRemoteVideoId,
+    primaryRemoteVideoActive,
+    setSelectedRemoteVideoId,
+    handleRemoteMediaStream,
+    handleRemoteVideoSample,
+    resetRemoteVideos,
+  } = useRemoteVideoController({
+    browserSessionRef: browserRemoteSession,
+    onSessionStateChange: setBrowserRemoteState,
+  });
   const navigate = useNavigate();
   const controlRouteMatch = useMatch("/devices/:deviceId/control");
   const routeSelectedDeviceId = controlRouteMatch?.params.deviceId ?? "";
@@ -240,65 +246,47 @@ export function useRemoteControlController() {
       ? `${occupyingParticipant.alias}（${formatParticipantMeta(occupyingParticipant)}）`
       : formatParticipantMeta(occupyingParticipant) || "其他控制端"
     : "其他控制端";
-  const primaryRemoteVideoId = useMemo(
-    () => resolvePrimaryRemoteVideoId(remoteVideoStreams, remoteVideoSamplesById, selectedRemoteVideoId),
-    [remoteVideoSamplesById, remoteVideoStreams, selectedRemoteVideoId],
-  );
-
+  const textChannelState = browserRemoteState.dataChannels[STREAMER_DATA_CHANNEL_LABELS.text] ?? "closed";
+  const controlChannelState = browserRemoteState.dataChannels[STREAMER_DATA_CHANNEL_LABELS.control] ?? "closed";
+  const {
+    clipboardStatus,
+    clipboardPreviewLabel,
+    canReadLocalClipboard,
+    canSendClipboardText,
+    inputControlActive,
+    isFullscreen,
+    remoteStageRef,
+    enableInputControl,
+    resetInputControl,
+    handleRemoteClipboard,
+    handleReadLocalClipboard,
+    handleSendClipboardText,
+    handleRemoteShortcut,
+    handleToggleFullscreen,
+    handleToggleInputControl,
+    handleRemoteStagePointerDown,
+    handleRemoteStagePointerMove,
+    handleRemoteStagePointerUp,
+    handleRemoteStagePointerCancel,
+    handleRemoteStageWheel,
+    handleRemoteStageKeyDown,
+    handleRemoteStageKeyUp,
+    handleRemoteStageBlur,
+    handleRemoteStagePaste,
+  } = useRemoteInputController({
+    browserSessionRef: browserRemoteSession,
+    busy,
+    controlChannelState,
+    textChannelState,
+    run,
+    onError: setError,
+    onSessionStateChange: setBrowserRemoteState,
+    showToast,
+  });
   useEffect(() => {
     void loadStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在挂载时恢复一次账号凭证
   }, []);
-
-  useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => {
-      setToast((current) => (current && current.id === toast.id ? null : current));
-    }, 2600);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
-
-  const smsCounting = smsCountdown > 0;
-  useEffect(() => {
-    if (!smsCounting) return;
-    const timer = window.setInterval(() => setSmsCountdown((value) => Math.max(0, value - 1)), 1000);
-    return () => window.clearInterval(timer);
-  }, [smsCounting]);
-
-  useEffect(() => {
-    const serverCount = remoteBootstrap?.signalServers.length ?? 0;
-    if (serverCount > 0 && signalServerIndex >= serverCount) {
-      setSignalServerIndex(0);
-    }
-  }, [remoteBootstrap?.signalServers.length, signalServerIndex]);
-
-  useEffect(() => {
-    if (signalGatewayStatus?.status !== "connected" || browserRemoteState.stage === "idle") return;
-
-    let stopped = false;
-    let syncing = false;
-    const sync = async () => {
-      if (stopped || syncing || !browserRemoteSession.current) return;
-      syncing = true;
-      try {
-        await applyLatestSignalEvents();
-      } catch (caught) {
-        if (!stopped) setError(caught instanceof Error ? caught.message : String(caught));
-      } finally {
-        syncing = false;
-      }
-    };
-
-    void sync();
-    // 建链阶段（answer/ICE 尚未就绪）加快轮询，更快应用信令、缩短连接耗时；
-    // 连上后回到 1.5s 稳态，避免稳定期不必要的请求与重渲染。
-    const intervalMs = browserRemoteState.stage === "connected" ? 1500 : 600;
-    const timer = window.setInterval(sync, intervalMs);
-    return () => {
-      stopped = true;
-      window.clearInterval(timer);
-    };
-  }, [signalGatewayStatus?.status, browserRemoteState.stage]);
 
   async function run(action: BusyAction, task: () => Promise<void>) {
     setBusy(action);
@@ -314,18 +302,9 @@ export function useRemoteControlController() {
     }
   }
 
-  function showToast(message: string) {
-    if (!message) return;
-    toastIdRef.current += 1;
-    setToast({ id: toastIdRef.current, message });
-  }
-
   async function loadStatus() {
     await run("status", async () => {
-      const [status, runtime] = await Promise.all([
-        getAuthStatus(),
-        getRuntimeProfile().catch(() => null),
-      ]);
+      const [status, runtime] = await Promise.all([getAuthStatus(), getRuntimeProfile().catch(() => null)]);
       setAuthStatus(status);
       setRuntimeProfile(runtime);
     });
@@ -370,28 +349,27 @@ export function useRemoteControlController() {
   }
 
   async function handleLogout() {
-    if (typeof window !== "undefined" && !window.confirm("退出后需重新登录。若未导出账号凭证备份，建议先导出。确定退出？")) {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("退出后需重新登录。若未导出账号凭证备份，建议先导出。确定退出？")
+    ) {
       return;
     }
     await run("logout", async () => {
       resetBrowserRemoteSession();
+      await stopRemoteSignalGateway().catch(() => undefined);
+      if (roomJoinContext?.deviceId) {
+        const releaseRoom =
+          roomJoinContext.kind === "remote_assistance"
+            ? cancelRemoteAssistance(roomJoinContext.connectId ?? roomJoinContext.deviceId)
+            : clearRoomByDevice(roomJoinContext.deviceId);
+        await releaseRoom.catch(() => undefined);
+      }
       setAuthStatus(await clearAuthState());
       setAuthJson("");
-      setDevices({ desktopDevices: [], mobileDevices: [], tvDevices: [] });
-      setDevicesLoaded(false);
-      setSelectedDeviceId("");
-      setForceJoin(false);
-      setAssistanceConnectId("");
-      setAssistanceConnectCode("");
-      setAssistanceNotice("");
-      setAssistanceTargetPlatform(REMOTE_ASSISTANCE_DEFAULT_TARGET_PLATFORM);
-      setRoomResponse(null);
-      setRoomJoinContext(null);
-      setSignalGatewayContext(null);
-      setRemoteBootstrap(null);
-      setSignalGatewayStatus(null);
-      setSignalEvents([]);
-      setRemoteSignalDiagnostics(null);
+      resetDevices();
+      resetRoom();
+      resetSignalGateway();
       setLoginNotice("");
       setCodeSent(false);
       setSmsCountdown(0);
@@ -408,7 +386,9 @@ export function useRemoteControlController() {
   async function handleSendMobileCode() {
     await run("send-mobile-code", async () => {
       if (!isValidMobileNumber(regionCode, mobile)) {
-        throw new Error(regionCode.trim() === "86" || !regionCode.trim() ? "请输入 11 位有效手机号。" : "请输入有效的手机号。");
+        throw new Error(
+          regionCode.trim() === "86" || !regionCode.trim() ? "请输入 11 位有效手机号。" : "请输入有效的手机号。",
+        );
       }
       await ensureMobileDevice();
       const result = await sendMobileCode({ regionCode: regionCode.trim() || "86", mobile });
@@ -516,10 +496,7 @@ export function useRemoteControlController() {
       setRoomResponse(joined);
       setRoomJoinContext(context);
       setForceJoin(false);
-      setSignalGatewayContext(null);
-      setSignalGatewayStatus(null);
-      setSignalEvents([]);
-      setRemoteSignalDiagnostics(null);
+      resetSignalGateway();
       resetBrowserRemoteSession();
       setRemoteBootstrap(await getRemoteBootstrap());
       setAssistanceNotice(`已进入远程协助：${formatRemoteAssistanceMode(modeResult.controlMode)}`);
@@ -545,10 +522,7 @@ export function useRemoteControlController() {
       setRoomResponse(joined);
       setRoomJoinContext(context);
       setForceJoin(joinWithForce);
-      setSignalGatewayContext(null);
-      setSignalGatewayStatus(null);
-      setSignalEvents([]);
-      setRemoteSignalDiagnostics(null);
+      resetSignalGateway();
       setAssistanceNotice("");
       resetBrowserRemoteSession();
       setRemoteBootstrap(joined.roomConfigSummary ? await getRemoteBootstrap() : null);
@@ -565,6 +539,7 @@ export function useRemoteControlController() {
       if (!context || context.deviceId !== selectedDeviceId) {
         throw new Error("请先加入房间");
       }
+      resetSignalEvents();
       const status = await startRemoteSignalGateway({
         gzipSdp: sdpTransportMode === "gzip",
         signalServerIndex: signalServerIndex > 0 ? signalServerIndex : undefined,
@@ -587,9 +562,10 @@ export function useRemoteControlController() {
         try {
           nextStatus = {
             ...stopped,
-            roomClear: clearContext.kind === "remote_assistance"
-              ? await cancelRemoteAssistance(clearContext.connectId ?? clearContext.deviceId)
-              : await clearRoomByDevice(clearContext.deviceId),
+            roomClear:
+              clearContext.kind === "remote_assistance"
+                ? await cancelRemoteAssistance(clearContext.connectId ?? clearContext.deviceId)
+                : await clearRoomByDevice(clearContext.deviceId),
             updatedAt: new Date().toISOString(),
           };
         } catch (caught) {
@@ -602,10 +578,13 @@ export function useRemoteControlController() {
       }
       setSignalGatewayStatus(nextStatus);
       setSignalGatewayContext(null);
-      setRemoteSignalDiagnostics(null);
+      resetSignalEvents();
       showToast("已断开远控连接");
-      if (nextStatus.roomClear && (nextStatus.roomClear.body.code === undefined || nextStatus.roomClear.body.code === 0)) {
-        setRoomJoinContext((current) => current ? { ...current, occupiedAtJoin: false } : current);
+      if (
+        nextStatus.roomClear &&
+        (nextStatus.roomClear.body.code === undefined || nextStatus.roomClear.body.code === 0)
+      ) {
+        setRoomJoinContext((current) => (current ? { ...current, occupiedAtJoin: false } : current));
       }
       if (clearContext?.kind !== "remote_assistance") {
         try {
@@ -636,10 +615,8 @@ export function useRemoteControlController() {
   function resetBrowserRemoteSession() {
     const closedState = browserRemoteSession.current?.close();
     browserRemoteSession.current = null;
-    activePointerId.current = null;
-    setInputControlEnabled(false);
-    setRemoteVideoStreams([]);
-    setRemoteVideoSamplesById({});
+    resetInputControl();
+    resetRemoteVideos();
     setBrowserRemoteState(closedState ?? createIdleBrowserRemoteState());
   }
 
@@ -648,7 +625,7 @@ export function useRemoteControlController() {
     if (!authStatus?.deviceId) throw new Error("登录已失效");
     if (!selectedDeviceId) throw new Error("请选择设备");
     if (!options.skipReadinessCheck && !roomReadyForBrowserRtc) throw new Error(browserRtcBlockedReason);
-    setInputControlEnabled(false);
+    resetInputControl();
     const appControlId = createAppControlId();
     const session = new BrowserRemoteSession({
       api: {
@@ -660,9 +637,10 @@ export function useRemoteControlController() {
       onStateChange: setBrowserRemoteState,
     });
     browserRemoteSession.current = session;
-    const controlConnectType = roomJoinContext?.kind === "remote_assistance"
-      ? STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_Assistance
-      : STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_Normal;
+    const controlConnectType =
+      roomJoinContext?.kind === "remote_assistance"
+        ? STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_Assistance
+        : STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_Normal;
     const state = await session.start({
       appControlId,
       appDataBase64: buildDefaultStreamerConnectOptionsBase64({
@@ -675,7 +653,7 @@ export function useRemoteControlController() {
       targetPlatform: resolveTargetPlatform(),
     });
     setBrowserRemoteState(state);
-    await applyLatestSignalEvents(session);
+    await refreshSignalEvents(session);
   }
 
   async function handleStartBrowserRemote(options: { skipReadinessCheck?: boolean } = {}) {
@@ -690,6 +668,7 @@ export function useRemoteControlController() {
       // 自动切换方案：默认“自动路径”多次重连仍失败时，升级为强制 UU 中转以提升成功率。
       const escalateRelay = connectionRouteMode === "auto" && autoReconnectAttemptCount >= 2;
       if (!signalGatewayMatchesRoom) {
+        resetSignalEvents();
         const status = await startRemoteSignalGateway({
           gzipSdp: sdpTransportMode === "gzip",
           signalServerIndex: signalServerIndex > 0 ? signalServerIndex : undefined,
@@ -703,18 +682,6 @@ export function useRemoteControlController() {
       }
       await startBrowserRemoteSession({ skipReadinessCheck: true, forceRelay: escalateRelay ? true : undefined });
     });
-  }
-
-  async function applyLatestSignalEvents(session = browserRemoteSession.current) {
-    const events = await getRemoteSignalEvents();
-    const diagnostics = await getRemoteSignalDiagnostics();
-    setSignalEvents(events);
-    setRemoteSignalDiagnostics(diagnostics);
-    if (session) {
-      await session.applySignalEvents(events);
-      await session.refreshConnectionStats();
-      setBrowserRemoteState(session.getState());
-    }
   }
 
   async function handleNextAction() {
@@ -758,234 +725,13 @@ export function useRemoteControlController() {
       return;
     }
     if (!inputControlActive && controlChannelState === "open") {
-      setInputControlEnabled(true);
-      remoteStageRef.current?.focus();
+      enableInputControl();
       return;
-    }
-  }
-
-  function handleRemoteMediaStream(stream: MediaStream) {
-    const tracks = typeof stream.getVideoTracks === "function" ? stream.getVideoTracks() : [];
-    setRemoteVideoStreams(
-      tracks.map((track, index) => ({
-        id: track.id || `video-${index + 1}`,
-        stream: createSingleTrackMediaStream(track),
-      })),
-    );
-    setRemoteVideoSamplesById({});
-  }
-
-  const handleRemoteVideoSample = useCallback((videoId: string, sample: BrowserRemoteVideoElementSample) => {
-    setRemoteVideoSamplesById((current) => ({ ...current, [videoId]: sample }));
-    const nextState = browserRemoteSession.current?.recordVideoElementSample(sample);
-    if (nextState) setBrowserRemoteState(nextState);
-  }, []);
-
-  function handleRemoteClipboard(text: string) {
-    // 反向剪贴板同步：被控端剪贴板变化时回传文本，写入本机剪贴板（失败则保留在面板供手动处理）。
-    if (!text) return;
-    setClipboardText(text);
-    void writeRemoteClipboardToLocal(text);
-  }
-
-  async function writeRemoteClipboardToLocal(text: string) {
-    const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
-    if (!clipboard?.writeText) {
-      setClipboardStatus(`已收到远端剪贴板（${text.length} 字符），当前环境不支持写入本机剪贴板`);
-      return;
-    }
-    try {
-      await clipboard.writeText(text);
-      setClipboardStatus(`已同步远端剪贴板到本机（${text.length} 字符）`);
-    } catch {
-      setClipboardStatus(`已收到远端剪贴板（${text.length} 字符），写入本机被拒绝，可在剪贴板面板手动处理`);
-    }
-  }
-
-  async function handleReadLocalClipboard() {
-    await run("clipboard-read", async () => {
-      try {
-        const text = await readLocalClipboardText();
-        if (typeof text !== "string") {
-          setClipboardStatus("当前浏览器未返回剪贴板文本");
-          return;
-        }
-        setClipboardText(text);
-        setClipboardStatus(text.trim() ? `已读取 ${text.length} 字符` : "剪贴板为空");
-      } catch (caught) {
-        // 就地反馈到剪贴板面板，不打扰全局错误条；权限/非安全上下文是最常见原因。
-        setClipboardStatus(
-          `无法读取本机剪贴板（需在 HTTPS 或 localhost 下访问并授予剪贴板权限）：${caught instanceof Error ? caught.message : String(caught)}`,
-        );
-      }
-    });
-  }
-
-  function handleSendClipboardText() {
-    if (!clipboardText.trim() || !browserRemoteSession.current) return;
-    try {
-      browserRemoteSession.current.sendTextData(clipboardText);
-      setClipboardStatus(`已发送 ${clipboardText.length} 字符到远端`);
-      showToast("已发送剪贴板到远端");
-      if (browserRemoteSession.current) setBrowserRemoteState(browserRemoteSession.current.getState());
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }
-
-  function handleRemoteShortcut(shortcut: RemoteShortcut) {
-    if (!inputControlActive || !browserRemoteSession.current) return;
-    try {
-      sendRemoteShortcut(browserRemoteSession.current, shortcut);
-      setBrowserRemoteState(browserRemoteSession.current.getState());
-      remoteStageRef.current?.focus();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }
-
-  function handleToggleFullscreen() {
-    setIsFullscreen((current) => !current);
-  }
-
-  function handleToggleInputControl() {
-    if (inputControlActive) {
-      setInputControlEnabled(false);
-      return;
-    }
-    if (controlChannelState !== "open") return;
-    setInputControlEnabled(true);
-    remoteStageRef.current?.focus();
-  }
-
-  function handleRemoteStagePointerDown(event: PointerEvent<HTMLDivElement>) {
-    if (!inputControlActive || !browserRemoteSession.current) return;
-    event.preventDefault();
-    event.currentTarget.focus();
-    activePointerId.current = event.pointerId;
-    if (typeof event.currentTarget.setPointerCapture === "function") {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    }
-    try {
-      // 输入热路径不主动刷新 React 状态：鼠标/键盘操作不改变任何可见 UI，
-      // 而 getState() 每次返回新引用会强制整页重渲染，挤占主线程并拖慢控制心跳。
-      // 通道开/关等真正的状态变化由 BrowserRemoteSession 内部在变化时单独推送。
-      browserRemoteSession.current.sendMouseMove(toRemoteMousePosition(event));
-      browserRemoteSession.current.sendMouseButton({ action: "mousePress", button: toRemoteMouseButton(event.button) });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }
-
-  function handleRemoteStagePointerMove(event: PointerEvent<HTMLDivElement>) {
-    if (!inputControlActive || !browserRemoteSession.current) return;
-    if (activePointerId.current !== null && activePointerId.current !== event.pointerId) return;
-    event.preventDefault();
-    try {
-      browserRemoteSession.current.sendMouseMove(toRemoteMousePosition(event));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }
-
-  function handleRemoteStagePointerUp(event: PointerEvent<HTMLDivElement>) {
-    if (!inputControlActive || !browserRemoteSession.current) return;
-    if (activePointerId.current !== null && activePointerId.current !== event.pointerId) return;
-    event.preventDefault();
-    activePointerId.current = null;
-    if (typeof event.currentTarget.releasePointerCapture === "function" && event.currentTarget.hasPointerCapture?.(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    try {
-      browserRemoteSession.current.sendMouseMove(toRemoteMousePosition(event));
-      browserRemoteSession.current.sendMouseButton({ action: "mouseRelease", button: toRemoteMouseButton(event.button) });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }
-
-  function handleRemoteStagePointerCancel(event: PointerEvent<HTMLDivElement>) {
-    if (activePointerId.current !== event.pointerId) return;
-    activePointerId.current = null;
-    if (!inputControlActive || !browserRemoteSession.current) return;
-    try {
-      browserRemoteSession.current.sendMouseButton({ action: "mouseRelease", button: toRemoteMouseButton(event.button) });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }
-
-  function handleRemoteStageWheel(event: WheelEvent<HTMLDivElement>) {
-    if (!inputControlActive || !browserRemoteSession.current) return;
-    event.preventDefault();
-    try {
-      browserRemoteSession.current.sendMouseScroll({ deltaX: event.deltaX, deltaY: event.deltaY });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
     }
   }
 
   function resolveTargetPlatform(): number | undefined {
     return roomJoinContext?.kind === "remote_assistance" ? roomJoinContext.targetPlatform : selectedDevice?.platform;
-  }
-
-  // 忠实转发物理按键(由远端的键盘布局/输入法解释，符合 RDP/VNC/Parsec 等桌面远控惯例):
-  // - 修饰键(Ctrl/Alt/Shift/Meta)按下保持、抬起释放，以支持组合键;
-  // - 其余键在 keydown 时立即「按下+抬起」一次(瞬时一击)，不在被控端留下“按住”状态——
-  //   避免 UU 被控端对长按做的软件级自动重复被网络抖动放大成连发;
-  // - 长按重复改由浏览器本机自动重复(event.repeat 的 keydown)按本机速率驱动，
-  //   与 VNC RFB “自动重复在客户端侧处理”的设计一致。
-  function handleRemoteStageKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    // isComposing:本机输入法合成中不把候选键当普通按键(中文请用远端输入法或剪贴板粘贴)。
-    if (!inputControlActive || !browserRemoteSession.current || event.nativeEvent.isComposing) return;
-    // Ctrl/Cmd+V 走“把本机剪贴板粘到远端”（onPaste 处理），不把 V 当普通按键发给远端，
-    // 否则远端会再粘一次它自己的剪贴板。
-    if ((event.ctrlKey || event.metaKey) && (event.key === "v" || event.key === "V")) return;
-    const isHoldModifier = HOLD_MODIFIER_KEYS.has(event.key);
-    if (isHoldModifier && event.repeat) return; // 修饰键已按住，忽略本机自动重复
-    event.preventDefault();
-    const value = toRemoteKeyValue(event);
-    try {
-      browserRemoteSession.current.sendKeyboardInput({ action: "keyboardPress", value });
-      if (!isHoldModifier) {
-        browserRemoteSession.current.sendKeyboardInput({ action: "keyboardRelease", value });
-      }
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }
-
-  function handleRemoteStageKeyUp(event: KeyboardEvent<HTMLDivElement>) {
-    if (!inputControlActive || !browserRemoteSession.current) return;
-    if ((event.ctrlKey || event.metaKey) && (event.key === "v" || event.key === "V")) return;
-    // 只有修饰键是“按住”的，需在抬起时释放;普通键已在 keydown 即时抬起。
-    if (!HOLD_MODIFIER_KEYS.has(event.key)) return;
-    event.preventDefault();
-    try {
-      browserRemoteSession.current.sendKeyboardInput({ action: "keyboardRelease", value: toRemoteKeyValue(event) });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }
-
-  function handleRemoteStageBlur() {
-    // 失焦时把按住的键鼠全部抬起：Alt+Tab、右键菜单、系统快捷键会吞掉 keyup/pointerup，
-    // 否则会在被控端留下卡住的按键（右键卡死、Alt 卡死等）。
-    activePointerId.current = null;
-    browserRemoteSession.current?.releaseAllInputs();
-  }
-
-  function handleRemoteStagePaste(event: ClipboardEvent<HTMLDivElement>) {
-    // 直接粘贴：Ctrl/Cmd+V 时把本机剪贴板文本经文本通道发到远端（无需打开剪贴板面板）。
-    if (!inputControlActive || !browserRemoteSession.current) return;
-    const text = event.clipboardData?.getData("text") ?? "";
-    if (!text) return;
-    event.preventDefault();
-    try {
-      browserRemoteSession.current.sendTextData(text);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
   }
 
   const loggedIn = Boolean(authStatus?.hasState);
@@ -1016,13 +762,21 @@ export function useRemoteControlController() {
     : null;
   const signalGatewayState = signalGatewayStatus?.status ?? "idle";
   const activeSignalHeaders = signalGatewayStatus?.signalHeaders ?? remoteBootstrap?.signalHeaders;
-  const signalHeaderSummary = activeSignalHeaders ? Object.entries(activeSignalHeaders).map(([key, value]) => `${key}=${value}`).join(", ") : "-";
+  const signalHeaderSummary = activeSignalHeaders
+    ? Object.entries(activeSignalHeaders)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(", ")
+    : "-";
   const roomJoinFailureMessage = getRoomJoinFailureMessage(roomResponse);
   const roomJoinFailureTakeoverHint = getRoomJoinFailureTakeoverHint(roomResponse, forceJoin);
-  const selectedDeviceIsCurrentAuthDevice = Boolean(authStatus?.deviceId && selectedDeviceId && selectedDeviceId === authStatus.deviceId);
+  const selectedDeviceIsCurrentAuthDevice = Boolean(
+    authStatus?.deviceId && selectedDeviceId && selectedDeviceId === authStatus.deviceId,
+  );
   const selfDeviceBlockedReason = selectedDeviceIsCurrentAuthDevice ? SELF_DEVICE_BLOCKED_REASON : "";
-  const roomJoinedForSelectedDevice = roomJoinContext?.deviceId === selectedDeviceId && Boolean(roomResponse?.roomConfigSummary);
-  const roomRequiresTakeover = roomJoinedForSelectedDevice && roomJoinContext?.occupiedAtJoin === true && !roomJoinContext.forceJoin;
+  const roomJoinedForSelectedDevice =
+    roomJoinContext?.deviceId === selectedDeviceId && Boolean(roomResponse?.roomConfigSummary);
+  const roomRequiresTakeover =
+    roomJoinedForSelectedDevice && roomJoinContext?.occupiedAtJoin === true && !roomJoinContext.forceJoin;
   const signalGatewayMatchesRoom =
     signalGatewayState === "connected" &&
     signalGatewayContext?.deviceId === roomJoinContext?.deviceId &&
@@ -1052,18 +806,14 @@ export function useRemoteControlController() {
   const inboundVideoStatsLabel = formatInboundVideoStats(browserRemoteState.inboundVideo);
   const videoFlowLabel = formatVideoFlow(browserRemoteState);
   const videoElementLabel = formatVideoElement(browserRemoteState.videoElement);
-  const textChannelState = browserRemoteState.dataChannels[STREAMER_DATA_CHANNEL_LABELS.text] ?? "closed";
-  const controlChannelState = browserRemoteState.dataChannels[STREAMER_DATA_CHANNEL_LABELS.control] ?? "closed";
   const controlChannelLabel = formatDataChannelState(controlChannelState);
   const textChannelLabel = formatDataChannelState(textChannelState);
-  const inputControlActive = inputControlEnabled && controlChannelState === "open";
   const inputControlLabel = inputControlActive
     ? "控制中"
     : controlChannelState === "open"
       ? "仅查看"
       : controlChannelLabel;
-  const decodeStalledPersisted =
-    browserRemoteState.videoFlow?.status === "decode_stalled" && decodeStalledStreak >= 2;
+  const decodeStalledPersisted = browserRemoteState.videoFlow?.status === "decode_stalled" && decodeStalledStreak >= 2;
   const browserConnectionRecoverable =
     browserRemoteState.stage === "connected" &&
     (controlChannelState === "closed" ||
@@ -1076,14 +826,12 @@ export function useRemoteControlController() {
         ? "画面卡顿（解码异常）"
         : "画面中断（网络）"
     : "";
-  const autoReconnectLabel = browserConnectionRecoverable && autoReconnectEnabled
-    ? autoReconnectStatus || "自动重连准备中"
-    : autoReconnectEnabled
-      ? "自动重连已开启"
-      : "自动重连已关闭";
-  const canReadLocalClipboard = busy === null;
-  const canSendClipboardText = inputControlActive && textChannelState === "open" && clipboardText.trim().length > 0;
-  const clipboardPreviewLabel = clipboardText.trim() ? `${clipboardText.length} 字符待发送` : "剪贴板内容未读取";
+  const autoReconnectLabel =
+    browserConnectionRecoverable && autoReconnectEnabled
+      ? autoReconnectStatus || "自动重连准备中"
+      : autoReconnectEnabled
+        ? "自动重连已开启"
+        : "自动重连已关闭";
   const connectionQuality = getRemoteConnectionQuality({
     state: browserRemoteState,
     controlChannelState,
@@ -1094,9 +842,7 @@ export function useRemoteControlController() {
 
   useEffect(() => {
     // 累计连续“解码停滞”采样数：要求持续 ≥2 次才触发自动恢复，避免偶发解码抖动误重连。
-    setDecodeStalledStreak((streak) =>
-      browserRemoteState.videoFlow?.status === "decode_stalled" ? streak + 1 : 0,
-    );
+    setDecodeStalledStreak((streak) => (browserRemoteState.videoFlow?.status === "decode_stalled" ? streak + 1 : 0));
   }, [browserRemoteState.videoFlow]);
 
   useEffect(() => {
@@ -1130,7 +876,10 @@ export function useRemoteControlController() {
     ? `${selectedCandidatePair.localCandidateType ?? "-"} -> ${selectedCandidatePair.remoteCandidateType ?? "-"}`
     : "-";
   const networkSwitchSummary = summarizeSwitchNetworkNotify(signalEvents);
-  const unexpectedSignalEventSummary = summarizeUnexpectedSignalEvents(signalEvents, remoteBootstrap?.signalEvents ?? []);
+  const unexpectedSignalEventSummary = summarizeUnexpectedSignalEvents(
+    signalEvents,
+    remoteBootstrap?.signalEvents ?? [],
+  );
   const signalServerOptions = remoteBootstrap?.signalServers ?? [];
   const signalGatewayErrorHint = formatSignalGatewayErrorHint(signalGatewayStatus);
   const autoSwitchThresholdLabel = formatAutoSwitchThresholds(browserRemoteState.controlResult);
@@ -1147,25 +896,24 @@ export function useRemoteControlController() {
     : browserRemoteState.controlResult?.autoSwitchNetwork
       ? "服务端自动切换"
       : "-";
-  const iceControlStatusLabel =
-    browserRemoteState.controlResultIceId
-      ? browserRemoteState.controlIceIdMatch === undefined
-        ? "使用 ack ICE"
-        : browserRemoteState.controlIceIdMatch
-          ? "ack ICE 已对齐"
-          : "ack ICE 覆盖本地候选"
-      : browserRemoteState.iceId
-        ? "ICE 等待 ack"
-        : "-";
+  const iceControlStatusLabel = browserRemoteState.controlResultIceId
+    ? browserRemoteState.controlIceIdMatch === undefined
+      ? "使用 ack ICE"
+      : browserRemoteState.controlIceIdMatch
+        ? "ack ICE 已对齐"
+        : "ack ICE 覆盖本地候选"
+    : browserRemoteState.iceId
+      ? "ICE 等待 ack"
+      : "-";
   const signalGatewayDisplay = formatSignalGatewayState(signalGatewayState);
   const browserStageLabel = formatBrowserRemoteStage(browserRemoteState.stage);
   const browserRtcDescription = browserRemoteState.controlResult ? "连接许可已确认" : "等待连接确认";
   const joinModeLabel = forceJoin ? "接管控制" : "普通加入";
   const roomJoinModeDebugLabel = formatRoomJoinContext(remoteBootstrap?.joinContext);
-  const selectedTargetLabel = roomJoinContext?.kind === "remote_assistance"
-    ? roomJoinContext.deviceName ?? `远程协助 ${roomJoinContext.connectId ?? roomJoinContext.deviceId}`
-    : selectedDevice?.alias ?? "远控画面";
-  const remoteVideoCount = remoteVideoStreams.length;
+  const selectedTargetLabel =
+    roomJoinContext?.kind === "remote_assistance"
+      ? (roomJoinContext.deviceName ?? `远程协助 ${roomJoinContext.connectId ?? roomJoinContext.deviceId}`)
+      : (selectedDevice?.alias ?? "远控画面");
   const debugEvents = browserRemoteState.debugEvents;
   const hasRemoteVideo = remoteVideoCount > 0;
   const canDisconnectRemote =
@@ -1174,7 +922,12 @@ export function useRemoteControlController() {
     remoteVideoCount > 0 ||
     controlChannelState !== "closed" ||
     textChannelState !== "closed";
-  const roomReleaseLabel = formatRoomReleaseState(signalGatewayStatus, canDisconnectRemote, selectedDeviceOccupied, roomJoinContext);
+  const roomReleaseLabel = formatRoomReleaseState(
+    signalGatewayStatus,
+    canDisconnectRemote,
+    selectedDeviceOccupied,
+    roomJoinContext,
+  );
   const roomReleaseDetail = formatRoomReleaseDetail(signalGatewayStatus, roomJoinContext);
   const nextAction = getNextAction({
     busy,
@@ -1193,32 +946,6 @@ export function useRemoteControlController() {
     browserStage: browserRemoteState.stage,
     forceJoin,
   });
-
-  useEffect(() => {
-    if (controlChannelState !== "open" && inputControlEnabled) {
-      setInputControlEnabled(false);
-    }
-  }, [controlChannelState, inputControlEnabled]);
-
-  useEffect(() => {
-    if (controlChannelState !== "open") {
-      controlChannelOpenedRef.current = false;
-      return;
-    }
-    if (controlChannelOpenedRef.current) return;
-    // 连接成功（控制通道打开）后默认进入操作状态：自动启用输入控制并聚焦画面，无需再手动点一下。
-    controlChannelOpenedRef.current = true;
-    setInputControlEnabled(true);
-    remoteStageRef.current?.focus();
-  }, [controlChannelState]);
-
-  useEffect(() => {
-    try {
-      globalThis.localStorage?.setItem("uurc.autoConnect", autoConnect ? "true" : "false");
-    } catch {
-      // 忽略持久化失败（隐私模式等）。
-    }
-  }, [autoConnect]);
 
   const remoteAssistanceActive = roomJoinContext?.kind === "remote_assistance";
   useEffect(() => {
@@ -1262,48 +989,9 @@ export function useRemoteControlController() {
     signalGatewayState,
   ]);
 
-  useEffect(() => {
-    const releaseHeldInputs = () => browserRemoteSession.current?.releaseAllInputs();
-    const onVisibilityChange = () => {
-      if (document.hidden) releaseHeldInputs();
-    };
-    // 切换到其它应用/标签页（Alt+Tab、Win+D 等系统快捷键会抢走焦点）时，抬起所有按住的键鼠。
-    window.addEventListener("blur", releaseHeldInputs);
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      window.removeEventListener("blur", releaseHeldInputs);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, []);
-
-  useEffect(() => {
-    const stage = remoteStageRef.current;
-    if (!stage || !inputControlActive) return;
-    // React 的 onWheel 是被动监听，event.preventDefault() 无效，会导致整页跟随滚动；
-    // 用原生非被动监听把滚动锁在画面内（仅在已解锁输入时）。
-    // 注意：顶部从 react 导入了 WheelEvent 类型，会遮蔽 DOM 的同名类型；这里用 Event 即可。
-    const lockPageScroll = (event: Event) => event.preventDefault();
-    stage.addEventListener("wheel", lockPageScroll, { passive: false });
-    return () => stage.removeEventListener("wheel", lockPageScroll);
-  }, [inputControlActive]);
-
-  // 画面源信息：为每一路视频附上分辨率与是否有信号；hidden tile 的 videoWidth 依然是真实值，
-  // 因此即使某路当前未显示，也能据此标注“无信号”。未采样到（刚连上）时按有信号处理，避免误报。
-  const remoteVideoSources: RemoteVideoSourceInfo[] = remoteVideoStreams.map((video, index) => {
-    const sample = remoteVideoSamplesById[video.id];
-    const active = Boolean(sample) && (sample?.width ?? 0) > 0 && (sample?.height ?? 0) > 0;
-    return {
-      id: video.id,
-      index,
-      resolution: active ? `${sample?.width}×${sample?.height}` : "",
-      hasSignal: !sample || active,
-    };
-  });
-  const primaryRemoteVideoSample = remoteVideoSamplesById[primaryRemoteVideoId];
-  const primaryRemoteVideoActive =
-    !primaryRemoteVideoSample || ((primaryRemoteVideoSample.width ?? 0) > 0 && (primaryRemoteVideoSample.height ?? 0) > 0);
   const remoteShortcutPlatform = remoteShortcutGroupTitleForPlatform(resolveTargetPlatform());
-  const deviceNotFound = loggedIn && devicesLoaded && Boolean(selectedDeviceId) && !selectedDevice && !remoteAssistanceActive;
+  const deviceNotFound =
+    loggedIn && devicesLoaded && Boolean(selectedDeviceId) && !selectedDevice && !remoteAssistanceActive;
   // 画面区中央的状态文案：与顶栏状态对齐，避免出现“未连接/已就绪/等待连接”多套说法互相矛盾。
   const stageStatusLabel =
     browserRemoteState.stage === "connected"
@@ -1366,7 +1054,7 @@ export function useRemoteControlController() {
     onLogout: () => void handleLogout(),
   };
 
-  const controlPageProps: RemoteControlPageProps = {
+  const controlViewProps: RemoteControlViewProps = {
     autoSwitchThresholdLabel,
     autoConnect,
     autoReconnectEnabled,
@@ -1479,12 +1167,13 @@ export function useRemoteControlController() {
     onToggleInputControl: handleToggleInputControl,
     onToggleFullscreen: handleToggleFullscreen,
   };
+  const controlPageProps = createRemoteControlPageProps(controlViewProps);
 
   return {
     authLoading: authStatus === null && busy === "status",
     loggedIn,
     toast,
-    onDismissToast: () => setToast(null),
+    onDismissToast: dismissToast,
     loginPageProps,
     deviceListPageProps,
     controlPageProps,

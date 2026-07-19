@@ -29,7 +29,11 @@ export function LoginImportPanel({
         placeholder='粘贴形如 {"token":"...","userId":"...","deviceId":"..."} 的账号凭证 JSON'
       />
       <div className="button-row account-actions">
-        <button className="primary-action-button wide-button" onClick={onImport} disabled={!authJson.trim() || busy !== null}>
+        <button
+          className="primary-action-button wide-button"
+          onClick={onImport}
+          disabled={!authJson.trim() || busy !== null}
+        >
           {busy === "import" ? <LoaderCircle className="spin" size={17} /> : <ClipboardCheck size={17} />}
           导入账号凭证 JSON
         </button>

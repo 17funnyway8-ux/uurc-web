@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  assertAllowedUuApiPath,
-  parseMaybeJsonBody,
-  sanitizeUuProxyHeaders,
-} from "../src/uuProxy.js";
+import { assertAllowedUuApiPath, parseMaybeJsonBody, sanitizeUuProxyHeaders } from "../src/uuProxy.js";
 
 describe("UU proxy shared helpers", () => {
   it("keeps Node and Cloudflare proxy validation consistent", () => {

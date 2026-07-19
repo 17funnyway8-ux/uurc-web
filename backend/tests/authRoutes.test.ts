@@ -15,7 +15,7 @@ describe("gateway-only backend routes", () => {
       uuProxyPath: "/api/proxy/uu",
       signalGateway: "node-socket-io",
       remoteApiBase: "/api/remote",
-      wispProxy: true,
+      wispProxy: false,
     });
   });
 

@@ -1,11 +1,7 @@
 import net from "node:net";
 
 export type WispRejectReason =
-  | "direct_ip_not_allowed"
-  | "host_not_allowed"
-  | "loopback_not_allowed"
-  | "port_not_allowed"
-  | "private_ip_not_allowed";
+  "direct_ip_not_allowed" | "host_not_allowed" | "loopback_not_allowed" | "port_not_allowed" | "private_ip_not_allowed";
 
 export interface WispTargetPolicy {
   hostWhitelist: RegExp[];

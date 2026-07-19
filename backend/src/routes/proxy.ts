@@ -22,12 +22,14 @@ export function createProxyRouter(fetcher: FetchLike = fetch): Router {
         return;
       }
       assertAllowedUuApiPath(path);
-      res.json(await forwardUuRequest(fetcher, {
-        method,
-        path,
-        body,
-        headers: sanitizeUuProxyHeaders(headers),
-      }));
+      res.json(
+        await forwardUuRequest(fetcher, {
+          method,
+          path,
+          body,
+          headers: sanitizeUuProxyHeaders(headers),
+        }),
+      );
     } catch (error) {
       next(error);
     }

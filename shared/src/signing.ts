@@ -1,11 +1,6 @@
 import { createHmac } from "node:crypto";
 
-import {
-  APP_PACKAGE,
-  APP_SIGNING_KEY,
-  VERSION_CODE,
-  VERSION_NAME,
-} from "./constants.js";
+import { APP_PACKAGE, APP_SIGNING_KEY, VERSION_CODE, VERSION_NAME } from "./constants.js";
 import type { LoginState } from "./types.js";
 
 export interface HeaderOverrides {

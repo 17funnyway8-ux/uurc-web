@@ -372,11 +372,7 @@ export interface RemoteSignalGatewayStatus {
 }
 
 export type RemoteSignalReadinessStage =
-  | "idle"
-  | "gateway_connected"
-  | "control_acknowledged"
-  | "offer_sent"
-  | "answer_received";
+  "idle" | "gateway_connected" | "control_acknowledged" | "offer_sent" | "answer_received";
 
 export type RemoteSignalReadinessBlocker =
   | "gateway_not_connected"
@@ -391,6 +387,8 @@ export type RemoteSignalReadinessBlocker =
 export interface RemoteSignalReadinessDiagnostics {
   stage: RemoteSignalReadinessStage;
   blocker: RemoteSignalReadinessBlocker;
+  gatewayStatus: RemoteSignalGatewayState;
+  gatewayError?: string;
   selectedSignalServer?: string;
   updatedAt?: string;
   lastEventAt?: string;

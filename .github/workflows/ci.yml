@@ -16,10 +16,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build -w shared
+      - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck -w frontend
       - run: npm test
       - run: npm run build
+      - run: npm run check:cloudflare
 
   docker:
     runs-on: ubuntu-latest

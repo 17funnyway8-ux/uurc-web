@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildCommonHeaders,
-  buildSignatureBase,
-  buildSignedHeaders,
-  hmacSha256Hex,
-} from "../src/index.js";
+import { buildCommonHeaders, buildSignatureBase, buildSignedHeaders, hmacSha256Hex } from "../src/index.js";
 
 const loginState = {
   token: "header.payload.signature",
@@ -30,10 +25,10 @@ describe("UU request signing", () => {
         method: "post",
         pathWithQuery: "/api/v1/example?b=2&a=1",
         headers,
-        body: "{\"ok\":true}",
+        body: '{"ok":true}',
       }),
     ).toBe(
-      "POST/api/v1/example?b=2&a=1x-param-device-id=device-789&x-param-ts=1710000000&x-param-user-id=user-123{\"ok\":true}",
+      'POST/api/v1/example?b=2&a=1x-param-device-id=device-789&x-param-ts=1710000000&x-param-user-id=user-123{"ok":true}',
     );
   });
 

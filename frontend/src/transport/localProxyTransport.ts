@@ -37,11 +37,5 @@ async function parseResponseBody(response: Response): Promise<unknown> {
 }
 
 function isTransportResult<TBody>(value: unknown): value is TransportResult<TBody> {
-  return Boolean(
-    value &&
-      typeof value === "object" &&
-      "status" in value &&
-      "headers" in value &&
-      "body" in value,
-  );
+  return Boolean(value && typeof value === "object" && "status" in value && "headers" in value && "body" in value);
 }

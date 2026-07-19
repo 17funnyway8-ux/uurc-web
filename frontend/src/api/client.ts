@@ -40,6 +40,8 @@ import {
   sendMobileCode as sendMobileCodeViaFrontend,
   updateRoomAppFlag as updateRoomAppFlagViaFrontend,
 } from "../uu/uuClient.js";
+import { REMOTE_SESSION_HEADER } from "@uurc/shared/remoteSession";
+import { getRemoteSessionId } from "./remoteSession.js";
 
 export async function getAuthStatus(): Promise<AuthStatus> {
   return getAuthStatusFromFrontend();
@@ -65,7 +67,10 @@ export async function createMobileDevice(): Promise<{ status: AuthStatus; device
   return createMobileDeviceViaFrontend();
 }
 
-export async function sendMobileCode(input: { regionCode: string; mobile: string }): Promise<{ status: AuthStatus; deviceId: string; upstream: UuResponse }> {
+export async function sendMobileCode(input: {
+  regionCode: string;
+  mobile: string;
+}): Promise<{ status: AuthStatus; deviceId: string; upstream: UuResponse }> {
   return sendMobileCodeViaFrontend(input);
 }
 
@@ -93,11 +98,15 @@ export async function getRemoteAssistanceControlMode(connectId: string): Promise
   return getRemoteAssistanceControlModeViaFrontend(connectId);
 }
 
-export async function joinRemoteAssistanceByCode(input: RemoteAssistanceJoinInput): Promise<RemoteAssistanceJoinResult> {
+export async function joinRemoteAssistanceByCode(
+  input: RemoteAssistanceJoinInput,
+): Promise<RemoteAssistanceJoinResult> {
   return joinRemoteAssistanceByCodeViaFrontend(input);
 }
 
-export async function joinRemoteAssistanceByConfirmation(input: RemoteAssistanceJoinInput): Promise<RemoteAssistanceJoinResult> {
+export async function joinRemoteAssistanceByConfirmation(
+  input: RemoteAssistanceJoinInput,
+): Promise<RemoteAssistanceJoinResult> {
   return joinRemoteAssistanceByConfirmationViaFrontend(input);
 }
 
@@ -113,7 +122,9 @@ export async function getRemoteBootstrap(): Promise<RemoteControlBootstrap> {
   return getRemoteBootstrapFromFrontend();
 }
 
-export async function startRemoteSignalGateway(input: RemoteSignalGatewayStartRequest = {}): Promise<RemoteSignalGatewayStatus> {
+export async function startRemoteSignalGateway(
+  input: RemoteSignalGatewayStartRequest = {},
+): Promise<RemoteSignalGatewayStatus> {
   return apiRequest<RemoteSignalGatewayStatus>("/api/remote/signal/start", {
     method: "POST",
     body: JSON.stringify({
@@ -133,8 +144,9 @@ export async function stopRemoteSignalGateway(): Promise<RemoteSignalGatewayStat
   });
 }
 
-export async function getRemoteSignalEvents(): Promise<RemoteSignalGatewayEvent[]> {
-  return apiRequest<RemoteSignalGatewayEvent[]>("/api/remote/signal/events");
+export async function getRemoteSignalEvents(afterEventId?: number): Promise<RemoteSignalGatewayEvent[]> {
+  const query = afterEventId && afterEventId > 0 ? `?after=${afterEventId}` : "";
+  return apiRequest<RemoteSignalGatewayEvent[]>(`/api/remote/signal/events${query}`);
 }
 
 export async function getRemoteSignalDiagnostics(): Promise<RemoteSignalReadinessDiagnostics> {
@@ -156,12 +168,14 @@ export async function sendRemoteSignalSoac(input: RemoteSignalSoacRequest): Prom
 }
 
 async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set("Content-Type", "application/json");
+  if (path.startsWith("/api/remote/signal")) {
+    headers.set(REMOTE_SESSION_HEADER, getRemoteSessionId());
+  }
   const response = await fetch(path, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
-    },
+    headers,
   });
   const body = await response.json().catch(() => null);
 

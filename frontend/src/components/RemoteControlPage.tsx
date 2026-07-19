@@ -10,11 +10,12 @@ import { RemoteControlTopbar } from "./RemoteControlTopbar.js";
 import { RemoteControlWarnings } from "./RemoteControlWarnings.js";
 
 export function RemoteControlPage(props: RemoteControlPageProps) {
-  if (props.deviceNotFound) {
+  const { shell } = props;
+  if (shell.deviceNotFound) {
     return (
       <main className="control-shell">
         <header className="control-topbar">
-          <button className="secondary-button" onClick={props.onReturnToDevices}>
+          <button className="secondary-button" onClick={shell.onReturnToDevices}>
             返回设备列表
           </button>
           <div>
@@ -26,7 +27,7 @@ export function RemoteControlPage(props: RemoteControlPageProps) {
           <MonitorX size={40} />
           <strong>找不到这台设备</strong>
           <p>该设备可能已被移除、不属于当前账号，或链接已失效。请返回设备列表重新选择。</p>
-          <button className="primary-action-button" onClick={props.onReturnToDevices}>
+          <button className="primary-action-button" onClick={shell.onReturnToDevices}>
             返回设备列表
           </button>
         </section>
@@ -36,28 +37,28 @@ export function RemoteControlPage(props: RemoteControlPageProps) {
 
   return (
     <main className="control-shell">
-      <RemoteControlTopbar {...props} />
+      <RemoteControlTopbar {...props.topbar} />
 
-      {props.error ? (
+      {shell.error ? (
         <section className="error-strip" role="alert" aria-live="assertive">
           <TerminalSquare size={18} />
-          <span>{props.error}</span>
+          <span>{shell.error}</span>
         </section>
       ) : null}
 
       <section className="control-stage-layout">
         <div
-          className={`control-stage-frame${props.isFullscreen ? " control-stage-frame--fullscreen" : ""}`}
-          ref={props.remoteStageFrameRef}
+          className={`control-stage-frame${shell.isFullscreen ? " control-stage-frame--fullscreen" : ""}`}
+          ref={shell.remoteStageFrameRef}
         >
-          <RemoteCommandBar {...props} />
-          <RemoteControlStage {...props} />
+          <RemoteCommandBar {...props.commandBar} />
+          <RemoteControlStage {...props.stage} />
         </div>
-        <RemoteControlWarnings {...props} />
-        <RemoteControlInsights {...props} />
+        <RemoteControlWarnings {...props.warnings} />
+        <RemoteControlInsights {...props.insights} />
         <div className="control-drawer-row">
-          <RemoteControlSettingsDrawer {...props} />
-          <RemoteControlDiagnosticsDrawer {...props} />
+          <RemoteControlSettingsDrawer {...props.settings} />
+          <RemoteControlDiagnosticsDrawer {...props.diagnostics} />
         </div>
       </section>
     </main>

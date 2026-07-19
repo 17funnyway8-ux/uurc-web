@@ -10,7 +10,7 @@ import {
   Scan,
 } from "lucide-react";
 
-import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
+import type { RemoteCommandBarProps } from "../app/remoteControlPageProps.js";
 import { RemoteShortcutMenu } from "./RemoteShortcutMenu.js";
 import { useDraggableFloatingPanel } from "./useDraggableFloatingPanel.js";
 
@@ -30,24 +30,7 @@ export function RemoteCommandBar({
   remoteRecoveryLabel,
   remoteShortcutPlatform,
   remoteStageViewMode,
-}: Pick<
-  RemoteControlPageProps,
-  | "busy"
-  | "canReconnectRemote"
-  | "controlChannelState"
-  | "inputControlActive"
-  | "isFullscreen"
-  | "nextAction"
-  | "onNextAction"
-  | "onReconnectRemote"
-  | "onRemoteShortcut"
-  | "onStageViewModeChange"
-  | "onToggleInputControl"
-  | "onToggleFullscreen"
-  | "remoteRecoveryLabel"
-  | "remoteShortcutPlatform"
-  | "remoteStageViewMode"
->) {
+}: RemoteCommandBarProps) {
   const nextStageMode = remoteStageViewMode === "fit" ? "fill" : "fit";
   // 非全屏时工具栏固定在画面上方原位（不可拖动）；仅全屏时允许悬浮拖到画面内任意位置。
   const { dragHandleProps, panelRef, panelStyle } = useDraggableFloatingPanel<HTMLElement>(isFullscreen);
@@ -113,7 +96,11 @@ export function RemoteCommandBar({
           <Maximize2 size={17} />
           {isFullscreen ? "退出全屏" : "全屏"}
         </button>
-        <RemoteShortcutMenu disabled={!inputControlActive} platformKey={remoteShortcutPlatform} onRemoteShortcut={onRemoteShortcut} />
+        <RemoteShortcutMenu
+          disabled={!inputControlActive}
+          platformKey={remoteShortcutPlatform}
+          onRemoteShortcut={onRemoteShortcut}
+        />
       </div>
     </section>
   );

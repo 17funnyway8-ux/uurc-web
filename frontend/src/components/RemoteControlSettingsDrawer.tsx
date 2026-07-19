@@ -1,6 +1,6 @@
 import { CircleStop, LoaderCircle, Monitor, PlugZap } from "lucide-react";
 
-import type { RemoteControlPageProps } from "../app/remoteControlPageProps.js";
+import type { RemoteControlSettingsDrawerProps } from "../app/remoteControlPageProps.js";
 import { ParticipantList } from "./ParticipantList.js";
 
 function SwitchControl({
@@ -40,27 +40,7 @@ export function RemoteControlSettingsDrawer({
   selectedParticipants,
   signalServerIndex,
   signalServerOptions,
-}: Pick<
-  RemoteControlPageProps,
-  | "autoConnect"
-  | "browserRtcReady"
-  | "busy"
-  | "connectionRouteMode"
-  | "forceJoin"
-  | "onAutoConnectChange"
-  | "onConnectionRouteModeChange"
-  | "onForceJoinChange"
-  | "onSignalServerIndexChange"
-  | "onSdpTransportModeChange"
-  | "onStartBrowserRemote"
-  | "onStartSignalGateway"
-  | "onStopSignalGateway"
-  | "sdpTransportMode"
-  | "selectedDevice"
-  | "selectedParticipants"
-  | "signalServerIndex"
-  | "signalServerOptions"
->) {
+}: RemoteControlSettingsDrawerProps) {
   return (
     <details className="control-drawer">
       <summary>控制设置</summary>
@@ -124,11 +104,21 @@ export function RemoteControlSettingsDrawer({
           <span className="control-field-label">画面兼容性</span>
           <fieldset className="segmented-control" aria-label="画面协商">
             <label>
-              <input type="radio" name="sdpTransportMode" checked={sdpTransportMode === "gzip"} onChange={() => onSdpTransportModeChange("gzip")} />
+              <input
+                type="radio"
+                name="sdpTransportMode"
+                checked={sdpTransportMode === "gzip"}
+                onChange={() => onSdpTransportModeChange("gzip")}
+              />
               <span>标准模式</span>
             </label>
             <label>
-              <input type="radio" name="sdpTransportMode" checked={sdpTransportMode === "plain"} onChange={() => onSdpTransportModeChange("plain")} />
+              <input
+                type="radio"
+                name="sdpTransportMode"
+                checked={sdpTransportMode === "plain"}
+                onChange={() => onSdpTransportModeChange("plain")}
+              />
               <span>兼容模式</span>
             </label>
           </fieldset>
@@ -137,11 +127,21 @@ export function RemoteControlSettingsDrawer({
           <span className="control-field-label">网络路径</span>
           <fieldset className="segmented-control" aria-label="网络路径">
             <label>
-              <input type="radio" name="connectionRouteMode" checked={connectionRouteMode === "auto"} onChange={() => onConnectionRouteModeChange("auto")} />
+              <input
+                type="radio"
+                name="connectionRouteMode"
+                checked={connectionRouteMode === "auto"}
+                onChange={() => onConnectionRouteModeChange("auto")}
+              />
               <span>自动路径</span>
             </label>
             <label>
-              <input type="radio" name="connectionRouteMode" checked={connectionRouteMode === "relay"} onChange={() => onConnectionRouteModeChange("relay")} />
+              <input
+                type="radio"
+                name="connectionRouteMode"
+                checked={connectionRouteMode === "relay"}
+                onChange={() => onConnectionRouteModeChange("relay")}
+              />
               <span>强制 UU 中转</span>
             </label>
           </fieldset>

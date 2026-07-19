@@ -1,11 +1,8 @@
 import { RemoteSignalSession } from "./signalSession";
 import type { RemoteSignalSession as RemoteSignalSessionClass } from "./signalSession";
 import { createRuntimeProfile } from "@uurc/shared/runtimeProfile";
-import {
-  assertAllowedUuApiPath,
-  parseMaybeJsonBody,
-  sanitizeUuProxyHeaders,
-} from "@uurc/shared/uuProxy";
+import { REMOTE_SESSION_HEADER, isRemoteSessionId } from "@uurc/shared/remoteSession";
+import { assertAllowedUuApiPath, parseMaybeJsonBody, sanitizeUuProxyHeaders } from "@uurc/shared/uuProxy";
 
 const API_BASE = "https://api.nrd.nie.163.com";
 const UU_PROXY_TIMEOUT_MS = 30_000;
@@ -75,10 +72,20 @@ async function handleUuProxy(request: Request): Promise<Response> {
 
 async function handleRemoteApi(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
-  const session = env.REMOTE_SIGNAL_SESSION.getByName("main");
+  const sessionId = request.headers.get(REMOTE_SESSION_HEADER);
+  if (!isRemoteSessionId(sessionId)) {
+    return json({ error: "A valid remote session capability is required" }, { status: 401 });
+  }
+  const session = env.REMOTE_SIGNAL_SESSION.getByName(sessionId);
 
   if (url.pathname === "/api/remote/bootstrap") {
-    return json({ error: "Cloudflare Worker stores room bootstrap in the browser session. Use the frontend flow to join a room first." }, { status: 404 });
+    return json(
+      {
+        error:
+          "Cloudflare Worker stores room bootstrap in the browser session. Use the frontend flow to join a room first.",
+      },
+      { status: 404 },
+    );
   }
   if (url.pathname === "/api/remote/signal/start" && request.method === "POST") {
     return json(await session.start(await readJson(request)));
@@ -87,7 +94,9 @@ async function handleRemoteApi(request: Request, env: Env): Promise<Response> {
     return json(await session.getStatus());
   }
   if (url.pathname === "/api/remote/signal/events" && request.method === "GET") {
-    return json(await session.getEvents());
+    const afterEventId = parseOptionalEventId(url.searchParams.get("after"));
+    if (afterEventId instanceof Response) return afterEventId;
+    return json(await session.getEvents(afterEventId));
   }
   if (url.pathname === "/api/remote/signal/diagnostics" && request.method === "GET") {
     return json(await session.getDiagnostics());
@@ -106,6 +115,14 @@ async function handleRemoteApi(request: Request, env: Env): Promise<Response> {
     return json(result);
   }
   return json({ error: "Not found" }, { status: 404 });
+}
+
+function parseOptionalEventId(value: string | null): number | undefined | Response {
+  if (value === null) return undefined;
+  if (!/^\d+$/.test(value)) {
+    return json({ error: "after must be a non-negative integer" }, { status: 400 });
+  }
+  return Number.parseInt(value, 10);
 }
 
 async function readJson(request: Request): Promise<JsonRecord> {

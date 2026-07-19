@@ -17,7 +17,10 @@ export function ParticipantList({ participants }: { participants: NonNullable<Uu
   return (
     <div className="participant-list" aria-label="当前控制端">
       {participants.map((participant, index) => (
-        <div className="participant-card" key={`${participant.clientId || participant.deviceId || "participant"}-${index}`}>
+        <div
+          className="participant-card"
+          key={`${participant.clientId || participant.deviceId || "participant"}-${index}`}
+        >
           <UsersRound size={17} />
           <div>
             <strong>{participant.alias || "未知控制端"}</strong>

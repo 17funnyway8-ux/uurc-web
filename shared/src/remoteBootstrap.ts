@@ -92,7 +92,14 @@ export function createRemoteControlBootstrap({
       },
     },
     input: {
-      supportedBuilders: ["desktop_mouse", "desktop_keyboard", "ime_text", "ime_control", "mumu_system_key", "mumu_touch"],
+      supportedBuilders: [
+        "desktop_mouse",
+        "desktop_keyboard",
+        "ime_text",
+        "ime_control",
+        "mumu_system_key",
+        "mumu_touch",
+      ],
       sendToRomWireFields: STREAMER_SEND_TO_ROM_WIRE_FIELDS,
       imeControlCodes: STREAMER_INPUT_MANAGER_IME_CONTROL_CODES,
       mumuSystemKeyCodes: STREAMER_MUMU_SYSTEM_KEY_CODES,
@@ -100,6 +107,7 @@ export function createRemoteControlBootstrap({
     },
     joinContext: joinContext ?? undefined,
     roomConfigSummary,
-    gatewayRequiredReason: "Upstream signal connect requires custom socket.io headers; the browser cannot set those headers on a WebSocket handshake.",
+    gatewayRequiredReason:
+      "Upstream signal connect requires custom socket.io headers; the browser cannot set those headers on a WebSocket handshake.",
   };
 }

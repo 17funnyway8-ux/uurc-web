@@ -49,7 +49,9 @@ export function LoginPage({
     <main className="product-shell auth-product-shell">
       <header className="product-topbar">
         <div className="brand-block">
-          <span className="wordmark">UU Remote<span className="wordmark-sub">Web</span></span>
+          <span className="wordmark">
+            UU Remote<span className="wordmark-sub">Web</span>
+          </span>
         </div>
         <StatusPill state="warn">未登录</StatusPill>
       </header>
@@ -78,12 +80,7 @@ export function LoginPage({
             onSendMobileCode={onSendMobileCode}
             onSmsCodeChange={onSmsCodeChange}
           />
-          <LoginImportPanel
-            authJson={authJson}
-            busy={busy}
-            onAuthJsonChange={onAuthJsonChange}
-            onImport={onImport}
-          />
+          <LoginImportPanel authJson={authJson} busy={busy} onAuthJsonChange={onAuthJsonChange} onImport={onImport} />
         </div>
       </section>
 

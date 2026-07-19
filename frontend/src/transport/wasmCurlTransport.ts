@@ -4,7 +4,10 @@ interface LibcurlModule {
   libcurl: {
     set_websocket(url: string): void;
     load_wasm(): Promise<void>;
-    fetch(url: string, init: Record<string, unknown>): Promise<{
+    fetch(
+      url: string,
+      init: Record<string, unknown>,
+    ): Promise<{
       status: number;
       statusText: string;
       raw_headers: Array<[string, string]>;

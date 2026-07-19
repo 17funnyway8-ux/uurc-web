@@ -1,12 +1,17 @@
-import type { ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 
-import { DeviceListPage } from "./components/DeviceListPage.js";
-import { LoginPage } from "./components/LoginPage.js";
-import { RemoteControlPage } from "./components/RemoteControlPage.js";
 import { Toast } from "./components/Toast.js";
 import { useRemoteControlController } from "./controllers/useRemoteControlController.js";
 import "./styles/index.css";
+
+const LoginPage = lazy(() => import("./components/LoginPage.js").then((module) => ({ default: module.LoginPage })));
+const DeviceListPage = lazy(() =>
+  import("./components/DeviceListPage.js").then((module) => ({ default: module.DeviceListPage })),
+);
+const RemoteControlPage = lazy(() =>
+  import("./components/RemoteControlPage.js").then((module) => ({ default: module.RemoteControlPage })),
+);
 
 export default function App() {
   return (
@@ -18,8 +23,6 @@ export default function App() {
 
 function AppRoutes() {
   const controller = useRemoteControlController();
-  const loginPage = <LoginPage {...controller.loginPageProps} />;
-
   let content: ReactNode;
   if (controller.authLoading) {
     content = (
@@ -30,7 +33,7 @@ function AppRoutes() {
   } else if (!controller.loggedIn) {
     content = (
       <Routes>
-        <Route path="/login" element={loginPage} />
+        <Route path="/login" element={<LoginPage {...controller.loginPageProps} />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
@@ -50,7 +53,15 @@ function AppRoutes() {
 
   return (
     <>
-      {content}
+      <Suspense
+        fallback={
+          <main className="product-shell">
+            <p className="empty-text">正在加载页面...</p>
+          </main>
+        }
+      >
+        {content}
+      </Suspense>
       <Toast toast={controller.toast} onDismiss={controller.onDismissToast} />
     </>
   );

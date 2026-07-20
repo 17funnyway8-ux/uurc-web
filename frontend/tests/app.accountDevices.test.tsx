@@ -42,7 +42,7 @@ describe("App account and devices", () => {
     expect(window.location.pathname).toBe("/");
   });
 
-  it("supports the app-aligned mobile login flow and local state export", async () => {
+  it("supports the app-aligned mobile login flow and direct credential copying", async () => {
     window.localStorage.removeItem("uurc.loginState");
     const user = userEvent.setup();
     render(<App />);
@@ -85,8 +85,10 @@ describe("App account and devices", () => {
     await screen.findByRole("heading", { name: "账号与凭证" });
     expect(screen.getAllByText("已登录").length).toBeGreaterThan(0);
     expect(screen.getAllByText("user-1").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "导出账号凭证" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("账号凭证 JSON")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "导出账号凭证" }));
+    await user.click(screen.getByRole("button", { name: "复制凭证 JSON" }));
     await waitFor(() => {
       expect((screen.getByLabelText("账号凭证 JSON") as HTMLTextAreaElement).value).toContain(
         '"token": "header.payload.signature"',
@@ -95,7 +97,8 @@ describe("App account and devices", () => {
     expect(writeLocalClipboardTextMock).toHaveBeenCalledWith(
       expect.stringContaining('"token": "header.payload.signature"'),
     );
-    expect(await screen.findByText("账号凭证已导出并复制到剪贴板")).toBeInTheDocument();
+    expect(screen.getByText("账号凭证备份（JSON）").closest("details")).toHaveAttribute("open");
+    expect(await screen.findByText("已复制账号凭证到剪贴板")).toBeInTheDocument();
   });
 
   it("imports existing credentials from the segmented login tab", async () => {
@@ -154,7 +157,7 @@ describe("App account and devices", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "命令面板" })).not.toBeInTheDocument());
   });
 
-  it("keeps exported credentials available when automatic clipboard writing fails", async () => {
+  it("keeps generated credentials available when direct clipboard writing fails", async () => {
     writeLocalClipboardTextMock.mockRejectedValueOnce(new Error("clipboard denied"));
     const user = userEvent.setup();
     render(<App />);
@@ -163,12 +166,13 @@ describe("App account and devices", () => {
     await user.click(screen.getByRole("link", { name: /账号与凭证/ }));
     await screen.findByRole("heading", { name: "账号与凭证" });
 
-    await user.click(screen.getByRole("button", { name: "导出账号凭证" }));
+    await user.click(screen.getByRole("button", { name: "复制凭证 JSON" }));
 
-    expect(await screen.findByText("账号凭证已导出，自动复制失败，请手动复制")).toBeInTheDocument();
+    expect(await screen.findByText("复制失败，请手动选择下方文本复制")).toBeInTheDocument();
     expect((screen.getByLabelText("账号凭证 JSON") as HTMLTextAreaElement).value).toContain(
       '"token": "header.payload.signature"',
     );
+    expect(screen.getByText("账号凭证备份（JSON）").closest("details")).toHaveAttribute("open");
   });
 
   it("uses a consumer remote-control flow: login page, device list, then focused control page", async () => {

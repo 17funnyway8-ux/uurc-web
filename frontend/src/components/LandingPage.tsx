@@ -50,7 +50,8 @@ export function LandingPage({ loggedIn }: { loggedIn: boolean }) {
           </p>
           <h1 id="landing-title">UU 远程桌面网页版</h1>
           <p className="landing-hero-description">
-            打开浏览器，连接并控制你的 UU 远程设备 — 无需安装主控客户端。支持短信登录、设备列表和网页远程控制，可自托管部署。
+            打开浏览器，连接并控制你的 UU 远程设备 —
+            无需安装主控客户端。支持短信登录、设备列表和网页远程控制，可自托管部署。
           </p>
           <div className="landing-actions">
             <Link className="landing-primary-action" to={consolePath}>
@@ -66,12 +67,7 @@ export function LandingPage({ loggedIn }: { loggedIn: boolean }) {
 
           <figure className="landing-hero-window">
             <BrowserBar address="uurc.678234.xyz" />
-            <img
-              src="/product/device-list.png"
-              alt="UU Remote Web 设备列表界面"
-              width="1440"
-              height="821"
-            />
+            <img src="/product/device-list.png" alt="UU Remote Web 设备列表界面" width="1440" height="821" />
           </figure>
         </div>
       </section>
@@ -96,12 +92,7 @@ export function LandingPage({ loggedIn }: { loggedIn: boolean }) {
               <div className="landing-login-stage">
                 <figure className="landing-media landing-media-login">
                   <BrowserBar />
-                  <img
-                    src="/product/login.png"
-                    alt="UU Remote Web 手机号验证码登录页面"
-                    width="960"
-                    height="680"
-                  />
+                  <img src="/product/login.png" alt="UU Remote Web 手机号验证码登录页面" width="960" height="680" />
                 </figure>
               </div>
             </article>
@@ -116,12 +107,7 @@ export function LandingPage({ loggedIn }: { loggedIn: boolean }) {
               </div>
               <figure className="landing-media">
                 <BrowserBar />
-                <img
-                  src="/product/device-list.png"
-                  alt="UU Remote Web 设备列表页面"
-                  width="1440"
-                  height="821"
-                />
+                <img src="/product/device-list.png" alt="UU Remote Web 设备列表页面" width="1440" height="821" />
               </figure>
             </article>
 
@@ -135,12 +121,7 @@ export function LandingPage({ loggedIn }: { loggedIn: boolean }) {
               </div>
               <figure className="landing-media landing-media-dark">
                 <BrowserBar dark />
-                <img
-                  src="/product/remote-session.png"
-                  alt="UU Remote Web 远程控制会话页面"
-                  width="1440"
-                  height="861"
-                />
+                <img src="/product/remote-session.png" alt="UU Remote Web 远程控制会话页面" width="1440" height="861" />
               </figure>
             </article>
           </div>
@@ -167,8 +148,7 @@ export function LandingPage({ loggedIn }: { loggedIn: boolean }) {
         <footer className="landing-footer">
           <div className="landing-footer-inner">
             <p>
-              UU Remote Web 是非官方开源项目，与网易及 UU
-              远程没有关联。请确认你信任当前部署，仅用于交流学习和个人使用。
+              UU Remote Web 是非官方开源项目，与网易及 UU 远程没有关联。请确认你信任当前部署，仅用于交流学习和个人使用。
             </p>
             <div>
               <a href={GITHUB_URL} target="_blank" rel="noreferrer">

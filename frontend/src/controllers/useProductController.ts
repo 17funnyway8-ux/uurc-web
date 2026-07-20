@@ -82,33 +82,27 @@ export function useProductController() {
     });
   }
 
-  async function handleExport() {
-    await runProductAction("export", async () => {
-      const exportedAuthJson = JSON.stringify(await exportAuthState(), null, 2);
-      accountState.setAuthJson(exportedAuthJson);
-      try {
-        await writeLocalClipboardText(exportedAuthJson);
-        showToast("账号凭证已导出并复制到剪贴板");
-      } catch {
-        showToast("账号凭证已导出，自动复制失败，请手动复制");
-      }
-    });
-  }
-
   async function handleCopyAuthJson() {
-    if (!accountState.authJson.trim()) return;
+    let authJson: string;
     try {
-      await writeLocalClipboardText(accountState.authJson);
+      authJson = JSON.stringify(exportAuthState(), null, 2);
+      accountState.setAuthJson(authJson);
+    } catch {
+      showToast("未找到可复制的账号凭证");
+      return;
+    }
+    try {
+      await writeLocalClipboardText(authJson);
       showToast("已复制账号凭证到剪贴板");
     } catch {
-      showToast("复制失败，请手动选择文本复制");
+      showToast("复制失败，请手动选择下方文本复制");
     }
   }
 
   async function handleLogout() {
     if (
       typeof window !== "undefined" &&
-      !window.confirm("退出后需重新登录。若未导出账号凭证备份，建议先导出。确定退出？")
+      !window.confirm("退出后需重新登录。若未备份账号凭证，建议先复制保存。确定退出？")
     ) {
       return;
     }
@@ -316,7 +310,6 @@ export function useProductController() {
       busy,
       identityDeviceLabel,
       identitySourceLabel,
-      onExport: () => void handleExport(),
       onCopyAuthJson: () => void handleCopyAuthJson(),
       onLogout: () => void handleLogout(),
     },

@@ -9,7 +9,6 @@ export function AccountCredentialsPage({
   busy,
   identityDeviceLabel,
   identitySourceLabel,
-  onExport,
   onCopyAuthJson,
   onLogout,
 }: {
@@ -18,7 +17,6 @@ export function AccountCredentialsPage({
   busy: string | null;
   identityDeviceLabel: string;
   identitySourceLabel: string;
-  onExport: () => void;
   onCopyAuthJson: () => void;
   onLogout: () => void;
 }) {
@@ -36,7 +34,6 @@ export function AccountCredentialsPage({
             busy={busy}
             identityDeviceLabel={identityDeviceLabel}
             identitySourceLabel={identitySourceLabel}
-            onExport={onExport}
             onCopyAuthJson={onCopyAuthJson}
             onLogout={onLogout}
           />

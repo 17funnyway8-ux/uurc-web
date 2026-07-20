@@ -1,4 +1,4 @@
-import { Copy, Download, LoaderCircle, LogOut } from "lucide-react";
+import { Copy, LoaderCircle, LogOut } from "lucide-react";
 
 import type { AuthStatus } from "@uurc/shared/authState";
 
@@ -19,7 +19,6 @@ export function DeviceAccountPanel({
   busy,
   identityDeviceLabel,
   identitySourceLabel,
-  onExport,
   onCopyAuthJson,
   onLogout,
 }: {
@@ -28,7 +27,6 @@ export function DeviceAccountPanel({
   busy: string | null;
   identityDeviceLabel: string;
   identitySourceLabel: string;
-  onExport: () => void;
   onCopyAuthJson: () => void;
   onLogout: () => void;
 }) {
@@ -54,10 +52,6 @@ export function DeviceAccountPanel({
       </div>
 
       <div className="button-row account-actions">
-        <button className="primary-action-button" onClick={onExport} disabled={busy !== null}>
-          {busy === "export" ? <LoaderCircle className="spin" size={17} /> : <Download size={17} />}
-          导出账号凭证
-        </button>
         <button className="secondary-button" onClick={onCopyAuthJson} disabled={busy !== null}>
           <Copy size={17} />
           复制凭证 JSON
@@ -70,17 +64,11 @@ export function DeviceAccountPanel({
       </div>
 
       {authJson.trim() ? (
-        <details className="identity-details export-details">
+        <details className="identity-details export-details" open>
           <summary>账号凭证备份（JSON）</summary>
-          <div className="export-details-head">
-            <label className="field-label" htmlFor="auth-json-export">
-              账号凭证 JSON
-            </label>
-            <button type="button" className="link-button" onClick={onCopyAuthJson}>
-              <Copy size={14} />
-              复制
-            </button>
-          </div>
+          <label className="field-label" htmlFor="auth-json-export">
+            账号凭证 JSON
+          </label>
           <textarea id="auth-json-export" name="auth-json-export" value={authJson} readOnly spellCheck={false} />
         </details>
       ) : null}

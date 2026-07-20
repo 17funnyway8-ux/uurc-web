@@ -8,7 +8,6 @@ import type { BrowserRemoteVideoElementSample } from "../remote/browserRemoteSes
 export type BusyAction =
   | "status"
   | "import"
-  | "export"
   | "send-mobile-code"
   | "mobile-login"
   | "devices"

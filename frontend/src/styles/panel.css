@@ -216,13 +216,6 @@
   margin: 0 0 10px;
 }
 
-.export-details-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
 .link-button {
   display: inline-flex;
   align-items: center;

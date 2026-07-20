@@ -30,7 +30,9 @@ export function DeviceListPage({
   onAssistanceConnectIdChange: (value: string) => void;
   onStartRemoteAssistance: () => void;
 }) {
-  const devicesLoading = busy === "devices" || !devicesLoaded;
+  const hasDevices = devices.desktopDevices.length + devices.mobileDevices.length + devices.tvDevices.length > 0;
+  const devicesLoading = !error && (busy === "devices" || !devicesLoaded);
+  const showDeviceList = !error || devicesLoaded || hasDevices;
   const canQuickConnect = busy === null && assistanceConnectId.trim().length > 0;
 
   return (
@@ -69,22 +71,24 @@ export function DeviceListPage({
         </button>
       </header>
 
-      {error ? (
-        <section className="error-strip" role="alert" aria-live="assertive">
-          <TerminalSquare size={18} />
-          <span>{error}</span>
-        </section>
-      ) : null}
-
       <div className="shell-page-body">
         <div className="shell-page-body-wide">
-          <DeviceList
-            devices={devices}
-            loading={devicesLoading}
-            currentDeviceId={authStatus?.deviceId}
-            onSelect={onSelectDevice}
-            onConnect={onOpenDevice}
-          />
+          {error ? (
+            <section className="error-strip" role="alert" aria-live="assertive">
+              <TerminalSquare size={18} />
+              <span>{error}</span>
+            </section>
+          ) : null}
+
+          {showDeviceList ? (
+            <DeviceList
+              devices={devices}
+              loading={devicesLoading}
+              currentDeviceId={authStatus?.deviceId}
+              onSelect={onSelectDevice}
+              onConnect={onOpenDevice}
+            />
+          ) : null}
         </div>
       </div>
     </>

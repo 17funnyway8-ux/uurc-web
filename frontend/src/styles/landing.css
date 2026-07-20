@@ -114,7 +114,7 @@
 .landing-hero-content {
   width: min(100% - 48px, 1180px);
   margin: 0 auto;
-  padding: 108px 0 116px;
+  padding: clamp(148px, 18vh, 180px) 0 64px;
 }
 
 .landing-eyebrow,
@@ -422,7 +422,7 @@
   }
 
   .landing-hero-content {
-    padding: 86px 0 96px;
+    padding: clamp(108px, 14vh, 132px) 0 60px;
   }
 
   .landing-hero h1 {

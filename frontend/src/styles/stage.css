@@ -10,6 +10,11 @@
   margin-bottom: 0;
 }
 
+/* 画面容器依靠焦点接收远端键盘输入，隐藏浏览器默认的网页控件焦点环。 */
+.remote-stage:focus {
+  outline: none;
+}
+
 .remote-stage-interactive {
   cursor: var(--remote-cursor, none);
   /* 仅在解锁输入控制时拦截触屏手势与文本选择；未交互时允许页面正常滚动/选择 */

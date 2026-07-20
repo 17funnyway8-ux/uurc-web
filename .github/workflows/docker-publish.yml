@@ -1,7 +1,6 @@
 name: Docker Publish
 
 on:
-  workflow_dispatch:
   release:
     types: [published]
 
@@ -10,6 +9,7 @@ permissions:
 
 jobs:
   publish:
+    if: github.repository == 'iola1999/uurc-web'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

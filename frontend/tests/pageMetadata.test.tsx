@@ -27,6 +27,7 @@ describe("PageMetadata", () => {
       "content",
       "index, follow, max-image-preview:large",
     );
+    expect(document.head.querySelector('meta[name="theme-color"]')).toHaveAttribute("content", "#fafafa");
     expect(document.head.querySelector('link[rel="canonical"]')).toHaveAttribute("href", "https://uurc.678234.xyz/");
     expect(document.head.querySelector('meta[property="og:url"]')).toHaveAttribute(
       "content",

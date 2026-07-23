@@ -10,7 +10,7 @@ The project provides a public instance at [https://uurc.678234.xyz](https://uurc
 
 ## What Runs On Cloudflare
 
-- Static frontend from `frontend/dist`
+- Static frontend from `frontend/dist`, with a prerendered public landing page and a noindex client app shell
 - `/api/proxy/uu` UU API forwarding
 - `/api/health`
 - Durable Object-backed `/api/remote/signal/*` status, event, diagnostics, and error-reporting endpoints

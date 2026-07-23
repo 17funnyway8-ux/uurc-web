@@ -13,6 +13,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@uurc/shared/constants": new URL("../shared/src/constants.ts", import.meta.url).pathname,
+      "@uurc/shared/frontendRoutes": new URL("../shared/src/frontendRoutes.ts", import.meta.url).pathname,
       "@uurc/shared/redact": new URL("../shared/src/redact.ts", import.meta.url).pathname,
       "@uurc/shared/remoteBootstrap": new URL("../shared/src/remoteBootstrap.ts", import.meta.url).pathname,
       "@uurc/shared/remoteSession": new URL("../shared/src/remoteSession.ts", import.meta.url).pathname,

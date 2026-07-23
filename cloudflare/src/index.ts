@@ -1,6 +1,7 @@
 import { RemoteSignalSession } from "./signalSession";
 import type { RemoteSignalSession as RemoteSignalSessionClass } from "./signalSession";
 import { createRuntimeProfile } from "@uurc/shared/runtimeProfile";
+import { FRONTEND_APP_SHELL_PATH, isFrontendAppRoute } from "@uurc/shared/frontendRoutes";
 import { REMOTE_SESSION_HEADER, isRemoteSessionId } from "@uurc/shared/remoteSession";
 import {
   ValidationError,
@@ -37,6 +38,13 @@ export default {
     }
     if (url.pathname.startsWith("/api/remote/")) {
       return handleRemoteApi(request, env);
+    }
+    if (url.pathname.startsWith("/api/")) {
+      return json({ error: "Not found" }, { status: 404 });
+    }
+    if ((request.method === "GET" || request.method === "HEAD") && isFrontendAppRoute(url.pathname)) {
+      url.pathname = FRONTEND_APP_SHELL_PATH;
+      return env.ASSETS.fetch(new Request(url, request));
     }
     return env.ASSETS.fetch(request);
   },

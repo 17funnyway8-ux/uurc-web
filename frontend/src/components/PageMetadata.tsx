@@ -48,7 +48,7 @@ function getPageMetadata(pathname: string): Metadata {
       description: DEFAULT_DESCRIPTION,
       canonicalPath: "/",
       robots: "index, follow, max-image-preview:large",
-      themeColor: "#0b0b0c",
+      themeColor: "#fafafa",
     };
   }
 

@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, useLocation } from "react-router";
 
 import { LandingPage } from "./components/LandingPage.js";
@@ -10,20 +10,39 @@ const ProductRoutes = lazy(() =>
   import("./components/ProductRoutes.js").then((module) => ({ default: module.ProductRoutes })),
 );
 
-export default function App() {
+interface AppProps {
+  initialLandingLoggedIn?: boolean;
+}
+
+export default function App({ initialLandingLoggedIn }: AppProps = {}) {
   return (
     <BrowserRouter>
-      <PageMetadata />
-      <RootRoutes />
+      <AppContent initialLandingLoggedIn={initialLandingLoggedIn} />
     </BrowserRouter>
   );
 }
 
-function RootRoutes() {
+export function AppContent({ initialLandingLoggedIn }: AppProps) {
+  return (
+    <>
+      <PageMetadata />
+      <RootRoutes initialLandingLoggedIn={initialLandingLoggedIn} />
+    </>
+  );
+}
+
+function RootRoutes({ initialLandingLoggedIn }: AppProps) {
   const location = useLocation();
+  const [landingLoggedIn, setLandingLoggedIn] = useState(
+    () => initialLandingLoggedIn ?? getStoredAuthStatus().hasState,
+  );
+
+  useEffect(() => {
+    if (location.pathname === "/") setLandingLoggedIn(getStoredAuthStatus().hasState);
+  }, [location.pathname]);
 
   if (location.pathname === "/") {
-    return <LandingPage loggedIn={getStoredAuthStatus().hasState} />;
+    return <LandingPage loggedIn={landingLoggedIn} />;
   }
 
   return (

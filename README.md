@@ -15,6 +15,8 @@ It is useful for reviewing the interface and basic flow. UU Remote Web handles S
 
 A Cloudflare Worker plus Durable Object is the easiest self-hosted option. The Worker serves the application, forwards UU API requests, and runs the signal gateway. Remote video, audio, and input are still negotiated by the browser over WebRTC. Automatic routing can use LAN or P2P direct connectivity and fall back to UU relay when required. Deploying on Cloudflare does not disable direct connections.
 
+The public landing page is prerendered during the frontend build so its content is present in the initial HTML. Login, device, account, and remote-control routes continue to use the client-side application shell and are excluded from search indexing.
+
 ## Features
 
 - SMS login

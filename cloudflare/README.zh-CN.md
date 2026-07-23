@@ -10,7 +10,7 @@
 
 ## Cloudflare 运行内容
 
-- 来自 `frontend/dist` 的静态前端
+- 来自 `frontend/dist` 的静态前端，包括预渲染公开落地页和标记为 noindex 的客户端应用外壳
 - `/api/proxy/uu` UU API 转发
 - `/api/health`
 - 基于 Durable Object 的 `/api/remote/signal/*` 状态、事件、诊断和错误回报接口

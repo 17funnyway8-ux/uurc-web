@@ -8,6 +8,8 @@ describe("static asset cache policy", () => {
       "public, max-age=31536000, immutable",
     );
     expect(getStaticCacheControl("/app/frontend/dist/index.html")).toBe("no-cache");
+    expect(getStaticCacheControl("/app/frontend/dist/app.html")).toBe("no-cache");
+    expect(getStaticCacheControl("/app/frontend/dist/404.html")).toBe("no-cache");
     expect(getStaticCacheControl("/app/frontend/dist/favicon.svg")).toBeUndefined();
   });
 
@@ -17,6 +19,8 @@ describe("static asset cache policy", () => {
     expect(getFrontendRobotsHeader("/login")).toBe("noindex, nofollow, noarchive");
     expect(getFrontendRobotsHeader("/devices")).toBe("noindex, nofollow, noarchive");
     expect(getFrontendRobotsHeader("/devices/device-1/control")).toBe("noindex, nofollow, noarchive");
+    expect(getFrontendRobotsHeader("/app")).toBe("noindex, nofollow, noarchive");
+    expect(getFrontendRobotsHeader("/app.html")).toBe("noindex, nofollow, noarchive");
     expect(getFrontendRobotsHeader("/partner")).toBe("noindex, nofollow, noarchive");
     expect(getFrontendRobotsHeader("/account")).toBe("noindex, nofollow, noarchive");
   });

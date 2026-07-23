@@ -4,6 +4,7 @@ import path from "node:path";
 import express from "express";
 import compression from "compression";
 import { createRuntimeProfile } from "@uurc/shared/runtimeProfile";
+import { FRONTEND_APP_SHELL_FILE, FRONTEND_APP_SHELL_PATH, isFrontendAppRoute } from "@uurc/shared/frontendRoutes";
 
 import { createConfig, type BackendConfigOverrides } from "./config.js";
 import { errorHandler } from "./middleware/errorHandler.js";
@@ -60,7 +61,11 @@ export function createApp(overrides: AppOverrides = {}) {
         return;
       }
       res.setHeader("Cache-Control", "no-cache");
-      res.sendFile(path.join(frontendDist, "index.html"));
+      if (isFrontendAppRoute(req.path)) {
+        res.sendFile(path.join(frontendDist, FRONTEND_APP_SHELL_FILE));
+        return;
+      }
+      res.status(404).sendFile(path.join(frontendDist, "404.html"));
     });
   }
 
@@ -84,17 +89,13 @@ export function getStaticCacheControl(filePath: string): string | undefined {
   if (/[/\\]assets[/\\].+-[A-Za-z0-9_-]{8,}\.[^/\\]+$/.test(filePath)) {
     return "public, max-age=31536000, immutable";
   }
-  if (path.basename(filePath) === "index.html") return "no-cache";
+  if (path.extname(filePath) === ".html") return "no-cache";
   return undefined;
 }
 
 export function getFrontendRobotsHeader(urlPath: string): string | undefined {
   const isPrivatePage =
-    urlPath === "/login" ||
-    urlPath === "/devices" ||
-    urlPath.startsWith("/devices/") ||
-    urlPath === "/partner" ||
-    urlPath === "/account";
+    urlPath === FRONTEND_APP_SHELL_PATH || urlPath === `/${FRONTEND_APP_SHELL_FILE}` || isFrontendAppRoute(urlPath);
   return isPrivatePage ? "noindex, nofollow, noarchive" : undefined;
 }
 

@@ -307,6 +307,34 @@ describe("BrowserRemoteSession", () => {
     ]);
   });
 
+  it("sends macOS Cmd+C with native Command and C key codes", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api,
+      createPeerConnection: () => peer,
+      now: () => 3300,
+    });
+    await session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+      targetPlatform: 4,
+    });
+
+    session.sendKeyboardInput({ action: "keyboardPress", value: 117 });
+    session.sendKeyboardInput({ action: "keyboardPress", value: 31 });
+    session.sendKeyboardInput({ action: "keyboardRelease", value: 31 });
+    session.sendKeyboardInput({ action: "keyboardRelease", value: 117 });
+
+    expect(peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)?.sent).toEqual([
+      '{"action":"kbd_press","key":55}',
+      '{"action":"kbd_press","key":8}',
+      '{"action":"kbd_release","key":8}',
+      '{"action":"kbd_release","key":55}',
+    ]);
+  });
+
   it("uses the MuMu capture_change id as the SendToRom input index", async () => {
     const api = new FakeRemoteApi();
     const peer = new FakePeerConnection();

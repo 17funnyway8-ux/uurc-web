@@ -102,6 +102,7 @@ describe("BrowserRemoteSession", () => {
 
       const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control);
       control?.onopen?.(new Event("open"));
+      const debugEventsAfterOpen = session.getState().debugEvents;
 
       expect(control?.sent).toEqual([
         encodeStreamerEchoRequestMessage({
@@ -123,25 +124,14 @@ describe("BrowserRemoteSession", () => {
           timestampMs: 4,
         }),
       ]);
+      expect(session.getState().debugEvents).toEqual(debugEventsAfterOpen);
 
       control?.close();
       now = 4500;
       vi.advanceTimersByTime(500);
 
       expect(control?.sent).toHaveLength(2);
-      expect(session.getState().debugEvents).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            kind: "data_send",
-            summary: "发送控制心跳",
-            details: expect.objectContaining({
-              label: STREAMER_DATA_CHANNEL_LABELS.control,
-              sequence: 1,
-              intervalMs: 100,
-            }),
-          }),
-        ]),
-      );
+      expect(session.getState().debugEvents.some((event) => event.summary === "发送控制心跳")).toBe(false);
     } finally {
       vi.useRealTimers();
     }

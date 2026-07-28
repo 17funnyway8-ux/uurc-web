@@ -1,16 +1,13 @@
 import type { BrowserRemoteDebugEvent } from "../remote/browserRemoteSessionTypes.js";
 
 export function DebugEventList({ events }: { events: readonly BrowserRemoteDebugEvent[] }) {
-  const recentEvents: BrowserRemoteDebugEvent[] = [];
-  for (let index = events.length - 1; index >= Math.max(0, events.length - 18); index -= 1) {
-    recentEvents.push(events[index]);
-  }
-  if (recentEvents.length === 0) {
+  if (events.length === 0) {
     return <p className="empty-debug-log">暂无调试事件。</p>;
   }
+  const newestFirst = [...events].reverse();
   return (
     <ol className="debug-event-list">
-      {recentEvents.map((event) => (
+      {newestFirst.map((event) => (
         <li key={event.id}>
           <span>{formatDebugTime(event.atMs)}</span>
           <strong>{event.summary}</strong>

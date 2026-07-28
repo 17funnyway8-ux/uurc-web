@@ -20,12 +20,13 @@ export function useRemoteRecoveryController(options: RemoteRecoveryOptions) {
   const onReconnectRef = useRef(options.onReconnect);
   onReconnectRef.current = options.onReconnect;
   const flowStatus = options.browserRemoteState.videoFlow?.status;
+  const flowUpdatedAtMs = options.browserRemoteState.videoFlow?.updatedAtMs;
 
   useEffect(() => {
     setDecodeStalledStreak((streak) =>
       flowStatus === "decode_stalled" || flowStatus === "presentation_stalled" ? streak + 1 : 0,
     );
-  }, [flowStatus]);
+  }, [flowStatus, flowUpdatedAtMs]);
 
   const decodeStalledPersisted =
     (flowStatus === "decode_stalled" || flowStatus === "presentation_stalled") && decodeStalledStreak >= 2;

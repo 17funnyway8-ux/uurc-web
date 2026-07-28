@@ -277,8 +277,11 @@ export function readInboundVideoStats(
   const videoRecords = [...entries.values()].filter(
     (entry) => entry.type === "inbound-rtp" && (entry.kind === "video" || entry.mediaType === "video"),
   );
+  const preferredRecord = preferredTrackIdentifier
+    ? videoRecords.find((entry) => entry.trackIdentifier === preferredTrackIdentifier)
+    : undefined;
   const record =
-    videoRecords.find((entry) => entry.trackIdentifier === preferredTrackIdentifier) ??
+    preferredRecord ??
     videoRecords.sort((left, right) => numberValue(right.framesDecoded) - numberValue(left.framesDecoded))[0];
   if (!record) return undefined;
 

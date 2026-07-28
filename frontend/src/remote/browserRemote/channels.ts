@@ -6,6 +6,7 @@ import {
   encodeStreamerEchoRequestMessage,
   encodeStreamerEchoResponseMessage,
 } from "@uurc/shared/streamer/controlChannelEncode";
+import { STREAMER_SIMPLE_ACTION_TYPES } from "@uurc/shared/streamer/controlChannelProtocol";
 import {
   STREAMER_DATA_CHANNEL_LABELS,
   isStreamerDataChannelLabel,
@@ -48,7 +49,6 @@ interface BrowserRemoteChannelsOptions {
 }
 
 const ECHO_HEARTBEAT_INTERVAL_MS = 100;
-const ECHO_HEARTBEAT_DEBUG_INTERVAL_MS = 30000;
 const DATA_RECEIVE_DEBUG_INTERVAL_MS = 30000;
 
 export class BrowserRemoteChannels {
@@ -56,7 +56,6 @@ export class BrowserRemoteChannels {
   private readonly incomingChannels = new Set<BrowserRemoteDataChannel>();
   private readonly lastDataReceiveDebugAtMs = new Map<StreamerDataChannelLabel, number>();
   private echoHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
-  private lastEchoHeartbeatDebugAtMs = 0;
 
   constructor(private readonly options: BrowserRemoteChannelsOptions) {}
 
@@ -191,10 +190,17 @@ export class BrowserRemoteChannels {
       timestampMs: timestampSeconds,
       responseSequence,
     });
-    this.send(label, payload, {
-      summary: "回复控制 EchoRequest",
-      details: { sequence, timestampSeconds, responseSequence },
-    });
+    try {
+      this.send(label, payload, false);
+    } catch (error) {
+      this.options.recordDebugEvent("data_send", "回复控制 EchoRequest 失败", {
+        label,
+        sequence,
+        responseSequence,
+        readyState: channel.readyState,
+        error: getErrorMessage(error),
+      });
+    }
   }
 
   closeAll(): void {
@@ -221,7 +227,6 @@ export class BrowserRemoteChannels {
       clearInterval(this.echoHeartbeatTimer);
       this.echoHeartbeatTimer = undefined;
     }
-    this.lastEchoHeartbeatDebugAtMs = 0;
   }
 
   private sendEchoHeartbeat(): void {
@@ -232,7 +237,6 @@ export class BrowserRemoteChannels {
       return;
     }
     const { sequence, timestampSeconds } = this.options.nextEnvelope();
-    const now = this.options.now();
     const payload = encodeStreamerEchoRequestMessage({ sequence, timestampMs: timestampSeconds });
     try {
       channel.send(payload);
@@ -245,18 +249,6 @@ export class BrowserRemoteChannels {
       });
       if (channel.readyState !== "open") this.stopEchoHeartbeat();
       return;
-    }
-    if (
-      this.lastEchoHeartbeatDebugAtMs === 0 ||
-      now - this.lastEchoHeartbeatDebugAtMs >= ECHO_HEARTBEAT_DEBUG_INTERVAL_MS
-    ) {
-      this.options.recordDebugEvent("data_send", "发送控制心跳", {
-        label,
-        byteLength: payload.byteLength,
-        sequence,
-        intervalMs: ECHO_HEARTBEAT_INTERVAL_MS,
-      });
-      this.lastEchoHeartbeatDebugAtMs = now || 1;
     }
   }
 
@@ -290,6 +282,13 @@ export class BrowserRemoteChannels {
     }
     const decoded = label === STREAMER_DATA_CHANNEL_LABELS.control ? this.decodeControlMessage(data) : undefined;
     if (decoded) this.options.onControlMessage(decoded);
+    const simpleAction = decoded?.simpleAction?.action;
+    if (
+      simpleAction === STREAMER_SIMPLE_ACTION_TYPES.ACTION_TYPE_ECHO_REQUEST ||
+      simpleAction === STREAMER_SIMPLE_ACTION_TYPES.ACTION_TYPE_ECHO_RESPONSE
+    ) {
+      return;
+    }
 
     const now = this.options.now();
     const lastDebugAtMs = this.lastDataReceiveDebugAtMs.get(label) ?? 0;

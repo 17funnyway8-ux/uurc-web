@@ -105,7 +105,7 @@ describe("BrowserRemoteSession", () => {
     expect(cursorShapes).toHaveLength(cursorChangeCount);
   });
 
-  it("replies to App control EchoRequest messages like the desktop controller", async () => {
+  it("replies to App control EchoRequest messages without filling the diagnostic buffer", async () => {
     const api = new FakeRemoteApi();
     const peer = new FakePeerConnection();
     let now = 7000;
@@ -124,47 +124,75 @@ describe("BrowserRemoteSession", () => {
     });
 
     const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control);
+    const debugEventsBeforeHeartbeats = session.getState().debugEvents;
     now = 7100;
-    control?.emitMessage(
+    for (let index = 0; index < 150; index += 1) {
+      control?.emitMessage(
+        encodeStreamerEchoRequestMessage({
+          sequence: 41 + index,
+          timestampMs: 7050,
+        }).buffer,
+      );
+      control?.emitMessage(
+        encodeStreamerEchoResponseMessage({
+          sequence: 241 + index,
+          timestampMs: 7050,
+          responseSequence: 200 + index,
+        }).buffer,
+      );
+    }
+
+    expect(control?.sent).toHaveLength(150);
+    expect(control?.sent.at(0)).toEqual(
+      encodeStreamerEchoResponseMessage({
+        sequence: 1,
+        timestampMs: 7,
+        responseSequence: 41,
+      }),
+    );
+    expect(control?.sent.at(-1)).toEqual(
+      encodeStreamerEchoResponseMessage({
+        sequence: 150,
+        timestampMs: 7,
+        responseSequence: 190,
+      }),
+    );
+    expect(session.getState().debugEvents).toEqual(debugEventsBeforeHeartbeats);
+  });
+
+  it("records an EchoResponse send failure", async () => {
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api: new FakeRemoteApi(),
+      createPeerConnection: () => peer,
+      now: () => 7100,
+    });
+    await session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+    });
+    const control = peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)!;
+    control.failNextSendCount = 1;
+
+    control.emitMessage(
       encodeStreamerEchoRequestMessage({
         sequence: 41,
         timestampMs: 7050,
       }).buffer,
     );
 
-    expect(control?.sent).toEqual([
-      encodeStreamerEchoResponseMessage({
+    expect(session.getState().debugEvents.at(-1)).toMatchObject({
+      kind: "data_send",
+      summary: "回复控制 EchoRequest 失败",
+      details: {
+        label: STREAMER_DATA_CHANNEL_LABELS.control,
         sequence: 1,
-        timestampMs: 7,
         responseSequence: 41,
-      }),
-    ]);
-    expect(session.getState().debugEvents).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: "data_send",
-          summary: "回复控制 EchoRequest",
-          details: expect.objectContaining({
-            label: STREAMER_DATA_CHANNEL_LABELS.control,
-            sequence: 1,
-            responseSequence: 41,
-          }),
-        }),
-        expect.objectContaining({
-          kind: "data_recv",
-          summary: "收到 CONTROL_DATA_CHANNEL 数据",
-          details: expect.objectContaining({
-            decoded: expect.objectContaining({
-              sequence: 41,
-              simpleAction: expect.objectContaining({
-                actionName: "ACTION_TYPE_ECHO_REQUEST",
-                seq: 41,
-              }),
-            }),
-          }),
-        }),
-      ]),
-    );
+        readyState: "open",
+        error: "send failed",
+      },
+    });
   });
 
   it("closes peer and App data channels when the browser session is stopped", async () => {

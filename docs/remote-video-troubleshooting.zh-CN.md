@@ -1,7 +1,5 @@
 # 远控画面冻结排查
 
-[English](remote-video-troubleshooting.md)
-
 本文适用于远控画面卡住、鼠标和键盘输入仍可正常使用的情况。
 
 ## 浏览器诊断信息

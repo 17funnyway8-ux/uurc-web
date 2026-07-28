@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import type { RemoteStageViewMode } from "../app/remoteControlTypes.js";
+import { getLocalClipboardAccessIssue, readLocalClipboardText } from "../browser/clipboard.js";
 import type { BrowserRemoteSession } from "../remote/browserRemoteSession.js";
 import type { BrowserRemoteSessionState } from "../remote/browserRemoteSessionTypes.js";
 import { sendRemoteShortcut, type RemoteShortcut } from "../remote/remoteShortcuts.js";
@@ -21,6 +22,13 @@ import { useRemoteCursorController } from "./useRemoteCursorController.js";
 import { useRemoteMediaGeometry } from "./useRemoteMediaGeometry.js";
 
 const HOLD_MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta", "AltGraph"]);
+const REMOTE_CONTROL_LEFT_KEY = 113;
+const REMOTE_META_LEFT_KEY = 117;
+
+interface PasteShortcutModifiers {
+  ctrlKey: boolean;
+  metaKey: boolean;
+}
 
 interface UseRemoteInputControllerOptions {
   browserSessionRef: RefObject<BrowserRemoteSession | null>;
@@ -49,6 +57,7 @@ export function useRemoteInputController({
   const scrollDeltaAccumulatorRef = useRef(new RemoteScrollDeltaAccumulator());
   const pendingPointerMoveRef = useRef<LocalPointerPosition | undefined>(undefined);
   const pointerMoveFrameRef = useRef<number | undefined>(undefined);
+  const pasteShortcutModifiersRef = useRef<PasteShortcutModifiers | null>(null);
   const cancelPendingPointerMove = useCallback((): void => {
     pendingPointerMoveRef.current = undefined;
     if (pointerMoveFrameRef.current === undefined) return;
@@ -241,7 +250,28 @@ export function useRemoteInputController({
   function handleRemoteStageKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
     const session = browserSessionRef.current;
     if (!inputControlActive || !session || event.nativeEvent.isComposing) return;
-    if ((event.ctrlKey || event.metaKey) && (event.key === "v" || event.key === "V")) return;
+    if (isPasteShortcut(event)) {
+      const modifiers = { ctrlKey: event.ctrlKey, metaKey: event.metaKey };
+      pasteShortcutModifiersRef.current = modifiers;
+      if (event.repeat) {
+        event.preventDefault();
+        return;
+      }
+      if (getLocalClipboardAccessIssue("read")) return;
+      event.preventDefault();
+      releasePasteShortcutModifiers(session, modifiers);
+      pasteShortcutModifiersRef.current = null;
+      void readLocalClipboardText()
+        .then((text) => {
+          if (!text || browserSessionRef.current !== session) return;
+          session.sendPastedText(text);
+          onSessionStateChange(session.getState());
+        })
+        .catch((caught) => {
+          onError(`读取本机剪贴板失败：${errorMessage(caught)}`);
+        });
+      return;
+    }
     const isHoldModifier = HOLD_MODIFIER_KEYS.has(event.key);
     if (isHoldModifier && event.repeat) return;
     event.preventDefault();
@@ -259,6 +289,7 @@ export function useRemoteInputController({
     if (!inputControlActive || !session) return;
     if ((event.ctrlKey || event.metaKey) && (event.key === "v" || event.key === "V")) return;
     if (!HOLD_MODIFIER_KEYS.has(event.key)) return;
+    pasteShortcutModifiersRef.current = null;
     event.preventDefault();
     try {
       session.sendKeyboardInput({ action: "keyboardRelease", value: toRemoteKeyValue(event) });
@@ -281,7 +312,11 @@ export function useRemoteInputController({
     if (!text) return;
     event.preventDefault();
     try {
+      const modifiers = pasteShortcutModifiersRef.current;
+      pasteShortcutModifiersRef.current = null;
+      if (modifiers) releasePasteShortcutModifiers(session, modifiers);
       session.sendPastedText(text);
+      onSessionStateChange(session.getState());
     } catch (caught) {
       onError(errorMessage(caught));
     }
@@ -359,4 +394,17 @@ function cancelPointerFrame(frame: number): void {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isPasteShortcut(event: KeyboardEvent<HTMLDivElement>): boolean {
+  return (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v";
+}
+
+function releasePasteShortcutModifiers(session: BrowserRemoteSession, modifiers: PasteShortcutModifiers): void {
+  if (modifiers.ctrlKey) {
+    session.sendKeyboardInput({ action: "keyboardRelease", value: REMOTE_CONTROL_LEFT_KEY });
+  }
+  if (modifiers.metaKey) {
+    session.sendKeyboardInput({ action: "keyboardRelease", value: REMOTE_META_LEFT_KEY });
+  }
 }

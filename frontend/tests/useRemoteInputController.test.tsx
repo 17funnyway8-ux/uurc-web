@@ -1,16 +1,30 @@
 // @vitest-environment jsdom
 import { useEffect } from "react";
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BrowserRemoteSession } from "../src/remote/browserRemoteSession.js";
 import { useRemoteInputController } from "../src/controllers/useRemoteInputController.js";
+
+const clipboardMocks = vi.hoisted(() => ({
+  accessIssue: vi.fn<() => string | null>(),
+  read: vi.fn<() => Promise<string>>(),
+}));
+
+vi.mock("../src/browser/clipboard.js", () => ({
+  getLocalClipboardAccessIssue: clipboardMocks.accessIssue,
+  readLocalClipboardText: clipboardMocks.read,
+}));
 
 describe("useRemoteInputController", () => {
   const frameCallbacks = new Map<number, FrameRequestCallback>();
   let nextFrame = 1;
 
   beforeEach(() => {
+    clipboardMocks.accessIssue.mockReset();
+    clipboardMocks.accessIssue.mockReturnValue(null);
+    clipboardMocks.read.mockReset();
+    clipboardMocks.read.mockResolvedValue("");
     frameCallbacks.clear();
     nextFrame = 1;
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
@@ -141,21 +155,70 @@ describe("useRemoteInputController", () => {
     ]);
   });
 
-  it("routes browser paste events through the target-aware session entry point", () => {
+  it("reads the local clipboard for macOS Cmd+V and releases Command before sending text", async () => {
+    clipboardMocks.read.mockResolvedValue("pasted from system clipboard");
+    const sendKeyboardInput = vi.fn();
+    const sendPastedText = vi.fn();
+    const state = { stage: "connected" } as ReturnType<BrowserRemoteSession["getState"]>;
+    const onSessionStateChange = vi.fn();
+    const session = {
+      getState: vi.fn(() => state),
+      sendKeyboardInput,
+      sendPastedText,
+      releaseAllInputs: vi.fn(),
+    } as unknown as BrowserRemoteSession;
+    const view = render(
+      <Harness
+        session={session}
+        onController={() => undefined}
+        onSessionStateChange={onSessionStateChange}
+        targetPlatform={4}
+      />,
+    );
+    const stage = view.getByTestId("stage");
+
+    fireEvent.keyDown(stage, { code: "MetaLeft", key: "Meta", metaKey: true });
+    const pasteKeyDown = createEvent.keyDown(stage, { code: "KeyV", key: "v", metaKey: true });
+    fireEvent(stage, pasteKeyDown);
+
+    expect(pasteKeyDown.defaultPrevented).toBe(true);
+    expect(clipboardMocks.read).toHaveBeenCalledOnce();
+    await waitFor(() => expect(sendPastedText).toHaveBeenCalledWith("pasted from system clipboard"));
+    expect(sendKeyboardInput.mock.calls.map(([input]) => input)).toEqual([
+      { action: "keyboardPress", value: 117 },
+      { action: "keyboardRelease", value: 117 },
+    ]);
+    expect(onSessionStateChange).toHaveBeenCalledWith(state);
+  });
+
+  it("falls back to the browser paste event when direct clipboard reading is unavailable", () => {
+    clipboardMocks.accessIssue.mockReturnValue("clipboard read is unavailable");
+    const sendKeyboardInput = vi.fn();
     const sendPastedText = vi.fn();
     const session = {
+      getState: vi.fn(() => ({ stage: "connected" })),
+      sendKeyboardInput,
       sendPastedText,
       releaseAllInputs: vi.fn(),
     } as unknown as BrowserRemoteSession;
     const view = render(<Harness session={session} onController={() => undefined} targetPlatform={4} />);
     const stage = view.getByTestId("stage");
 
+    fireEvent.keyDown(stage, { code: "MetaLeft", key: "Meta", metaKey: true });
+    const pasteKeyDown = createEvent.keyDown(stage, { code: "KeyV", key: "v", metaKey: true });
+    fireEvent(stage, pasteKeyDown);
     fireEvent.paste(stage, {
       clipboardData: {
         getData: (type: string) => (type === "text" ? "pasted from browser" : ""),
       },
     });
 
+    expect(pasteKeyDown.defaultPrevented).toBe(false);
+    expect(clipboardMocks.read).not.toHaveBeenCalled();
+    expect(sendKeyboardInput.mock.calls.map(([input]) => input)).toEqual([
+      { action: "keyboardPress", value: 117 },
+      { action: "keyboardRelease", value: 117 },
+    ]);
     expect(sendPastedText).toHaveBeenCalledWith("pasted from browser");
   });
 
@@ -172,11 +235,13 @@ function Harness({
     throw new Error(message);
   },
   onController,
+  onSessionStateChange = () => undefined,
   targetPlatform = 1,
 }: {
   session: BrowserRemoteSession;
   onError?: (message: string) => void;
   onController(controller: ReturnType<typeof useRemoteInputController>): void;
+  onSessionStateChange?: (state: ReturnType<BrowserRemoteSession["getState"]>) => void;
   targetPlatform?: number;
 }) {
   const browserSessionRef = { current: session };
@@ -187,7 +252,7 @@ function Harness({
     primaryRemoteVideoId: "video-1",
     remoteStageViewMode: "fit",
     onError,
-    onSessionStateChange: () => undefined,
+    onSessionStateChange,
   });
   useEffect(() => onController(controller), [controller, onController]);
   return (

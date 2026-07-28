@@ -87,7 +87,7 @@ describe("BrowserRemoteSession", () => {
     ]);
   });
 
-  it("sends pasted text to a Mac target as desktop text_input on the control channel", async () => {
+  it("releases macOS Command before sending pasted text on the control channel", async () => {
     const api = new FakeRemoteApi();
     const peer = new FakePeerConnection();
     const session = new BrowserRemoteSession({
@@ -102,9 +102,13 @@ describe("BrowserRemoteSession", () => {
       targetPlatform: 4,
     });
 
+    session.sendKeyboardInput({ action: "keyboardPress", value: 117 });
+    session.sendKeyboardInput({ action: "keyboardRelease", value: 117 });
     session.sendPastedText("  Mac paste  ");
 
     expect(peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)?.sent).toEqual([
+      '{"action":"kbd_press","key":55}',
+      '{"action":"kbd_release","key":55}',
       buildStreamerTextInputMessage("  Mac paste  "),
     ]);
     expect(peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.text)?.sent).toEqual([]);

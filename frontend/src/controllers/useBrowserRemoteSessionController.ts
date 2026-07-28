@@ -7,7 +7,7 @@ import { buildStreamerControlStreamerDataJson } from "@uurc/shared/streamer/cont
 
 import { sendRemoteSignalControl, sendRemoteSignalSoac } from "../api/remoteSignalApi.js";
 import { BrowserRemoteSession } from "../remote/browserRemoteSession.js";
-import type { BrowserRemoteSessionState } from "../remote/browserRemoteSessionTypes.js";
+import type { BrowserRemoteDebugEvent, BrowserRemoteSessionState } from "../remote/browserRemoteSessionTypes.js";
 import { REMOTE_CURSOR_LOCAL_RENDERING_ENABLED } from "../remote/remoteCursor.js";
 import { createAppControlId, createIdleBrowserRemoteState } from "../remote/remoteSessionUiModel.js";
 
@@ -24,11 +24,13 @@ interface StartBrowserRemoteSessionInput {
 
 export function useBrowserRemoteSessionController() {
   const sessionRef = useRef<BrowserRemoteSession | null>(null);
+  const archivedDebugEventsRef = useRef<BrowserRemoteDebugEvent[]>([]);
   const [state, setState] = useState<BrowserRemoteSessionState>(createIdleBrowserRemoteState);
 
   useEffect(
     () => () => {
-      sessionRef.current?.close();
+      const closedState = sessionRef.current?.close();
+      if (closedState) archivedDebugEventsRef.current = closedState.debugEvents;
       sessionRef.current = null;
     },
     [],
@@ -36,17 +38,21 @@ export function useBrowserRemoteSessionController() {
 
   function close(): void {
     const closedState = sessionRef.current?.close();
+    if (closedState) archivedDebugEventsRef.current = closedState.debugEvents;
     sessionRef.current = null;
     setState(closedState ?? createIdleBrowserRemoteState());
   }
 
   async function start(input: StartBrowserRemoteSessionInput): Promise<BrowserRemoteSession> {
+    const supersededState = sessionRef.current?.close();
+    if (supersededState) archivedDebugEventsRef.current = supersededState.debugEvents;
     const appControlId = createAppControlId();
     const session = new BrowserRemoteSession({
       api: {
         sendSignalControl: sendRemoteSignalControl,
         sendSignalSoac: sendRemoteSignalSoac,
       },
+      initialDebugEvents: archivedDebugEventsRef.current,
       onRemoteStream: input.onRemoteStream,
       onRemoteClipboard: input.onRemoteClipboard,
       onRemoteCursorShape: input.onRemoteCursorShape,

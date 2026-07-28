@@ -281,7 +281,7 @@ export function useRemoteInputController({
     if (!text) return;
     event.preventDefault();
     try {
-      session.sendTextData(text);
+      session.sendPastedText(text);
     } catch (caught) {
       onError(errorMessage(caught));
     }

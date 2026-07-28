@@ -129,6 +129,10 @@ export function RemoteControlDiagnosticsDrawer({
           <StatusRow label="事件日志" value={String(signalEvents.length)} />
           <StatusRow label="未知事件" value={unexpectedSignalEventSummary} />
           <StatusRow label="浏览器 WebRTC" value={`${browserStageLabel} / ICE ${browserIceServers}`} />
+          <StatusRow label="Peer 连接" value={browserRemoteState.peerConnectionState ?? "-"} />
+          <StatusRow label="Peer ICE" value={browserRemoteState.peerIceConnectionState ?? "-"} />
+          <StatusRow label="ICE 收集" value={browserRemoteState.peerIceGatheringState ?? "-"} />
+          <StatusRow label="SDP 状态" value={browserRemoteState.peerSignalingState ?? "-"} />
           <StatusRow label="SDP" value={sdpTransportLabel} />
           <StatusRow label="链路策略" value={effectiveConnectionRouteLabel} />
           <StatusRow label="Control ID" value={browserRemoteState.appControlId || "-"} />

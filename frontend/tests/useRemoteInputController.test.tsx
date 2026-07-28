@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { useEffect } from "react";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BrowserRemoteSession } from "../src/remote/browserRemoteSession.js";
 import { useRemoteInputController } from "../src/controllers/useRemoteInputController.js";
 
-describe("useRemoteInputController pointer scheduling", () => {
+describe("useRemoteInputController", () => {
   const frameCallbacks = new Map<number, FrameRequestCallback>();
   let nextFrame = 1;
 
@@ -120,6 +120,45 @@ describe("useRemoteInputController pointer scheduling", () => {
     expect(onError).toHaveBeenCalledWith("control channel is congested");
   });
 
+  it("forwards macOS Cmd+C as a held Command key and a complete C press", async () => {
+    const sendKeyboardInput = vi.fn();
+    const session = {
+      sendKeyboardInput,
+      releaseAllInputs: vi.fn(),
+    } as unknown as BrowserRemoteSession;
+    const view = render(<Harness session={session} onController={() => undefined} targetPlatform={4} />);
+    const stage = view.getByTestId("stage");
+
+    fireEvent.keyDown(stage, { code: "MetaLeft", key: "Meta", metaKey: true });
+    fireEvent.keyDown(stage, { code: "KeyC", key: "c", metaKey: true });
+    fireEvent.keyUp(stage, { code: "MetaLeft", key: "Meta" });
+
+    expect(sendKeyboardInput.mock.calls.map(([input]) => input)).toEqual([
+      { action: "keyboardPress", value: 117 },
+      { action: "keyboardPress", value: 31 },
+      { action: "keyboardRelease", value: 31 },
+      { action: "keyboardRelease", value: 117 },
+    ]);
+  });
+
+  it("routes browser paste events through the target-aware session entry point", () => {
+    const sendPastedText = vi.fn();
+    const session = {
+      sendPastedText,
+      releaseAllInputs: vi.fn(),
+    } as unknown as BrowserRemoteSession;
+    const view = render(<Harness session={session} onController={() => undefined} targetPlatform={4} />);
+    const stage = view.getByTestId("stage");
+
+    fireEvent.paste(stage, {
+      clipboardData: {
+        getData: (type: string) => (type === "text" ? "pasted from browser" : ""),
+      },
+    });
+
+    expect(sendPastedText).toHaveBeenCalledWith("pasted from browser");
+  });
+
   function flushFrames(): void {
     const callbacks = [...frameCallbacks.values()];
     frameCallbacks.clear();
@@ -133,28 +172,33 @@ function Harness({
     throw new Error(message);
   },
   onController,
+  targetPlatform = 1,
 }: {
   session: BrowserRemoteSession;
   onError?: (message: string) => void;
   onController(controller: ReturnType<typeof useRemoteInputController>): void;
+  targetPlatform?: number;
 }) {
   const browserSessionRef = { current: session };
   const controller = useRemoteInputController({
     browserSessionRef,
-    busy: null,
     controlChannelState: "open",
-    textChannelState: "closed",
-    targetPlatform: 1,
+    targetPlatform,
     primaryRemoteVideoId: "video-1",
     remoteStageViewMode: "fit",
-    run: async (_action, task) => task(),
     onError,
     onSessionStateChange: () => undefined,
-    showToast: () => undefined,
   });
   useEffect(() => onController(controller), [controller, onController]);
   return (
-    <div ref={controller.remoteStageRef} data-testid="stage" tabIndex={0}>
+    <div
+      ref={controller.remoteStageRef}
+      data-testid="stage"
+      tabIndex={0}
+      onKeyDown={controller.handleRemoteStageKeyDown}
+      onKeyUp={controller.handleRemoteStageKeyUp}
+      onPaste={controller.handleRemoteStagePaste}
+    >
       <video data-active="true" />
       <div data-remote-cursor-overlay data-visible="false" />
     </div>

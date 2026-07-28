@@ -251,11 +251,18 @@ export class FakeRemoteApi {
 
 export class FakePeerConnection {
   configuration: unknown;
+  connectionState: RTCPeerConnectionState = "new";
+  iceConnectionState: RTCIceConnectionState = "new";
+  iceGatheringState: RTCIceGatheringState = "new";
   localDescription: RTCSessionDescriptionInit | null = null;
   remoteDescription: RTCSessionDescriptionInit | null = null;
   signalingState: RTCSignalingState = "stable";
+  onconnectionstatechange: ((event: Event) => void) | null = null;
   ondatachannel: ((event: RTCDataChannelEvent) => void) | null = null;
   onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
+  oniceconnectionstatechange: ((event: Event) => void) | null = null;
+  onicegatheringstatechange: ((event: Event) => void) | null = null;
+  onsignalingstatechange: ((event: Event) => void) | null = null;
   ontrack: ((event: RTCTrackEvent) => void) | null = null;
   readonly transceivers: Array<{ kind: string; direction?: RTCRtpTransceiverDirection }> = [];
   readonly dataChannels: string[] = [];

@@ -19,20 +19,19 @@ export function useRemoteRecoveryController(options: RemoteRecoveryOptions) {
   const [status, setStatus] = useState("");
   const onReconnectRef = useRef(options.onReconnect);
   onReconnectRef.current = options.onReconnect;
+  const flowStatus = options.browserRemoteState.videoFlow?.status;
 
   useEffect(() => {
     setDecodeStalledStreak((streak) =>
-      options.browserRemoteState.videoFlow?.status === "decode_stalled" ? streak + 1 : 0,
+      flowStatus === "decode_stalled" || flowStatus === "presentation_stalled" ? streak + 1 : 0,
     );
-  }, [options.browserRemoteState.videoFlow]);
+  }, [flowStatus]);
 
   const decodeStalledPersisted =
-    options.browserRemoteState.videoFlow?.status === "decode_stalled" && decodeStalledStreak >= 2;
+    (flowStatus === "decode_stalled" || flowStatus === "presentation_stalled") && decodeStalledStreak >= 2;
   const canRecover =
     options.browserRemoteState.stage === "connected" &&
-    (options.controlChannelState === "closed" ||
-      options.browserRemoteState.videoFlow?.status === "transport_stalled" ||
-      decodeStalledPersisted);
+    (options.controlChannelState === "closed" || flowStatus === "transport_stalled" || decodeStalledPersisted);
 
   useEffect(() => {
     if (!canRecover) {

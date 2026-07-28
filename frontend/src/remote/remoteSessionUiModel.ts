@@ -119,6 +119,8 @@ export function formatVideoFlow(state: BrowserRemoteSessionState): string {
       return "播放中";
     case "decode_stalled":
       return "画面卡顿";
+    case "presentation_stalled":
+      return "画面呈现停滞";
     case "transport_stalled":
       return "画面中断";
     case "waiting":
@@ -133,9 +135,12 @@ export function formatVideoElement(sample: BrowserRemoteSessionState["videoEleme
     sample.event,
     `${sample.currentTimeMs}ms`,
     sample.totalVideoFrames === undefined ? null : `frames=${sample.totalVideoFrames}`,
+    sample.presentedFrames === undefined ? null : `presented=${sample.presentedFrames}`,
     sample.droppedVideoFrames === undefined ? null : `drop=${sample.droppedVideoFrames}`,
     sample.readyState === undefined ? null : `ready=${sample.readyState}`,
     sample.width && sample.height ? `${sample.width}x${sample.height}` : null,
+    sample.errorCode === undefined ? null : `mediaError=${sample.errorCode}`,
+    sample.errorName ? `playError=${sample.errorName}` : null,
   ]
     .filter((item): item is string => item !== null)
     .join(" · ");

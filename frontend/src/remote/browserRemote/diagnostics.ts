@@ -23,28 +23,23 @@ export function diagnoseVideoFlow(input: {
   previousVideoElement?: BrowserRemoteVideoElementSample;
   currentVideoElement?: BrowserRemoteVideoElementSample;
 }): BrowserRemoteVideoFlowDiagnostics {
+  const currentInboundVideo = input.current.inboundVideo;
+  const previousInboundVideo = isSameInboundVideo(input.previous?.inboundVideo, currentInboundVideo)
+    ? input.previous?.inboundVideo
+    : undefined;
   const delta: BrowserRemoteVideoFlowDelta = {
-    packetsReceived: diffNumber(
-      input.previous?.inboundVideo?.packetsReceived,
-      input.current.inboundVideo?.packetsReceived,
-    ),
-    bytesReceived: diffNumber(input.previous?.inboundVideo?.bytesReceived, input.current.inboundVideo?.bytesReceived),
-    framesDecoded: diffNumber(input.previous?.inboundVideo?.framesDecoded, input.current.inboundVideo?.framesDecoded),
-    framesReceived: diffNumber(
-      input.previous?.inboundVideo?.framesReceived,
-      input.current.inboundVideo?.framesReceived,
-    ),
-    framesDropped: diffNumber(input.previous?.inboundVideo?.framesDropped, input.current.inboundVideo?.framesDropped),
-    keyFramesDecoded: diffNumber(
-      input.previous?.inboundVideo?.keyFramesDecoded,
-      input.current.inboundVideo?.keyFramesDecoded,
-    ),
-    pliCount: diffNumber(input.previous?.inboundVideo?.pliCount, input.current.inboundVideo?.pliCount),
-    nackCount: diffNumber(input.previous?.inboundVideo?.nackCount, input.current.inboundVideo?.nackCount),
-    firCount: diffNumber(input.previous?.inboundVideo?.firCount, input.current.inboundVideo?.firCount),
-    freezeCount: diffNumber(input.previous?.inboundVideo?.freezeCount, input.current.inboundVideo?.freezeCount),
+    packetsReceived: diffNumber(previousInboundVideo?.packetsReceived, currentInboundVideo?.packetsReceived),
+    bytesReceived: diffNumber(previousInboundVideo?.bytesReceived, currentInboundVideo?.bytesReceived),
+    framesDecoded: diffNumber(previousInboundVideo?.framesDecoded, currentInboundVideo?.framesDecoded),
+    framesReceived: diffNumber(previousInboundVideo?.framesReceived, currentInboundVideo?.framesReceived),
+    framesDropped: diffNumber(previousInboundVideo?.framesDropped, currentInboundVideo?.framesDropped),
+    keyFramesDecoded: diffNumber(previousInboundVideo?.keyFramesDecoded, currentInboundVideo?.keyFramesDecoded),
+    pliCount: diffNumber(previousInboundVideo?.pliCount, currentInboundVideo?.pliCount),
+    nackCount: diffNumber(previousInboundVideo?.nackCount, currentInboundVideo?.nackCount),
+    firCount: diffNumber(previousInboundVideo?.firCount, currentInboundVideo?.firCount),
+    freezeCount: diffNumber(previousInboundVideo?.freezeCount, currentInboundVideo?.freezeCount),
     sampleIntervalMs:
-      diffNumber(input.previous?.inboundVideo?.timestampMs, input.current.inboundVideo?.timestampMs) ??
+      diffNumber(previousInboundVideo?.timestampMs, currentInboundVideo?.timestampMs) ??
       diffNumber(input.previous?.sampledAtMs, input.current.sampledAtMs),
     candidateBytesReceived: diffNumber(
       input.previous?.selectedCandidatePair?.bytesReceived,
@@ -58,7 +53,7 @@ export function diagnoseVideoFlow(input: {
   };
   const cleanDelta = dropUndefinedFields(delta) as BrowserRemoteVideoFlowDelta;
 
-  if (!input.current.inboundVideo) {
+  if (!currentInboundVideo) {
     return {
       status: "waiting",
       title: "等待视频 RTP",
@@ -67,7 +62,7 @@ export function diagnoseVideoFlow(input: {
       updatedAtMs: input.nowMs,
     };
   }
-  if (!input.previous?.inboundVideo) {
+  if (!previousInboundVideo) {
     return {
       status: "receiving",
       title: "视频 RTP 已开始采样",
@@ -76,7 +71,55 @@ export function diagnoseVideoFlow(input: {
       updatedAtMs: input.nowMs,
     };
   }
-  if (positive(delta.framesDecoded) || positive(delta.framesReceived) || positive(delta.videoElementFrames)) {
+  const videoRtpGrowing = positive(delta.packetsReceived) || positive(delta.bytesReceived);
+  const videoElementFramesGrowing = positive(delta.videoElementFrames);
+
+  if (delta.framesDecoded !== undefined) {
+    if (positive(delta.framesDecoded)) {
+      if (delta.videoElementFrames === 0) {
+        return {
+          status: "presentation_stalled",
+          title: "浏览器已解码，Video 元素呈现帧未增长",
+          detail: formatVideoFlowDelta(cleanDelta),
+          delta: cleanDelta,
+          updatedAtMs: input.nowMs,
+        };
+      }
+      return {
+        status: "receiving",
+        title: "画面帧在增长",
+        detail: formatVideoFlowDelta(cleanDelta),
+        delta: cleanDelta,
+        updatedAtMs: input.nowMs,
+      };
+    }
+    if (positive(delta.framesReceived) || videoRtpGrowing) {
+      return {
+        status: "decode_stalled",
+        title: "RTP 仍在收包，解码帧未增长",
+        detail: formatVideoFlowDelta(cleanDelta),
+        delta: cleanDelta,
+        updatedAtMs: input.nowMs,
+      };
+    }
+    if (videoElementFramesGrowing) {
+      return {
+        status: "receiving",
+        title: "画面帧在增长",
+        detail: formatVideoFlowDelta(cleanDelta),
+        delta: cleanDelta,
+        updatedAtMs: input.nowMs,
+      };
+    }
+    return {
+      status: "transport_stalled",
+      title: "RTP 收包无增量",
+      detail: formatVideoFlowDelta(cleanDelta),
+      delta: cleanDelta,
+      updatedAtMs: input.nowMs,
+    };
+  }
+  if (positive(delta.framesReceived) || videoElementFramesGrowing) {
     return {
       status: "receiving",
       title: "画面帧在增长",
@@ -85,7 +128,16 @@ export function diagnoseVideoFlow(input: {
       updatedAtMs: input.nowMs,
     };
   }
-  if (positive(delta.packetsReceived) || positive(delta.bytesReceived) || positive(delta.candidateBytesReceived)) {
+  if (videoRtpGrowing) {
+    if (delta.framesReceived === undefined && delta.videoElementFrames === undefined) {
+      return {
+        status: "receiving",
+        title: "视频 RTP 在增长",
+        detail: formatVideoFlowDelta(cleanDelta),
+        delta: cleanDelta,
+        updatedAtMs: input.nowMs,
+      };
+    }
     return {
       status: "decode_stalled",
       title: "RTP 仍在收包，解码帧未增长",
@@ -103,13 +155,41 @@ export function diagnoseVideoFlow(input: {
   };
 }
 
+function isSameInboundVideo(
+  previous: BrowserRemoteInboundVideoStats | undefined,
+  current: BrowserRemoteInboundVideoStats | undefined,
+): boolean {
+  if (!previous || !current) return false;
+  if (previous.id !== undefined && current.id !== undefined && previous.id !== current.id) return false;
+  if (
+    previous.trackIdentifier !== undefined &&
+    current.trackIdentifier !== undefined &&
+    previous.trackIdentifier !== current.trackIdentifier
+  ) {
+    return false;
+  }
+  return previous.ssrc === undefined || current.ssrc === undefined || previous.ssrc === current.ssrc;
+}
+
 export function diffVideoElementSample(
   previous: BrowserRemoteVideoElementSample | undefined,
   current: BrowserRemoteVideoElementSample | undefined,
-): Pick<BrowserRemoteVideoFlowDelta, "videoElementFrames" | "videoElementTimeMs"> {
-  if (!previous || !current) return {};
+): Pick<BrowserRemoteVideoFlowDelta, "presentedFrames" | "videoElementFrames" | "videoElementTimeMs"> {
+  const samplesUseDifferentTracks =
+    previous?.trackIdentifier !== undefined &&
+    current?.trackIdentifier !== undefined &&
+    previous.trackIdentifier !== current.trackIdentifier;
+  if (!previous || !current || previous === current || samplesUseDifferentTracks) return {};
+  const presentedFrames = diffNumber(previous.presentedFrames, current.presentedFrames);
+  const videoElementFrames =
+    presentedFrames !== undefined
+      ? presentedFrames
+      : previous.totalVideoFrames !== undefined && current.totalVideoFrames !== undefined
+        ? diffNumber(previous.totalVideoFrames, current.totalVideoFrames)
+        : undefined;
   return {
-    videoElementFrames: diffNumber(previous.totalVideoFrames, current.totalVideoFrames),
+    presentedFrames,
+    videoElementFrames,
     videoElementTimeMs: diffNumber(previous.currentTimeMs, current.currentTimeMs),
   };
 }
@@ -119,6 +199,7 @@ export function isActiveVideoElementSample(sample: BrowserRemoteVideoElementSamp
   return (
     positive(sample.width) ||
     positive(sample.height) ||
+    positive(sample.presentedFrames) ||
     positive(sample.totalVideoFrames) ||
     positive(sample.currentTimeMs) ||
     (sample.readyState !== undefined && sample.readyState >= 2)
@@ -143,7 +224,10 @@ export function formatVideoFlowDelta(delta: BrowserRemoteVideoFlowDelta): string
       delta.firCount === undefined || delta.firCount === 0 ? null : `fir +${delta.firCount}`,
       delta.freezeCount === undefined || delta.freezeCount === 0 ? null : `freeze +${delta.freezeCount}`,
       delta.sampleIntervalMs === undefined ? null : `interval ${Math.round(delta.sampleIntervalMs)}ms`,
-      delta.videoElementFrames === undefined ? null : `video +${delta.videoElementFrames}`,
+      delta.presentedFrames === undefined ? null : `presented +${delta.presentedFrames}`,
+      delta.videoElementFrames === undefined || delta.presentedFrames !== undefined
+        ? null
+        : `video +${delta.videoElementFrames}`,
     ]
       .filter(Boolean)
       .join(" · ") || "本次采样没有可比较增量"
@@ -185,15 +269,25 @@ export function readSelectedCandidatePair(report: BrowserRemoteStatsReport): {
   };
 }
 
-export function readInboundVideoStats(report: BrowserRemoteStatsReport): BrowserRemoteInboundVideoStats | undefined {
+export function readInboundVideoStats(
+  report: BrowserRemoteStatsReport,
+  preferredTrackIdentifier?: string,
+): BrowserRemoteInboundVideoStats | undefined {
   const entries = collectStatsEntries(report);
-  const record = [...entries.values()]
-    .filter((entry) => entry.type === "inbound-rtp" && (entry.kind === "video" || entry.mediaType === "video"))
-    .sort((left, right) => numberValue(right.framesDecoded) - numberValue(left.framesDecoded))[0];
+  const videoRecords = [...entries.values()].filter(
+    (entry) => entry.type === "inbound-rtp" && (entry.kind === "video" || entry.mediaType === "video"),
+  );
+  const record =
+    videoRecords.find((entry) => entry.trackIdentifier === preferredTrackIdentifier) ??
+    videoRecords.sort((left, right) => numberValue(right.framesDecoded) - numberValue(left.framesDecoded))[0];
   if (!record) return undefined;
 
   const stats: BrowserRemoteInboundVideoStats = {};
+  assignString(stats, "id", record.id);
   assignString(stats, "codecId", record.codecId);
+  assignString(stats, "mid", record.mid);
+  assignString(stats, "trackIdentifier", record.trackIdentifier);
+  assignOptionalNumber(stats, "ssrc", record.ssrc);
   for (const key of [
     "packetsReceived",
     "packetsLost",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { encodeStreamerInputMessage } from "@uurc/shared/streamer/controlChannelEncode";
+import { encodeStreamerInputMessage, encodeStreamerTextMessage } from "@uurc/shared/streamer/controlChannelEncode";
 import {
   buildStreamerKeyboardInputMessage,
   buildStreamerMacKeyboardInputMessage,
@@ -84,6 +84,55 @@ describe("BrowserRemoteSession", () => {
       buildStreamerWindowsKeyboardInputMessage({ action: "keyboardPress", value: 113 }),
       buildStreamerTextInputMessage("o"),
       buildStreamerMacMouseScrollInputMessage({ deltaX: 0, deltaY: -120 }),
+    ]);
+  });
+
+  it("sends pasted text to a Mac target as desktop text_input on the control channel", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api,
+      createPeerConnection: () => peer,
+      now: () => 2600,
+    });
+    await session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+      targetPlatform: 4,
+    });
+
+    session.sendPastedText("  Mac paste  ");
+
+    expect(peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)?.sent).toEqual([
+      buildStreamerTextInputMessage("  Mac paste  "),
+    ]);
+    expect(peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.text)?.sent).toEqual([]);
+  });
+
+  it("keeps pasted text for a mobile target on the App text channel", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api,
+      createPeerConnection: () => peer,
+      now: () => 2600,
+    });
+    await session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+    });
+
+    session.sendPastedText("  mobile paste  ");
+
+    expect(peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)?.sent).toEqual([]);
+    expect(peer.channels.get(STREAMER_DATA_CHANNEL_LABELS.text)?.sent).toEqual([
+      encodeStreamerTextMessage({
+        sequence: 1,
+        timestampMs: 2,
+        inputMessage: "mobile paste",
+      }),
     ]);
   });
 

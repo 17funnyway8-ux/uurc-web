@@ -6,7 +6,12 @@ export function resolvePrimaryRemoteVideoId(
   samplesById: RemoteVideoSamplesById,
   selectedVideoId: string,
 ): string {
-  if (selectedVideoId && videos.some((video) => video.id === selectedVideoId)) return selectedVideoId;
+  if (
+    selectedVideoId &&
+    videos.some((video) => video.id === selectedVideoId && samplesById[video.id]?.ended !== true)
+  ) {
+    return selectedVideoId;
+  }
   return selectPrimaryRemoteVideoId(videos, samplesById);
 }
 
@@ -29,10 +34,11 @@ function selectPrimaryRemoteVideoId(videos: RemoteVideoStream[], samplesById: Re
       index,
       score: scoreRemoteVideoSample(samplesById[video.id]),
     }))
+    .filter((video) => samplesById[video.id]?.ended !== true)
     .filter((video) => video.score > 0)
     .sort((left, right) => right.score - left.score || left.index - right.index);
 
-  return scoredVideos[0]?.id ?? videos[0].id;
+  return scoredVideos[0]?.id ?? videos.find((video) => samplesById[video.id]?.ended !== true)?.id ?? "";
 }
 
 function scoreRemoteVideoSample(sample: BrowserRemoteVideoElementSample | undefined): number {

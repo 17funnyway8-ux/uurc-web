@@ -16,11 +16,18 @@ interface BrowserRemoteSessionApi {
 }
 
 export interface BrowserRemotePeerConnection {
+  connectionState?: RTCPeerConnectionState;
+  iceConnectionState?: RTCIceConnectionState;
+  iceGatheringState?: RTCIceGatheringState;
   localDescription: RTCSessionDescriptionInit | null;
   remoteDescription: RTCSessionDescriptionInit | null;
   signalingState?: RTCSignalingState;
+  onconnectionstatechange: ((event: Event) => void) | null;
   ondatachannel: ((event: RTCDataChannelEvent) => void) | null;
   onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null;
+  oniceconnectionstatechange: ((event: Event) => void) | null;
+  onicegatheringstatechange: ((event: Event) => void) | null;
+  onsignalingstatechange: ((event: Event) => void) | null;
   ontrack: ((event: RTCTrackEvent) => void) | null;
   createDataChannel(label: string): BrowserRemoteDataChannel;
   addTransceiver(kind: "audio" | "video", init?: RTCRtpTransceiverInit): RTCRtpTransceiver;
@@ -52,6 +59,7 @@ export interface BrowserRemoteSessionOptions {
   api: BrowserRemoteSessionApi;
   createPeerConnection?: (configuration: RTCConfiguration) => BrowserRemotePeerConnection;
   getVideoCodecPreferences?: () => RTCRtpCodec[];
+  initialDebugEvents?: readonly BrowserRemoteDebugEvent[];
   now?: () => number;
   onRemoteStream?: (stream: MediaStream) => void;
   onRemoteClipboard?: (text: string) => void;
@@ -136,9 +144,13 @@ export interface BrowserRemoteInboundAudioStats {
 }
 
 export interface BrowserRemoteInboundVideoStats {
+  id?: string;
   codecId?: string;
   codecMimeType?: string;
   codecPayloadType?: number;
+  mid?: string;
+  trackIdentifier?: string;
+  ssrc?: number;
   decoderImplementation?: string;
   powerEfficientDecoder?: boolean;
   packetsReceived?: number;
@@ -167,7 +179,9 @@ export interface BrowserRemoteInboundVideoStats {
 
 export interface BrowserRemoteVideoElementSample {
   event: string;
+  trackIdentifier?: string;
   currentTimeMs: number;
+  presentedFrames?: number;
   totalVideoFrames?: number;
   droppedVideoFrames?: number;
   readyState?: number;
@@ -175,6 +189,9 @@ export interface BrowserRemoteVideoElementSample {
   ended?: boolean;
   width?: number;
   height?: number;
+  errorCode?: number;
+  errorMessage?: string;
+  errorName?: string;
 }
 
 export interface BrowserRemoteAudioElementSample {
@@ -203,12 +220,13 @@ export interface BrowserRemoteVideoFlowDelta {
   sampleIntervalMs?: number;
   candidateBytesReceived?: number;
   candidateBytesSent?: number;
+  presentedFrames?: number;
   videoElementFrames?: number;
   videoElementTimeMs?: number;
 }
 
 export interface BrowserRemoteVideoFlowDiagnostics {
-  status: "waiting" | "receiving" | "decode_stalled" | "transport_stalled";
+  status: "waiting" | "receiving" | "decode_stalled" | "presentation_stalled" | "transport_stalled";
   title: string;
   detail: string;
   delta?: BrowserRemoteVideoFlowDelta;
@@ -239,6 +257,10 @@ export interface BrowserRemoteSessionState {
   iceId?: string;
   inboundAudio?: BrowserRemoteInboundAudioStats;
   inboundVideo?: BrowserRemoteInboundVideoStats;
+  peerConnectionState?: RTCPeerConnectionState;
+  peerIceConnectionState?: RTCIceConnectionState;
+  peerIceGatheringState?: RTCIceGatheringState;
+  peerSignalingState?: RTCSignalingState;
   remoteTrackCount: number;
   remoteDisplayId?: number;
   remoteInputDisplayId?: number;

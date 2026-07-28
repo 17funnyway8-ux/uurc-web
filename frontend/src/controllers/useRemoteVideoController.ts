@@ -25,7 +25,10 @@ export function useRemoteVideoController({
   );
 
   const handleRemoteMediaStream = useCallback((stream: MediaStream) => {
-    const tracks = typeof stream.getVideoTracks === "function" ? stream.getVideoTracks() : [];
+    const tracks =
+      typeof stream.getVideoTracks === "function"
+        ? stream.getVideoTracks().filter((track) => track.readyState !== "ended")
+        : [];
     setRemoteVideoStreams(
       tracks.map((track, index) => ({
         id: track.id || `video-${index + 1}`,

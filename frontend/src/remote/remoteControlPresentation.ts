@@ -110,18 +110,20 @@ export function createRemoteControlPresentation(input: RemoteControlPresentation
     : input.controlChannelState === "open"
       ? "仅查看"
       : controlChannelLabel;
+  const videoFlowStatus = input.browserRemoteState.videoFlow?.status;
   const decodeStalledPersisted =
-    input.browserRemoteState.videoFlow?.status === "decode_stalled" && input.decodeStalledStreak >= 2;
+    (videoFlowStatus === "decode_stalled" || videoFlowStatus === "presentation_stalled") &&
+    input.decodeStalledStreak >= 2;
   const browserConnectionRecoverable =
     input.browserRemoteState.stage === "connected" &&
-    (input.controlChannelState === "closed" ||
-      input.browserRemoteState.videoFlow?.status === "transport_stalled" ||
-      decodeStalledPersisted);
+    (input.controlChannelState === "closed" || videoFlowStatus === "transport_stalled" || decodeStalledPersisted);
   const remoteRecoveryLabel = browserConnectionRecoverable
     ? input.controlChannelState === "closed"
       ? "控制连接已断开"
       : decodeStalledPersisted
-        ? "画面卡顿（解码异常）"
+        ? videoFlowStatus === "presentation_stalled"
+          ? "画面卡顿（浏览器呈现异常）"
+          : "画面卡顿（解码异常）"
         : "画面中断（网络）"
     : "";
   const autoReconnectLabel =

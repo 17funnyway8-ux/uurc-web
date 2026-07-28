@@ -82,11 +82,15 @@ export class BrowserRemoteSession {
   private readonly processedSignalEventIds = new Set<number>();
   private queuedCandidates: RTCIceCandidateInit[] = [];
   private remoteStream: MediaStream | null = null;
+  private readonly remoteTracks = new Set<MediaStreamTrack>();
   private remoteDisplayId: number | undefined;
   private remoteInputDisplayId: number | undefined;
   private sequence = 1;
   private previousStatsSample: BrowserRemoteStatsSample | undefined;
   private previousVideoElementSample: BrowserRemoteVideoElementSample | undefined;
+  private previousStatsVideoElementSample: BrowserRemoteVideoElementSample | undefined;
+  private lastControlInput: { atMs: number; input: Record<string, unknown> } | undefined;
+  private videoStallStartedAtMs: number | undefined;
   private lifecycleGeneration = 0;
   private state: BrowserRemoteSessionState = {
     appControlId: "",
@@ -103,6 +107,17 @@ export class BrowserRemoteSession {
       ((configuration) => new RTCPeerConnection(configuration) as BrowserRemotePeerConnection);
     this.getVideoCodecPreferences = options.getVideoCodecPreferences ?? getBrowserH264CodecPreferences;
     this.now = options.now ?? Date.now;
+    const initialDebugEvents = options.initialDebugEvents?.slice(-BrowserRemoteSession.maxDebugEvents) ?? [];
+    if (initialDebugEvents.length > 0) {
+      this.debugEvents = initialDebugEvents.map((event) => ({
+        ...event,
+        details: event.details ? { ...event.details } : undefined,
+      }));
+      this.debugEventId = Math.max(...initialDebugEvents.map((event) => event.id), 0) + 1;
+      this.recordDebugEvent("session", "保留上一次会话调试日志", {
+        eventCount: initialDebugEvents.length,
+      });
+    }
     this.channels = new BrowserRemoteChannels({
       handleClipboardMessage: (label, data) => this.clipboard.handleDataMessage(label, data),
       isGenerationCurrent: (generation) => this.isLifecycleGenerationCurrent(generation),
@@ -173,10 +188,20 @@ export class BrowserRemoteSession {
     this.channels.closeAll();
     if (this.peer) {
       this.peer.ondatachannel = null;
+      this.peer.onconnectionstatechange = null;
       this.peer.onicecandidate = null;
+      this.peer.oniceconnectionstatechange = null;
+      this.peer.onicegatheringstatechange = null;
+      this.peer.onsignalingstatechange = null;
       this.peer.ontrack = null;
       this.peer.close?.();
     }
+    for (const track of this.remoteTracks) {
+      track.onmute = null;
+      track.onunmute = null;
+      track.onended = null;
+    }
+    this.remoteTracks.clear();
     this.peer = null;
     this.appControlId = "";
     this.clientId = undefined;
@@ -191,6 +216,9 @@ export class BrowserRemoteSession {
     this.sequence = 1;
     this.previousStatsSample = undefined;
     this.previousVideoElementSample = undefined;
+    this.previousStatsVideoElementSample = undefined;
+    this.lastControlInput = undefined;
+    this.videoStallStartedAtMs = undefined;
     this.options.onRemoteCursorShape?.(null);
     this.setState({
       appControlId: "",
@@ -238,6 +266,7 @@ export class BrowserRemoteSession {
       buildStreamerRtcConfiguration(result, { forceRelay: input.forceRelay === true }),
     );
     this.peer = peer;
+    this.attachPeerDiagnostics(peer, lifecycleGeneration);
     this.channels.create(peer, lifecycleGeneration, MOUSE_MOVE_BUFFERED_AMOUNT_LOW_THRESHOLD);
     peer.ondatachannel = (event) => {
       if (!this.isPeerLifecycleCurrent(peer, lifecycleGeneration)) return;
@@ -263,6 +292,7 @@ export class BrowserRemoteSession {
       dataChannels: this.channels.getStates(),
       debugEvents: this.debugEvents,
       iceId: this.iceId,
+      ...this.readPeerState(peer),
       remoteTrackCount: 0,
       stage: "controlled",
     });
@@ -308,6 +338,21 @@ export class BrowserRemoteSession {
         targetPlatform: this.targetPlatform,
       },
     });
+    this.lastControlInput = {
+      atMs: this.now(),
+      input: {
+        action: "text_data",
+        textLength: trimmed.length,
+      },
+    };
+  }
+
+  sendPastedText(text: string): void {
+    if (isDesktopPlatform(this.targetPlatform)) {
+      this.sendTextInput(text);
+      return;
+    }
+    this.sendTextData(text);
   }
 
   sendClipboardText(text: string): Promise<void> {
@@ -358,7 +403,7 @@ export class BrowserRemoteSession {
     const previousFlowStatus = this.state.videoFlow?.status;
     const selectedCandidatePair = readSelectedCandidatePair(report);
     const inboundAudio = readInboundAudioStats(report);
-    const inboundVideo = readInboundVideoStats(report);
+    const inboundVideo = readInboundVideoStats(report, this.state.videoElement?.trackIdentifier);
     const videoFlow = diagnoseVideoFlow({
       nowMs: sampledAtMs,
       previous: this.previousStatsSample,
@@ -367,7 +412,7 @@ export class BrowserRemoteSession {
         sampledAtMs,
         selectedCandidatePair: selectedCandidatePair.pair,
       },
-      previousVideoElement: this.previousVideoElementSample,
+      previousVideoElement: this.previousStatsVideoElementSample,
       currentVideoElement: this.state.videoElement,
     });
     this.previousStatsSample = {
@@ -375,6 +420,7 @@ export class BrowserRemoteSession {
       sampledAtMs,
       selectedCandidatePair: selectedCandidatePair.pair,
     };
+    this.previousStatsVideoElementSample = this.state.videoElement;
     this.setState({
       ...this.state,
       connectionPath: selectedCandidatePair.connectionPath,
@@ -383,6 +429,23 @@ export class BrowserRemoteSession {
       selectedCandidatePair: selectedCandidatePair.pair,
       videoFlow,
     });
+    const stallDetails = {
+      status: videoFlow.status,
+      previousStatus: previousFlowStatus,
+      delta: videoFlow.delta,
+      inboundVideo,
+      candidatePair: selectedCandidatePair.pair,
+      connectionPath: selectedCandidatePair.connectionPath,
+      dataChannels: this.channels.getStates(),
+      controlBufferedAmount: this.channels.get(STREAMER_DATA_CHANNEL_LABELS.control)?.bufferedAmount,
+      peer: this.readPeerState(this.peer),
+      lastControlInput: this.lastControlInput
+        ? {
+            ...this.lastControlInput,
+            ageMs: Math.max(0, sampledAtMs - this.lastControlInput.atMs),
+          }
+        : undefined,
+    };
     this.recordDebugEvent("stats", videoFlow.title, {
       status: videoFlow.status,
       delta: videoFlow.delta,
@@ -390,17 +453,26 @@ export class BrowserRemoteSession {
       inboundVideo,
       selectedCandidatePair: selectedCandidatePair.pair,
     });
-    // 诊断：画面从“正常”转入停滞时打一条醒目日志，便于在浏览器控制台定位“卡死那一刻”的成因。
-    if (
-      videoFlow.status !== previousFlowStatus &&
-      (videoFlow.status === "transport_stalled" || videoFlow.status === "decode_stalled")
-    ) {
+    const flowIsStalled = isVideoFlowStalled(videoFlow.status);
+    const previousFlowWasStalled = isVideoFlowStalled(previousFlowStatus);
+    if (flowIsStalled && !previousFlowWasStalled) {
+      this.videoStallStartedAtMs = sampledAtMs;
+      this.recordDebugEvent("stats", "画面停滞快照", stallDetails);
       console.warn(
         `[uurc] 画面停滞 → ${videoFlow.status}（${videoFlow.detail}）` +
           ` path=${selectedCandidatePair.connectionPath}` +
           ` control=${this.state.dataChannels[STREAMER_DATA_CHANNEL_LABELS.control] ?? "?"}`,
-        { delta: videoFlow.delta, candidatePair: selectedCandidatePair.pair, inboundVideo },
+        stallDetails,
       );
+    } else if (videoFlow.status === "receiving" && previousFlowWasStalled) {
+      const stalledForMs =
+        this.videoStallStartedAtMs === undefined ? undefined : Math.max(0, sampledAtMs - this.videoStallStartedAtMs);
+      this.recordDebugEvent("stats", "画面从停滞恢复", {
+        previousStatus: previousFlowStatus,
+        stalledForMs,
+        delta: videoFlow.delta,
+      });
+      this.videoStallStartedAtMs = undefined;
     }
     return this.getState();
   }
@@ -416,27 +488,26 @@ export class BrowserRemoteSession {
 
     const delta = diffVideoElementSample(this.previousVideoElementSample, nextPrimarySample);
     this.previousVideoElementSample = nextPrimarySample;
-    const videoFlow =
-      positive(delta.videoElementFrames) || positive(delta.videoElementTimeMs)
-        ? {
-            status: "receiving" as const,
-            title: "Video 元素帧在增长",
-            detail: formatVideoFlowDelta(dropUndefinedFields(delta) as BrowserRemoteVideoFlowDelta),
-            delta: dropUndefinedFields(delta) as BrowserRemoteVideoFlowDelta,
-            updatedAtMs: this.now(),
-          }
-        : (this.state.videoFlow ??
-          diagnoseVideoFlow({
-            nowMs: this.now(),
-            previous: this.previousStatsSample,
-            current: {
-              inboundVideo: this.state.inboundVideo,
-              sampledAtMs: this.now(),
-              selectedCandidatePair: this.state.selectedCandidatePair,
-            },
-            previousVideoElement: this.state.videoElement,
-            currentVideoElement: nextPrimarySample,
-          }));
+    const videoFlow = positive(delta.videoElementFrames)
+      ? {
+          status: "receiving" as const,
+          title: "Video 元素帧在增长",
+          detail: formatVideoFlowDelta(dropUndefinedFields(delta) as BrowserRemoteVideoFlowDelta),
+          delta: dropUndefinedFields(delta) as BrowserRemoteVideoFlowDelta,
+          updatedAtMs: this.now(),
+        }
+      : (this.state.videoFlow ??
+        diagnoseVideoFlow({
+          nowMs: this.now(),
+          previous: this.previousStatsSample,
+          current: {
+            inboundVideo: this.state.inboundVideo,
+            sampledAtMs: this.now(),
+            selectedCandidatePair: this.state.selectedCandidatePair,
+          },
+          previousVideoElement: this.state.videoElement,
+          currentVideoElement: nextPrimarySample,
+        }));
     this.setState({
       ...this.state,
       videoElement: nextPrimarySample,
@@ -451,6 +522,15 @@ export class BrowserRemoteSession {
       this.recordDebugEvent("video_element", `video ${sample.event}`, {
         ...sample,
         delta,
+      });
+    }
+    if (sample.event === "play_rejected" || sample.event === "error") {
+      console.warn(`[uurc] video ${sample.event}`, {
+        trackIdentifier: sample.trackIdentifier,
+        errorCode: sample.errorCode,
+        errorName: sample.errorName,
+        errorMessage: sample.errorMessage,
+        readyState: sample.readyState,
       });
     }
     return this.getState();
@@ -692,6 +772,37 @@ export class BrowserRemoteSession {
     }
   }
 
+  private attachPeerDiagnostics(peer: BrowserRemotePeerConnection, lifecycleGeneration: number): void {
+    const publishState = (event: string) => {
+      if (!this.isPeerLifecycleCurrent(peer, lifecycleGeneration)) return;
+      const peerState = this.readPeerState(peer);
+      this.recordDebugEvent("session", `PeerConnection ${event}`, peerState);
+      this.setState({
+        ...this.state,
+        ...peerState,
+      });
+    };
+    peer.onconnectionstatechange = () => publishState("connectionState");
+    peer.oniceconnectionstatechange = () => publishState("iceConnectionState");
+    peer.onicegatheringstatechange = () => publishState("iceGatheringState");
+    peer.onsignalingstatechange = () => publishState("signalingState");
+  }
+
+  private readPeerState(peer: BrowserRemotePeerConnection | null): {
+    peerConnectionState?: RTCPeerConnectionState;
+    peerIceConnectionState?: RTCIceConnectionState;
+    peerIceGatheringState?: RTCIceGatheringState;
+    peerSignalingState?: RTCSignalingState;
+  } {
+    if (!peer) return {};
+    return dropUndefinedFields({
+      peerConnectionState: peer.connectionState,
+      peerIceConnectionState: peer.iceConnectionState,
+      peerIceGatheringState: peer.iceGatheringState,
+      peerSignalingState: peer.signalingState,
+    });
+  }
+
   private applyRemoteTrack(event: RTCTrackEvent): void {
     const stream = this.remoteStream ?? createMediaStream() ?? event.streams[0];
     if (!stream) return;
@@ -700,6 +811,7 @@ export class BrowserRemoteSession {
     if (!existingTrack && typeof stream.addTrack === "function") {
       stream.addTrack(event.track);
     }
+    this.attachRemoteTrackDiagnostics(event.track, this.lifecycleGeneration);
     this.remoteStream = stream;
     const nextTrackCount =
       typeof stream.getTracks === "function"
@@ -713,8 +825,41 @@ export class BrowserRemoteSession {
     this.recordDebugEvent("session", "收到远端媒体轨道", {
       trackId: event.track.id,
       trackKind: event.track.kind,
+      trackReadyState: event.track.readyState,
+      transceiverMid: event.transceiver?.mid ?? undefined,
       remoteTrackCount: nextTrackCount,
     });
+  }
+
+  private attachRemoteTrackDiagnostics(track: MediaStreamTrack, lifecycleGeneration: number): void {
+    if (this.remoteTracks.has(track)) return;
+    this.remoteTracks.add(track);
+    const recordState = (event: "mute" | "unmute" | "ended") => {
+      if (!this.isLifecycleGenerationCurrent(lifecycleGeneration)) return;
+      this.recordDebugEvent("session", `远端 ${track.kind} 轨道 ${event}`, {
+        trackId: track.id,
+        trackKind: track.kind,
+        readyState: track.readyState,
+        muted: track.muted,
+      });
+      if (event !== "ended") return;
+      this.remoteTracks.delete(track);
+      track.onmute = null;
+      track.onunmute = null;
+      track.onended = null;
+      const stream = this.remoteStream;
+      if (!stream) return;
+      stream.removeTrack?.(track);
+      const remoteTrackCount = typeof stream.getTracks === "function" ? stream.getTracks().length : 0;
+      this.setState({
+        ...this.state,
+        remoteTrackCount,
+      });
+      this.options.onRemoteStream?.(stream);
+    };
+    track.onmute = () => recordState("mute");
+    track.onunmute = () => recordState("unmute");
+    track.onended = () => recordState("ended");
   }
 
   private handleControlDataMessage(message: DecodedStreamerControlMessage): void {
@@ -782,6 +927,7 @@ export class BrowserRemoteSession {
     const sequence = this.sequence;
     const timestampSeconds = this.streamerTimestampSeconds();
     const inputDisplayId = this.resolveInputDisplayId();
+    const inputSummary = summarizeInputMessage(inputMessage);
     const payload = isDesktopPlatform(this.targetPlatform)
       ? inputMessage
       : encodeStreamerInputMessage({
@@ -805,10 +951,14 @@ export class BrowserRemoteSession {
               remoteDisplayId: this.remoteDisplayId,
               route: isDesktopPlatform(this.targetPlatform) ? "control_text" : "send_to_rom",
               targetPlatform: this.targetPlatform,
-              input: summarizeInputMessage(inputMessage),
+              input: inputSummary,
             },
           },
     );
+    this.lastControlInput = {
+      atMs: this.now(),
+      input: inputSummary,
+    };
   }
 
   private resolveInputDisplayId(): number | undefined {
@@ -883,4 +1033,8 @@ export class BrowserRemoteSession {
     });
     this.recordDebugEvent("signal", "记录受控端显示器", { displayId });
   }
+}
+
+function isVideoFlowStalled(status: string | undefined): boolean {
+  return status === "transport_stalled" || status === "decode_stalled" || status === "presentation_stalled";
 }

@@ -1,9 +1,43 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { diagnoseVideoFlow } from "../src/remote/browserRemote/diagnostics.js";
 import { BrowserRemoteSession } from "../src/remote/browserRemoteSession.js";
+import type {
+  BrowserRemoteInboundVideoStats,
+  BrowserRemoteVideoElementSample,
+} from "../src/remote/browserRemoteSessionTypes.js";
 import { FakePeerConnection, FakeRemoteApi, makeInboundVideoStats } from "./browserRemoteSessionTestHarness.js";
 
 describe("BrowserRemoteSession", () => {
+  it("keeps the previous session debug tail for reconnect diagnostics", () => {
+    const session = new BrowserRemoteSession({
+      api: new FakeRemoteApi(),
+      now: () => 2000,
+      initialDebugEvents: [
+        {
+          id: 40,
+          atMs: 1500,
+          kind: "stats",
+          summary: "画面停滞快照",
+          details: { status: "decode_stalled" },
+        },
+      ],
+    });
+
+    expect(session.getState().debugEvents).toEqual([
+      expect.objectContaining({
+        id: 40,
+        summary: "画面停滞快照",
+      }),
+      expect.objectContaining({
+        id: 41,
+        atMs: 2000,
+        summary: "保留上一次会话调试日志",
+        details: { eventCount: 1 },
+      }),
+    ]);
+  });
+
   it("classifies the active WebRTC path from selected relay candidate stats", async () => {
     const api = new FakeRemoteApi();
     const peer = new FakePeerConnection();
@@ -88,6 +122,95 @@ describe("BrowserRemoteSession", () => {
     });
   });
 
+  it("records PeerConnection state transitions", async () => {
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api: new FakeRemoteApi(),
+      createPeerConnection: () => peer,
+    });
+    await session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+    });
+
+    peer.connectionState = "disconnected";
+    peer.iceConnectionState = "disconnected";
+    peer.iceGatheringState = "complete";
+    peer.onconnectionstatechange?.(new Event("connectionstatechange"));
+
+    expect(session.getState()).toMatchObject({
+      peerConnectionState: "disconnected",
+      peerIceConnectionState: "disconnected",
+      peerIceGatheringState: "complete",
+    });
+    expect(session.getState().debugEvents.at(-1)).toMatchObject({
+      kind: "session",
+      summary: "PeerConnection connectionState",
+      details: {
+        peerConnectionState: "disconnected",
+        peerIceConnectionState: "disconnected",
+        peerIceGatheringState: "complete",
+      },
+    });
+  });
+
+  it("records remote track mute and ended events", async () => {
+    const peer = new FakePeerConnection();
+    const onRemoteStream = vi.fn();
+    const session = new BrowserRemoteSession({
+      api: new FakeRemoteApi(),
+      createPeerConnection: () => peer,
+      onRemoteStream,
+    });
+    await session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+    });
+    const track = {
+      id: "video-track-1",
+      kind: "video",
+      muted: false,
+      readyState: "live",
+      onmute: null,
+      onunmute: null,
+      onended: null,
+    } as unknown as MediaStreamTrack;
+    const tracks = [track];
+    const stream = {
+      addTrack: (nextTrack: MediaStreamTrack) => tracks.push(nextTrack),
+      getTracks: () => [...tracks],
+      removeTrack: (removedTrack: MediaStreamTrack) => {
+        const index = tracks.indexOf(removedTrack);
+        if (index >= 0) tracks.splice(index, 1);
+      },
+    } as unknown as MediaStream;
+    vi.stubGlobal("MediaStream", undefined);
+    try {
+      peer.ontrack?.({
+        track,
+        streams: [stream],
+        transceiver: { mid: "2" },
+      } as unknown as RTCTrackEvent);
+      Object.assign(track, { muted: true });
+      track.onmute?.(new Event("mute"));
+      Object.assign(track, { readyState: "ended" });
+      track.onended?.(new Event("ended"));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(session.getState().remoteTrackCount).toBe(0);
+    expect(onRemoteStream).toHaveBeenCalledTimes(2);
+    expect(session.getState().debugEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ summary: "远端 video 轨道 mute" }),
+        expect.objectContaining({ summary: "远端 video 轨道 ended" }),
+      ]),
+    );
+  });
+
   it("publishes inbound video RTP stats for freeze diagnostics", async () => {
     const api = new FakeRemoteApi();
     const peer = new FakePeerConnection();
@@ -133,6 +256,64 @@ describe("BrowserRemoteSession", () => {
       frameWidth: 2560,
       frameHeight: 1440,
       timestampMs: 123456,
+    });
+  });
+
+  it("matches inbound RTP stats to the video track shown by the primary element", async () => {
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api: new FakeRemoteApi(),
+      createPeerConnection: () => peer,
+    });
+    await session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+    });
+    session.recordVideoElementSample({
+      event: "playing",
+      trackIdentifier: "live-track",
+      currentTimeMs: 1000,
+      presentedFrames: 60,
+      readyState: 4,
+      width: 1920,
+      height: 1080,
+    });
+    peer.stats = new Map<string, Record<string, unknown>>([
+      [
+        "video-old",
+        {
+          id: "video-old",
+          type: "inbound-rtp",
+          kind: "video",
+          trackIdentifier: "old-track",
+          framesDecoded: 500,
+          packetsReceived: 1000,
+        },
+      ],
+      [
+        "video-live",
+        {
+          id: "video-live",
+          type: "inbound-rtp",
+          kind: "video",
+          trackIdentifier: "live-track",
+          mid: "1",
+          ssrc: 4242,
+          framesDecoded: 60,
+          packetsReceived: 120,
+        },
+      ],
+    ]);
+
+    await session.refreshConnectionStats();
+
+    expect(session.getState().inboundVideo).toMatchObject({
+      id: "video-live",
+      trackIdentifier: "live-track",
+      mid: "1",
+      ssrc: 4242,
+      framesDecoded: 60,
     });
   });
 
@@ -257,10 +438,14 @@ describe("BrowserRemoteSession", () => {
         framesDecoded: 0,
       },
     });
-    expect(session.getState().debugEvents.at(-1)).toMatchObject({
-      kind: "stats",
-      summary: "RTP 仍在收包，解码帧未增长",
-    });
+    expect(session.getState().debugEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "stats",
+          summary: "RTP 仍在收包，解码帧未增长",
+        }),
+      ]),
+    );
     expect(session.getState().inboundVideo).toMatchObject({
       codecMimeType: "video/H264",
       decoderImplementation: "VideoToolbox",
@@ -317,6 +502,69 @@ describe("BrowserRemoteSession", () => {
     expect(flow?.detail).toContain("dropped +4");
   });
 
+  it("records the latest control input when video stalls and logs recovery duration", async () => {
+    let nowMs = 1000;
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api: new FakeRemoteApi(),
+      createPeerConnection: () => peer,
+      now: () => nowMs,
+    });
+    await session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+      targetPlatform: 4,
+    });
+
+    session.sendKeyboardInput({ action: "keyboardPress", value: 66 });
+    nowMs = 1500;
+    peer.stats = makeInboundVideoStats({ packetsReceived: 100, bytesReceived: 90000, framesDecoded: 50 });
+    await session.refreshConnectionStats();
+    nowMs = 2200;
+    peer.stats = makeInboundVideoStats({ packetsReceived: 130, bytesReceived: 125000, framesDecoded: 50 });
+    await session.refreshConnectionStats();
+
+    expect(session.getState().debugEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          summary: "画面停滞快照",
+          details: expect.objectContaining({
+            status: "decode_stalled",
+            lastControlInput: {
+              atMs: 1000,
+              ageMs: 1200,
+              input: {
+                action: "kbd_press",
+                key: 36,
+              },
+            },
+            peer: expect.objectContaining({
+              peerConnectionState: "new",
+              peerIceConnectionState: "new",
+            }),
+          }),
+        }),
+      ]),
+    );
+
+    nowMs = 3000;
+    peer.stats = makeInboundVideoStats({ packetsReceived: 160, bytesReceived: 155000, framesDecoded: 80 });
+    await session.refreshConnectionStats();
+
+    expect(session.getState().debugEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          summary: "画面从停滞恢复",
+          details: expect.objectContaining({
+            previousStatus: "decode_stalled",
+            stalledForMs: 800,
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("diagnoses a transport-side stall when neither RTP nor selected pair bytes advance", async () => {
     const api = new FakeRemoteApi();
     const peer = new FakePeerConnection();
@@ -345,6 +593,69 @@ describe("BrowserRemoteSession", () => {
         packetsReceived: 0,
         bytesReceived: 0,
         framesDecoded: 0,
+      },
+    });
+  });
+
+  it("diagnoses a presentation-side stall across consecutive stats samples", async () => {
+    const api = new FakeRemoteApi();
+    const peer = new FakePeerConnection();
+    const session = new BrowserRemoteSession({
+      api,
+      createPeerConnection: (configuration) => {
+        peer.configuration = configuration;
+        return peer;
+      },
+    });
+    await session.start({
+      appControlId: "control-1",
+      appDataBase64: "Cg==",
+      streamerData: "{}",
+    });
+
+    session.recordVideoElementSample({
+      event: "sample",
+      trackIdentifier: "video-track-1",
+      currentTimeMs: 1000,
+      presentedFrames: 50,
+      totalVideoFrames: 50,
+      readyState: 4,
+      width: 1920,
+      height: 1080,
+    });
+    peer.stats = makeInboundVideoStats({
+      packetsReceived: 100,
+      bytesReceived: 90000,
+      framesReceived: 50,
+      framesDecoded: 50,
+    });
+    await session.refreshConnectionStats();
+
+    session.recordVideoElementSample({
+      event: "sample",
+      trackIdentifier: "video-track-1",
+      currentTimeMs: 2000,
+      presentedFrames: 50,
+      totalVideoFrames: 50,
+      readyState: 4,
+      width: 1920,
+      height: 1080,
+    });
+    peer.stats = makeInboundVideoStats({
+      packetsReceived: 130,
+      bytesReceived: 125000,
+      framesReceived: 80,
+      framesDecoded: 80,
+    });
+    await session.refreshConnectionStats();
+
+    expect(session.getState().videoFlow).toMatchObject({
+      status: "presentation_stalled",
+      title: "浏览器已解码，Video 元素呈现帧未增长",
+      delta: {
+        framesDecoded: 30,
+        presentedFrames: 0,
+        videoElementFrames: 0,
       },
     });
   });
@@ -492,3 +803,363 @@ describe("BrowserRemoteSession", () => {
     expect(session.getState().debugEvents).toHaveLength(eventCountAfterActiveSample);
   });
 });
+
+describe("diagnoseVideoFlow", () => {
+  it("reports decode_stalled when received frames advance but decoded frames do not", () => {
+    const diagnostics = diagnoseVideoDelta(
+      {
+        packetsReceived: 100,
+        bytesReceived: 90000,
+        framesReceived: 50,
+        framesDecoded: 50,
+      },
+      {
+        packetsReceived: 130,
+        bytesReceived: 125000,
+        framesReceived: 80,
+        framesDecoded: 50,
+      },
+    );
+
+    expect(diagnostics).toMatchObject({
+      status: "decode_stalled",
+      delta: {
+        framesReceived: 30,
+        framesDecoded: 0,
+      },
+    });
+  });
+
+  it("reports transport_stalled when only selected candidate pair bytes advance", () => {
+    const diagnostics = diagnoseVideoFlow({
+      nowMs: 2000,
+      previous: {
+        sampledAtMs: 1000,
+        inboundVideo: {
+          packetsReceived: 100,
+          bytesReceived: 90000,
+          framesReceived: 50,
+          framesDecoded: 50,
+        },
+        selectedCandidatePair: {
+          bytesReceived: 100000,
+        },
+      },
+      current: {
+        sampledAtMs: 2000,
+        inboundVideo: {
+          packetsReceived: 100,
+          bytesReceived: 90000,
+          framesReceived: 50,
+          framesDecoded: 50,
+        },
+        selectedCandidatePair: {
+          bytesReceived: 130000,
+        },
+      },
+    });
+
+    expect(diagnostics).toMatchObject({
+      status: "transport_stalled",
+      delta: {
+        packetsReceived: 0,
+        bytesReceived: 0,
+        candidateBytesReceived: 30000,
+      },
+    });
+  });
+
+  it("uses received frames when decoded frame stats are unavailable", () => {
+    const diagnostics = diagnoseVideoDelta(
+      {
+        packetsReceived: 100,
+        bytesReceived: 90000,
+        framesReceived: 50,
+      },
+      {
+        packetsReceived: 130,
+        bytesReceived: 125000,
+        framesReceived: 80,
+      },
+    );
+
+    expect(diagnostics).toMatchObject({
+      status: "receiving",
+      delta: {
+        framesReceived: 30,
+      },
+    });
+    expect(diagnostics.delta?.framesDecoded).toBeUndefined();
+  });
+
+  it("keeps receiving RTP when the browser exposes no frame counters", () => {
+    const diagnostics = diagnoseVideoDelta(
+      {
+        packetsReceived: 100,
+        bytesReceived: 90000,
+      },
+      {
+        packetsReceived: 130,
+        bytesReceived: 125000,
+      },
+    );
+
+    expect(diagnostics).toMatchObject({
+      status: "receiving",
+      title: "视频 RTP 在增长",
+      delta: {
+        packetsReceived: 30,
+        bytesReceived: 35000,
+      },
+    });
+  });
+
+  it("starts a new baseline when the selected inbound video track changes", () => {
+    const diagnostics = diagnoseVideoDelta(
+      {
+        id: "inbound-old",
+        trackIdentifier: "track-old",
+        packetsReceived: 1000,
+        bytesReceived: 900000,
+        framesReceived: 500,
+        framesDecoded: 500,
+      },
+      {
+        id: "inbound-new",
+        trackIdentifier: "track-new",
+        packetsReceived: 10,
+        bytesReceived: 9000,
+        framesReceived: 5,
+        framesDecoded: 5,
+      },
+    );
+
+    expect(diagnostics).toMatchObject({
+      status: "receiving",
+      title: "视频 RTP 已开始采样",
+    });
+    expect(diagnostics.delta?.packetsReceived).toBeUndefined();
+    expect(diagnostics.delta?.framesDecoded).toBeUndefined();
+  });
+
+  it("reports presentation_stalled when decoded frames advance and total video frames do not", () => {
+    const diagnostics = diagnoseVideoDelta(
+      {
+        packetsReceived: 100,
+        bytesReceived: 90000,
+        framesReceived: 50,
+        framesDecoded: 50,
+      },
+      {
+        packetsReceived: 130,
+        bytesReceived: 125000,
+        framesReceived: 80,
+        framesDecoded: 80,
+      },
+      {
+        previousVideoElement: videoElementSample({ totalVideoFrames: 72 }),
+        currentVideoElement: videoElementSample({ totalVideoFrames: 72 }),
+      },
+    );
+
+    expect(diagnostics).toMatchObject({
+      status: "presentation_stalled",
+      title: "浏览器已解码，Video 元素呈现帧未增长",
+      delta: {
+        framesDecoded: 30,
+        videoElementFrames: 0,
+      },
+    });
+  });
+
+  it("keeps receiving when decoded frames advance without comparable video element samples", () => {
+    const diagnostics = diagnoseVideoDelta(
+      {
+        packetsReceived: 100,
+        bytesReceived: 90000,
+        framesReceived: 50,
+        framesDecoded: 50,
+      },
+      {
+        packetsReceived: 130,
+        bytesReceived: 125000,
+        framesReceived: 80,
+        framesDecoded: 80,
+      },
+    );
+
+    expect(diagnostics.status).toBe("receiving");
+    expect(diagnostics.delta?.videoElementFrames).toBeUndefined();
+  });
+
+  it("does not treat the same video element sample reference as a presentation interval", () => {
+    const sharedVideoElementSample = videoElementSample({ presentedFrames: 72, totalVideoFrames: 72 });
+    const diagnostics = diagnoseVideoDelta(
+      {
+        packetsReceived: 100,
+        bytesReceived: 90000,
+        framesReceived: 50,
+        framesDecoded: 50,
+      },
+      {
+        packetsReceived: 130,
+        bytesReceived: 125000,
+        framesReceived: 80,
+        framesDecoded: 80,
+      },
+      {
+        previousVideoElement: sharedVideoElementSample,
+        currentVideoElement: sharedVideoElementSample,
+      },
+    );
+
+    expect(diagnostics.status).toBe("receiving");
+    expect(diagnostics.delta?.videoElementFrames).toBeUndefined();
+  });
+
+  it("keeps receiving when decoded and total video frames advance together", () => {
+    const diagnostics = diagnoseVideoDelta(
+      {
+        packetsReceived: 100,
+        bytesReceived: 90000,
+        framesReceived: 50,
+        framesDecoded: 50,
+      },
+      {
+        packetsReceived: 130,
+        bytesReceived: 125000,
+        framesReceived: 80,
+        framesDecoded: 80,
+      },
+      {
+        previousVideoElement: videoElementSample({ totalVideoFrames: 72 }),
+        currentVideoElement: videoElementSample({ totalVideoFrames: 102 }),
+      },
+    );
+
+    expect(diagnostics).toMatchObject({
+      status: "receiving",
+      delta: {
+        framesDecoded: 30,
+        videoElementFrames: 30,
+      },
+    });
+  });
+
+  it("prefers presented frame counters when both samples provide them", () => {
+    const diagnostics = diagnoseVideoDelta(
+      {
+        packetsReceived: 100,
+        bytesReceived: 90000,
+        framesReceived: 50,
+        framesDecoded: 50,
+      },
+      {
+        packetsReceived: 130,
+        bytesReceived: 125000,
+        framesReceived: 80,
+        framesDecoded: 80,
+      },
+      {
+        previousVideoElement: videoElementSample({ presentedFrames: 50, totalVideoFrames: 72 }),
+        currentVideoElement: videoElementSample({ presentedFrames: 50, totalVideoFrames: 102 }),
+      },
+    );
+
+    expect(diagnostics).toMatchObject({
+      status: "presentation_stalled",
+      delta: {
+        framesDecoded: 30,
+        presentedFrames: 0,
+        videoElementFrames: 0,
+      },
+    });
+    expect(diagnostics.detail).toContain("presented +0");
+  });
+
+  it("does not compare different video element frame counters across samples", () => {
+    const diagnostics = diagnoseVideoDelta(
+      {
+        packetsReceived: 100,
+        bytesReceived: 90000,
+        framesReceived: 50,
+        framesDecoded: 50,
+      },
+      {
+        packetsReceived: 130,
+        bytesReceived: 125000,
+        framesReceived: 80,
+        framesDecoded: 80,
+      },
+      {
+        previousVideoElement: videoElementSample({ presentedFrames: 72 }),
+        currentVideoElement: videoElementSample({ totalVideoFrames: 72 }),
+      },
+    );
+
+    expect(diagnostics.status).toBe("receiving");
+    expect(diagnostics.delta?.videoElementFrames).toBeUndefined();
+  });
+
+  it("does not compare presentation counters from different video tracks", () => {
+    const diagnostics = diagnoseVideoDelta(
+      {
+        packetsReceived: 100,
+        bytesReceived: 90000,
+        framesReceived: 50,
+        framesDecoded: 50,
+      },
+      {
+        packetsReceived: 130,
+        bytesReceived: 125000,
+        framesReceived: 80,
+        framesDecoded: 80,
+      },
+      {
+        previousVideoElement: videoElementSample({
+          trackIdentifier: "video-track-1",
+          presentedFrames: 72,
+        }),
+        currentVideoElement: videoElementSample({
+          trackIdentifier: "video-track-2",
+          presentedFrames: 72,
+        }),
+      },
+    );
+
+    expect(diagnostics.status).toBe("receiving");
+    expect(diagnostics.delta?.videoElementFrames).toBeUndefined();
+  });
+});
+
+function diagnoseVideoDelta(
+  previousInboundVideo: BrowserRemoteInboundVideoStats,
+  currentInboundVideo: BrowserRemoteInboundVideoStats,
+  videoElements: {
+    previousVideoElement?: BrowserRemoteVideoElementSample;
+    currentVideoElement?: BrowserRemoteVideoElementSample;
+  } = {},
+) {
+  return diagnoseVideoFlow({
+    nowMs: 2000,
+    previous: {
+      sampledAtMs: 1000,
+      inboundVideo: previousInboundVideo,
+    },
+    current: {
+      sampledAtMs: 2000,
+      inboundVideo: currentInboundVideo,
+    },
+    ...videoElements,
+  });
+}
+
+function videoElementSample(
+  frameCounters: Pick<BrowserRemoteVideoElementSample, "trackIdentifier" | "presentedFrames" | "totalVideoFrames">,
+): BrowserRemoteVideoElementSample {
+  return {
+    event: "sample",
+    currentTimeMs: 1000,
+    ...frameCounters,
+  };
+}

@@ -73,6 +73,7 @@
 }
 
 .live-debug-decode_stalled,
+.live-debug-presentation_stalled,
 .live-debug-transport_stalled {
   background: var(--warn-soft);
   border-color: #fde68a;

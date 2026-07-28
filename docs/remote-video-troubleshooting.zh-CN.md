@@ -6,7 +6,7 @@
 
 ## 浏览器诊断信息
 
-打开会话面板，进入 **设置 → 调试信息 → 远控调试日志**，记录或导出冻结前后的条目。
+打开会话面板，进入 **设置 → 调试信息 → 远控调试日志**，记录冻结前后的条目。
 
 使用 Chromium 时：
 
@@ -16,7 +16,7 @@
 
 ## macOS 被控端日志
 
-在被控 Mac 上检查以下常见日志位置：
+UU 远程的安装版本不同，被控 Mac 上的日志可能位于以下一个或多个位置：
 
 - `/Users/Shared/UURemote/<uid>/com.netease.uuremote.server/Logs/Server/UURemoteServer.log`
 - `/Users/Shared/UURemote/<uid>/com.netease.uuremote.server/Logs/Streamer/streamer_log.txt`

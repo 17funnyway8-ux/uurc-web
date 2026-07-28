@@ -6,7 +6,7 @@ Use this guide when the remote video freezes while mouse and keyboard input stil
 
 ## Browser diagnostics
 
-Open the session panel and go to **Settings → Debug info → Remote control debug log**. Record or export the entries around the freeze.
+Open the session panel and go to **Settings → Debug info → Remote control debug log**. Record the entries around the freeze.
 
 When using Chromium:
 
@@ -16,7 +16,7 @@ When using Chromium:
 
 ## macOS controlled-device logs
 
-Check these common log locations on the controlled Mac:
+Depending on the installed UU Remote version, logs may appear in one or more of these locations on the controlled Mac:
 
 - `/Users/Shared/UURemote/<uid>/com.netease.uuremote.server/Logs/Server/UURemoteServer.log`
 - `/Users/Shared/UURemote/<uid>/com.netease.uuremote.server/Logs/Streamer/streamer_log.txt`

@@ -20,6 +20,9 @@ export function getRemoteConnectionQuality(input: ConnectionQualityInput): Remot
   if (input.state.videoFlow?.status === "decode_stalled") {
     return quality("warn", "画面卡顿", metrics, input.state.videoFlow.detail);
   }
+  if (input.state.videoFlow?.status === "presentation_stalled") {
+    return quality("warn", "画面卡顿", metrics, input.state.videoFlow.detail);
+  }
   if (input.state.videoFlow?.status === "receiving") return quality("good", "连接正常", metrics);
   return quality("pending", "等待质量采样", metrics);
 }

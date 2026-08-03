@@ -155,6 +155,208 @@ describe("useRemoteInputController", () => {
     ]);
   });
 
+  it("uses the remote clipboard after clicking a destination following macOS Cmd+C", async () => {
+    const sendKeyboardInput = vi.fn();
+    const sendPastedText = vi.fn();
+    const session = {
+      getState: vi.fn(() => ({ stage: "connected" })),
+      sendKeyboardInput,
+      sendMouseButton: vi.fn(),
+      sendMouseMove: vi.fn(),
+      sendPastedText,
+      releaseAllInputs: vi.fn(),
+    } as unknown as BrowserRemoteSession;
+    const view = render(<Harness session={session} onController={() => undefined} targetPlatform={4} />);
+    const stage = view.getByTestId("stage") as HTMLDivElement;
+    stage.getBoundingClientRect = () => new DOMRect(0, 0, 1000, 500);
+    const video = stage.querySelector("video")!;
+    Object.defineProperty(video, "videoWidth", { value: 1000, configurable: true });
+    Object.defineProperty(video, "videoHeight", { value: 500, configurable: true });
+    flushFrames();
+
+    fireEvent.keyDown(stage, { code: "MetaLeft", key: "Meta", metaKey: true });
+    fireEvent.keyDown(stage, { code: "KeyC", key: "c", metaKey: true });
+    fireEvent.keyUp(stage, { code: "MetaLeft", key: "Meta" });
+    fireEvent.pointerDown(stage, { button: 0, clientX: 400, clientY: 200, pointerId: 1 });
+    fireEvent.pointerUp(stage, { button: 0, clientX: 400, clientY: 200, pointerId: 1 });
+    fireEvent.keyDown(stage, { code: "MetaLeft", key: "Meta", metaKey: true });
+    const pasteKeyDown = createEvent.keyDown(stage, { code: "KeyV", key: "v", metaKey: true });
+    fireEvent(stage, pasteKeyDown);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const browserPaste = createEvent.paste(stage, {
+      clipboardData: {
+        getData: (type: string) => (type === "text" ? "stale local clipboard" : ""),
+      },
+    });
+    fireEvent(stage, browserPaste);
+    fireEvent.keyUp(stage, { code: "MetaLeft", key: "Meta" });
+
+    expect(pasteKeyDown.defaultPrevented).toBe(true);
+    expect(browserPaste.defaultPrevented).toBe(true);
+    expect(clipboardMocks.read).not.toHaveBeenCalled();
+    expect(sendPastedText).not.toHaveBeenCalled();
+    expect(sendKeyboardInput.mock.calls.map(([input]) => input)).toEqual([
+      { action: "keyboardPress", value: 117 },
+      { action: "keyboardPress", value: 31 },
+      { action: "keyboardRelease", value: 31 },
+      { action: "keyboardRelease", value: 117 },
+      { action: "keyboardPress", value: 117 },
+      { action: "keyboardPress", value: 50 },
+      { action: "keyboardRelease", value: 50 },
+      { action: "keyboardRelease", value: 117 },
+    ]);
+  });
+
+  it("keeps using the remote clipboard for repeated macOS Cmd+V shortcuts", () => {
+    const sendKeyboardInput = vi.fn();
+    const sendPastedText = vi.fn();
+    const session = {
+      getState: vi.fn(() => ({ stage: "connected" })),
+      sendKeyboardInput,
+      sendPastedText,
+      releaseAllInputs: vi.fn(),
+    } as unknown as BrowserRemoteSession;
+    const view = render(<Harness session={session} onController={() => undefined} targetPlatform={4} />);
+    const stage = view.getByTestId("stage");
+
+    fireEvent.keyDown(stage, { code: "MetaLeft", key: "Meta", metaKey: true });
+    fireEvent.keyDown(stage, { code: "KeyC", key: "c", metaKey: true });
+    fireEvent.keyUp(stage, { code: "MetaLeft", key: "Meta" });
+    fireEvent.keyDown(stage, { code: "MetaLeft", key: "Meta", metaKey: true });
+    fireEvent.keyDown(stage, { code: "KeyV", key: "v", metaKey: true });
+    fireEvent.keyUp(stage, { code: "KeyV", key: "v", metaKey: true });
+    fireEvent.keyUp(stage, { code: "MetaLeft", key: "Meta" });
+
+    fireEvent.keyDown(stage, { code: "MetaLeft", key: "Meta", metaKey: true });
+    fireEvent.keyDown(stage, { code: "KeyV", key: "v", metaKey: true });
+    fireEvent.keyUp(stage, { code: "MetaLeft", key: "Meta" });
+
+    expect(clipboardMocks.read).not.toHaveBeenCalled();
+    expect(sendPastedText).not.toHaveBeenCalled();
+    expect(sendKeyboardInput.mock.calls.map(([input]) => input)).toEqual([
+      { action: "keyboardPress", value: 117 },
+      { action: "keyboardPress", value: 31 },
+      { action: "keyboardRelease", value: 31 },
+      { action: "keyboardRelease", value: 117 },
+      { action: "keyboardPress", value: 117 },
+      { action: "keyboardPress", value: 50 },
+      { action: "keyboardRelease", value: 50 },
+      { action: "keyboardRelease", value: 117 },
+      { action: "keyboardPress", value: 117 },
+      { action: "keyboardPress", value: 50 },
+      { action: "keyboardRelease", value: 50 },
+      { action: "keyboardRelease", value: 117 },
+    ]);
+  });
+
+  it("returns to the local clipboard path after the remote stage loses focus", async () => {
+    clipboardMocks.read.mockResolvedValue("new local clipboard");
+    const sendPastedText = vi.fn();
+    const session = {
+      getState: vi.fn(() => ({ stage: "connected" })),
+      sendKeyboardInput: vi.fn(),
+      sendPastedText,
+      releaseAllInputs: vi.fn(),
+    } as unknown as BrowserRemoteSession;
+    const view = render(<Harness session={session} onController={() => undefined} targetPlatform={4} />);
+    const stage = view.getByTestId("stage");
+
+    fireEvent.keyDown(stage, { code: "MetaLeft", key: "Meta", metaKey: true });
+    fireEvent.keyDown(stage, { code: "KeyC", key: "c", metaKey: true });
+    fireEvent.keyUp(stage, { code: "MetaLeft", key: "Meta" });
+    fireEvent.blur(stage);
+    fireEvent.keyDown(stage, { code: "MetaLeft", key: "Meta", metaKey: true });
+    fireEvent.keyDown(stage, { code: "KeyV", key: "v", metaKey: true });
+
+    await waitFor(() => expect(sendPastedText).toHaveBeenCalledWith("new local clipboard"));
+    expect(clipboardMocks.read).toHaveBeenCalledOnce();
+  });
+
+  it("uses the remote clipboard for macOS Cmd+V after a remote Cmd+X", () => {
+    const sendKeyboardInput = vi.fn();
+    const sendPastedText = vi.fn();
+    const session = {
+      getState: vi.fn(() => ({ stage: "connected" })),
+      sendKeyboardInput,
+      sendPastedText,
+      releaseAllInputs: vi.fn(),
+    } as unknown as BrowserRemoteSession;
+    const view = render(<Harness session={session} onController={() => undefined} targetPlatform={4} />);
+    const stage = view.getByTestId("stage");
+
+    fireEvent.keyDown(stage, { code: "MetaLeft", key: "Meta", metaKey: true });
+    fireEvent.keyDown(stage, { code: "KeyX", key: "x", metaKey: true });
+    fireEvent.keyUp(stage, { code: "MetaLeft", key: "Meta" });
+    fireEvent.keyDown(stage, { code: "MetaLeft", key: "Meta", metaKey: true });
+    fireEvent.keyDown(stage, { code: "KeyV", key: "v", metaKey: true });
+    fireEvent.keyUp(stage, { code: "MetaLeft", key: "Meta" });
+
+    expect(clipboardMocks.read).not.toHaveBeenCalled();
+    expect(sendPastedText).not.toHaveBeenCalled();
+    expect(sendKeyboardInput.mock.calls.map(([input]) => input)).toEqual([
+      { action: "keyboardPress", value: 117 },
+      { action: "keyboardPress", value: 52 },
+      { action: "keyboardRelease", value: 52 },
+      { action: "keyboardRelease", value: 117 },
+      { action: "keyboardPress", value: 117 },
+      { action: "keyboardPress", value: 50 },
+      { action: "keyboardRelease", value: 50 },
+      { action: "keyboardRelease", value: 117 },
+    ]);
+  });
+
+  it("ignores a stale local clipboard read after the remote stage loses focus", async () => {
+    let resolveClipboard: ((text: string) => void) | undefined;
+    clipboardMocks.read.mockReturnValue(
+      new Promise((resolve) => {
+        resolveClipboard = resolve;
+      }),
+    );
+    const sendPastedText = vi.fn();
+    const session = {
+      getState: vi.fn(() => ({ stage: "connected" })),
+      sendKeyboardInput: vi.fn(),
+      sendPastedText,
+      releaseAllInputs: vi.fn(),
+    } as unknown as BrowserRemoteSession;
+    const view = render(<Harness session={session} onController={() => undefined} targetPlatform={4} />);
+    const stage = view.getByTestId("stage");
+
+    fireEvent.keyDown(stage, { code: "MetaLeft", key: "Meta", metaKey: true });
+    fireEvent.keyDown(stage, { code: "KeyV", key: "v", metaKey: true });
+    fireEvent.blur(stage);
+    await act(async () => resolveClipboard?.("stale local clipboard"));
+
+    expect(sendPastedText).not.toHaveBeenCalled();
+  });
+
+  it("ignores a stale local clipboard read after a newer remote pointer action", async () => {
+    let resolveClipboard: ((text: string) => void) | undefined;
+    clipboardMocks.read.mockReturnValue(
+      new Promise((resolve) => {
+        resolveClipboard = resolve;
+      }),
+    );
+    const sendPastedText = vi.fn();
+    const session = {
+      getState: vi.fn(() => ({ stage: "connected" })),
+      sendKeyboardInput: vi.fn(),
+      sendMouseButton: vi.fn(),
+      sendMouseMove: vi.fn(),
+      sendPastedText,
+      releaseAllInputs: vi.fn(),
+    } as unknown as BrowserRemoteSession;
+    const view = render(<Harness session={session} onController={() => undefined} targetPlatform={4} />);
+    const stage = view.getByTestId("stage");
+
+    fireEvent.keyDown(stage, { code: "MetaLeft", key: "Meta", metaKey: true });
+    fireEvent.keyDown(stage, { code: "KeyV", key: "v", metaKey: true });
+    fireEvent.pointerDown(stage, { button: 0, clientX: 400, clientY: 200, pointerId: 1 });
+    await act(async () => resolveClipboard?.("stale local clipboard"));
+
+    expect(sendPastedText).not.toHaveBeenCalled();
+  });
+
   it("reads the local clipboard for macOS Cmd+V and releases Command before sending text", async () => {
     clipboardMocks.read.mockResolvedValue("pasted from system clipboard");
     const sendKeyboardInput = vi.fn();
@@ -189,6 +391,32 @@ describe("useRemoteInputController", () => {
       { action: "keyboardRelease", value: 117 },
     ]);
     expect(onSessionStateChange).toHaveBeenCalledWith(state);
+  });
+
+  it("reports a modifier release failure before reading the local clipboard", () => {
+    const onError = vi.fn();
+    const sendPastedText = vi.fn();
+    const session = {
+      getState: vi.fn(() => ({ stage: "connected" })),
+      sendKeyboardInput: vi.fn((input: { action: string }) => {
+        if (input.action === "keyboardRelease") throw new Error("control channel closed");
+      }),
+      sendPastedText,
+      releaseAllInputs: vi.fn(),
+    } as unknown as BrowserRemoteSession;
+    const view = render(
+      <Harness session={session} onController={() => undefined} onError={onError} targetPlatform={4} />,
+    );
+    const stage = view.getByTestId("stage");
+
+    fireEvent.keyDown(stage, { code: "MetaLeft", key: "Meta", metaKey: true });
+    const pasteKeyDown = createEvent.keyDown(stage, { code: "KeyV", key: "v", metaKey: true });
+    fireEvent(stage, pasteKeyDown);
+
+    expect(pasteKeyDown.defaultPrevented).toBe(true);
+    expect(onError).toHaveBeenCalledWith("control channel closed");
+    expect(clipboardMocks.read).not.toHaveBeenCalled();
+    expect(sendPastedText).not.toHaveBeenCalled();
   });
 
   it("falls back to the browser paste event when direct clipboard reading is unavailable", () => {
@@ -262,7 +490,10 @@ function Harness({
       tabIndex={0}
       onKeyDown={controller.handleRemoteStageKeyDown}
       onKeyUp={controller.handleRemoteStageKeyUp}
+      onBlur={controller.handleRemoteStageBlur}
       onPaste={controller.handleRemoteStagePaste}
+      onPointerDown={controller.handleRemoteStagePointerDown}
+      onPointerUp={controller.handleRemoteStagePointerUp}
     >
       <video data-active="true" />
       <div data-remote-cursor-overlay data-visible="false" />

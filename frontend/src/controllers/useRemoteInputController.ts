@@ -10,6 +10,8 @@ import {
   type WheelEvent,
 } from "react";
 
+import { STREAMER_CLIENT_TYPES } from "@uurc/shared/streamer/connectOptionsModel";
+
 import type { RemoteStageViewMode } from "../app/remoteControlTypes.js";
 import { getLocalClipboardAccessIssue, readLocalClipboardText } from "../browser/clipboard.js";
 import type { BrowserRemoteSession } from "../remote/browserRemoteSession.js";
@@ -24,10 +26,26 @@ import { useRemoteMediaGeometry } from "./useRemoteMediaGeometry.js";
 const HOLD_MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta", "AltGraph"]);
 const REMOTE_CONTROL_LEFT_KEY = 113;
 const REMOTE_META_LEFT_KEY = 117;
+const BROWSER_PASTE_SUPPRESSION_MS = 100;
 
 interface PasteShortcutModifiers {
   ctrlKey: boolean;
   metaKey: boolean;
+}
+
+type PendingBrowserPaste =
+  | {
+      kind: "fallback";
+      session: BrowserRemoteSession;
+      modifiers: PasteShortcutModifiers;
+    }
+  | {
+      kind: "suppress";
+      session: BrowserRemoteSession;
+    };
+
+interface RemoteClipboardIntent {
+  session: BrowserRemoteSession;
 }
 
 interface UseRemoteInputControllerOptions {
@@ -57,7 +75,21 @@ export function useRemoteInputController({
   const scrollDeltaAccumulatorRef = useRef(new RemoteScrollDeltaAccumulator());
   const pendingPointerMoveRef = useRef<LocalPointerPosition | undefined>(undefined);
   const pointerMoveFrameRef = useRef<number | undefined>(undefined);
-  const pasteShortcutModifiersRef = useRef<PasteShortcutModifiers | null>(null);
+  const pendingBrowserPasteRef = useRef<PendingBrowserPaste | null>(null);
+  const pendingBrowserPasteTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pasteRevisionRef = useRef(0);
+  const remoteClipboardIntentRef = useRef<RemoteClipboardIntent | null>(null);
+  const clearPendingBrowserPaste = useCallback((): void => {
+    pendingBrowserPasteRef.current = null;
+    if (pendingBrowserPasteTimerRef.current === undefined) return;
+    clearTimeout(pendingBrowserPasteTimerRef.current);
+    pendingBrowserPasteTimerRef.current = undefined;
+  }, []);
+  const clearClipboardShortcutState = useCallback((): void => {
+    pasteRevisionRef.current += 1;
+    clearPendingBrowserPaste();
+    remoteClipboardIntentRef.current = null;
+  }, [clearPendingBrowserPaste]);
   const cancelPendingPointerMove = useCallback((): void => {
     pendingPointerMoveRef.current = undefined;
     if (pointerMoveFrameRef.current === undefined) return;
@@ -86,12 +118,14 @@ export function useRemoteInputController({
     if (controlChannelState !== "open") {
       scrollDeltaAccumulatorRef.current.reset();
       cancelPendingPointerMove();
+      clearClipboardShortcutState();
     }
-  }, [cancelPendingPointerMove, controlChannelState, inputControlEnabled]);
+  }, [cancelPendingPointerMove, clearClipboardShortcutState, controlChannelState, inputControlEnabled]);
 
   useEffect(() => {
     scrollDeltaAccumulatorRef.current.reset();
-  }, [targetPlatform]);
+    clearClipboardShortcutState();
+  }, [clearClipboardShortcutState, targetPlatform]);
 
   useEffect(() => {
     if (controlChannelState !== "open") {
@@ -105,7 +139,10 @@ export function useRemoteInputController({
   }, [controlChannelState]);
 
   useEffect(() => {
-    const releaseHeldInputs = () => browserSessionRef.current?.releaseAllInputs();
+    const releaseHeldInputs = () => {
+      clearClipboardShortcutState();
+      browserSessionRef.current?.releaseAllInputs();
+    };
     const onVisibilityChange = () => {
       if (document.hidden) releaseHeldInputs();
     };
@@ -115,7 +152,14 @@ export function useRemoteInputController({
       window.removeEventListener("blur", releaseHeldInputs);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [browserSessionRef]);
+  }, [browserSessionRef, clearClipboardShortcutState]);
+
+  useEffect(
+    () => () => {
+      clearClipboardShortcutState();
+    },
+    [clearClipboardShortcutState],
+  );
 
   useEffect(() => {
     const stage = remoteStageRef.current;
@@ -131,6 +175,7 @@ export function useRemoteInputController({
     activePointerIdRef.current = null;
     scrollDeltaAccumulatorRef.current.reset();
     cancelPendingPointerMove();
+    clearClipboardShortcutState();
     setInputControlEnabled(false);
   }
 
@@ -163,6 +208,7 @@ export function useRemoteInputController({
   function handleRemoteStagePointerDown(event: PointerEvent<HTMLDivElement>): void {
     const session = browserSessionRef.current;
     if (!inputControlActive || !session) return;
+    pasteRevisionRef.current += 1;
     event.preventDefault();
     event.currentTarget.focus();
     activePointerIdRef.current = event.pointerId;
@@ -251,34 +297,76 @@ export function useRemoteInputController({
     const session = browserSessionRef.current;
     if (!inputControlActive || !session || event.nativeEvent.isComposing) return;
     if (isPasteShortcut(event)) {
-      const modifiers = { ctrlKey: event.ctrlKey, metaKey: event.metaKey };
-      pasteShortcutModifiersRef.current = modifiers;
       if (event.repeat) {
         event.preventDefault();
         return;
       }
-      if (getLocalClipboardAccessIssue("read")) return;
+      if (shouldUseRemoteClipboard(event, targetPlatform, session, remoteClipboardIntentRef.current)) {
+        pasteRevisionRef.current += 1;
+        clearPendingBrowserPaste();
+        event.preventDefault();
+        suppressNextBrowserPaste(session);
+        const value = toRemoteKeyValue(event);
+        try {
+          session.sendKeyboardInput({ action: "keyboardPress", value });
+          session.sendKeyboardInput({ action: "keyboardRelease", value });
+        } catch (caught) {
+          onError(errorMessage(caught));
+        }
+        return;
+      }
+      const revision = pasteRevisionRef.current + 1;
+      pasteRevisionRef.current = revision;
+      clearPendingBrowserPaste();
+      remoteClipboardIntentRef.current = null;
+      const modifiers = { ctrlKey: event.ctrlKey, metaKey: event.metaKey };
+      if (getLocalClipboardAccessIssue("read")) {
+        pendingBrowserPasteRef.current = { kind: "fallback", session, modifiers };
+        return;
+      }
       event.preventDefault();
-      releasePasteShortcutModifiers(session, modifiers);
-      pasteShortcutModifiersRef.current = null;
+      try {
+        releasePasteShortcutModifiers(session, modifiers);
+      } catch (caught) {
+        pasteRevisionRef.current += 1;
+        onError(errorMessage(caught));
+        return;
+      }
+      suppressNextBrowserPaste(session);
       void readLocalClipboardText()
         .then((text) => {
-          if (!text || browserSessionRef.current !== session) return;
+          if (
+            !text ||
+            browserSessionRef.current !== session ||
+            pasteRevisionRef.current !== revision ||
+            controlChannelState !== "open"
+          ) {
+            return;
+          }
           session.sendPastedText(text);
           onSessionStateChange(session.getState());
         })
         .catch((caught) => {
+          if (browserSessionRef.current !== session || pasteRevisionRef.current !== revision) return;
           onError(`读取本机剪贴板失败：${errorMessage(caught)}`);
         });
       return;
     }
     const isHoldModifier = HOLD_MODIFIER_KEYS.has(event.key);
     if (isHoldModifier && event.repeat) return;
+    pasteRevisionRef.current += 1;
     event.preventDefault();
     const value = toRemoteKeyValue(event);
+    const marksRemoteClipboard = isRemoteClipboardMutationShortcut(event, targetPlatform);
+    if (marksRemoteClipboard) {
+      clearPendingBrowserPaste();
+    }
     try {
       session.sendKeyboardInput({ action: "keyboardPress", value });
       if (!isHoldModifier) session.sendKeyboardInput({ action: "keyboardRelease", value });
+      if (marksRemoteClipboard) {
+        remoteClipboardIntentRef.current = { session };
+      }
     } catch (caught) {
       onError(errorMessage(caught));
     }
@@ -287,9 +375,11 @@ export function useRemoteInputController({
   function handleRemoteStageKeyUp(event: KeyboardEvent<HTMLDivElement>): void {
     const session = browserSessionRef.current;
     if (!inputControlActive || !session) return;
-    if ((event.ctrlKey || event.metaKey) && (event.key === "v" || event.key === "V")) return;
+    if (isPasteKey(event)) {
+      return;
+    }
     if (!HOLD_MODIFIER_KEYS.has(event.key)) return;
-    pasteShortcutModifiersRef.current = null;
+    if (pendingBrowserPasteRef.current?.kind === "fallback") clearPendingBrowserPaste();
     event.preventDefault();
     try {
       session.sendKeyboardInput({ action: "keyboardRelease", value: toRemoteKeyValue(event) });
@@ -302,24 +392,45 @@ export function useRemoteInputController({
     activePointerIdRef.current = null;
     scrollDeltaAccumulatorRef.current.reset();
     cancelPendingPointerMove();
+    clearClipboardShortcutState();
     browserSessionRef.current?.releaseAllInputs();
   }
 
   function handleRemoteStagePaste(event: ClipboardEvent<HTMLDivElement>): void {
     const session = browserSessionRef.current;
     if (!inputControlActive || !session) return;
+    const pendingPaste = pendingBrowserPasteRef.current;
+    if (pendingPaste?.kind === "suppress" && pendingPaste.session === session) {
+      clearPendingBrowserPaste();
+      event.preventDefault();
+      return;
+    }
     const text = event.clipboardData?.getData("text") ?? "";
     if (!text) return;
     event.preventDefault();
+    pasteRevisionRef.current += 1;
+    clearPendingBrowserPaste();
+    remoteClipboardIntentRef.current = null;
     try {
-      const modifiers = pasteShortcutModifiersRef.current;
-      pasteShortcutModifiersRef.current = null;
-      if (modifiers) releasePasteShortcutModifiers(session, modifiers);
+      if (pendingPaste?.kind === "fallback" && pendingPaste.session === session) {
+        releasePasteShortcutModifiers(session, pendingPaste.modifiers);
+      }
       session.sendPastedText(text);
       onSessionStateChange(session.getState());
     } catch (caught) {
       onError(errorMessage(caught));
     }
+  }
+
+  function suppressNextBrowserPaste(session: BrowserRemoteSession): void {
+    clearPendingBrowserPaste();
+    const pendingPaste: PendingBrowserPaste = { kind: "suppress", session };
+    pendingBrowserPasteRef.current = pendingPaste;
+    pendingBrowserPasteTimerRef.current = setTimeout(() => {
+      if (pendingBrowserPasteRef.current !== pendingPaste) return;
+      pendingBrowserPasteRef.current = null;
+      pendingBrowserPasteTimerRef.current = undefined;
+    }, BROWSER_PASTE_SUPPRESSION_MS);
   }
 
   function flushPointerPosition(position: LocalPointerPosition): boolean {
@@ -398,6 +509,28 @@ function errorMessage(error: unknown): string {
 
 function isPasteShortcut(event: KeyboardEvent<HTMLDivElement>): boolean {
   return (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v";
+}
+
+function isPasteKey(event: KeyboardEvent<HTMLDivElement>): boolean {
+  return event.key.toLowerCase() === "v";
+}
+
+function isRemoteClipboardMutationShortcut(
+  event: KeyboardEvent<HTMLDivElement>,
+  targetPlatform: number | undefined,
+): boolean {
+  if (targetPlatform !== STREAMER_CLIENT_TYPES.Client_MAC || !event.metaKey) return false;
+  const key = event.key.toLowerCase();
+  return key === "c" || key === "x";
+}
+
+function shouldUseRemoteClipboard(
+  event: KeyboardEvent<HTMLDivElement>,
+  targetPlatform: number | undefined,
+  session: BrowserRemoteSession,
+  intent: RemoteClipboardIntent | null,
+): boolean {
+  return targetPlatform === STREAMER_CLIENT_TYPES.Client_MAC && event.metaKey && intent?.session === session;
 }
 
 function releasePasteShortcutModifiers(session: BrowserRemoteSession, modifiers: PasteShortcutModifiers): void {

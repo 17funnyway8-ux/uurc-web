@@ -71,12 +71,15 @@
 
 .advanced-actions[open] summary::after,
 .diagnostics-details[open] summary::after,
-.debug-details[open] summary::after,
-.debug-events-details[open] summary::after,
-.identity-details[open] summary::after,
 .login-import[open] summary::after,
 .session-details[open] summary::after,
-.protocol-details[open] summary::after {
+.debug-details[data-expanded="true"] summary::after,
+.debug-events-details[data-expanded="true"] summary::after,
+.protocol-details[data-expanded="true"] summary::after {
+  transform: rotate(225deg);
+}
+
+.identity-details[data-expanded="true"] summary::after {
   transform: rotate(225deg);
 }
 
@@ -105,10 +108,16 @@
 
 .advanced-actions[open],
 .diagnostics-details[open],
+.session-details[open],
 .debug-details[open],
-.debug-events-details[open],
-.identity-details[open],
-.session-details[open] {
+.debug-events-details[open] {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 8px;
+  background: var(--surface-2);
+}
+
+.identity-details[open] {
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   padding: 8px;
@@ -117,10 +126,13 @@
 
 .advanced-actions[open] summary,
 .diagnostics-details[open] summary,
-.debug-details[open] summary,
-.debug-events-details[open] summary,
-.identity-details[open] summary,
 .login-import[open] summary,
-.session-details[open] summary {
+.session-details[open] summary,
+.debug-details[open] summary,
+.debug-events-details[open] summary {
+  margin-bottom: 10px;
+}
+
+.identity-details[open] summary {
   margin-bottom: 10px;
 }

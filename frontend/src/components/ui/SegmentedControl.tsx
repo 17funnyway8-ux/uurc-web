@@ -1,4 +1,8 @@
-import type { ReactNode } from "react";
+import { LayoutGroup } from "motion/react";
+import * as m from "motion/react-m";
+import { useId, type ReactNode } from "react";
+
+import { tabIndicatorTransition } from "../../motion/presets.js";
 
 interface SegmentedControlOption<T extends string> {
   value: T;
@@ -18,14 +22,30 @@ export function SegmentedControl<T extends string>({
   onChange: (value: T) => void;
   options: SegmentedControlOption<T>[];
 }) {
+  const controlId = useId();
+
   return (
-    <fieldset className="segmented-control" aria-label={ariaLabel}>
-      {options.map((option) => (
-        <label key={option.value}>
-          <input type="radio" name={name} checked={value === option.value} onChange={() => onChange(option.value)} />
-          <span>{option.label}</span>
-        </label>
-      ))}
-    </fieldset>
+    <LayoutGroup id={controlId}>
+      <fieldset className="segmented-control" aria-label={ariaLabel}>
+        {options.map((option) => {
+          const selected = value === option.value;
+
+          return (
+            <label key={option.value}>
+              <input type="radio" name={name} checked={selected} onChange={() => onChange(option.value)} />
+              {selected ? (
+                <m.span
+                  className="segmented-control-indicator"
+                  layoutId="segmented-control-indicator"
+                  transition={tabIndicatorTransition}
+                  aria-hidden="true"
+                />
+              ) : null}
+              <span className="segmented-control-label">{option.label}</span>
+            </label>
+          );
+        })}
+      </fieldset>
+    </LayoutGroup>
   );
 }

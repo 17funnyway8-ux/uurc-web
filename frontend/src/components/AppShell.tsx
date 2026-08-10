@@ -1,10 +1,59 @@
-import { Github, Handshake, KeyRound, Monitor, Search } from "lucide-react";
-import { Link, NavLink, Outlet } from "react-router";
+import { Github, Handshake, KeyRound, Monitor, Search, type LucideIcon } from "lucide-react";
+import { AnimatePresence, LayoutGroup, type Variants } from "motion/react";
+import * as m from "motion/react-m";
+import { Link, NavLink, useLocation, useOutlet } from "react-router";
 
 import type { UuDeviceGroups } from "@uurc/shared/devices";
 
 import { useCommandPaletteController } from "../controllers/useCommandPaletteController.js";
+import { tabIndicatorTransition } from "../motion/presets.js";
 import { CommandPalette } from "./CommandPalette.js";
+
+const SHELL_PAGE_VARIANTS = {
+  initial: { opacity: 0, x: 8 },
+  animate: {
+    opacity: 1,
+    x: 0,
+    transition: { duration: 0.18, ease: [0.22, 1, 0.36, 1] },
+  },
+  exit: {
+    opacity: 0,
+    x: -6,
+    transition: { duration: 0.14, ease: [0.4, 0, 1, 1] },
+  },
+} satisfies Variants;
+
+function AppSidebarNavItem({
+  to,
+  icon: Icon,
+  label,
+  count,
+}: {
+  to: string;
+  icon: LucideIcon;
+  label: string;
+  count?: number;
+}) {
+  return (
+    <NavLink to={to} className={({ isActive }) => `app-sidebar-nav-item${isActive ? " is-active" : ""}`}>
+      {({ isActive }) => (
+        <>
+          {isActive ? (
+            <m.span
+              className="app-sidebar-nav-active-indicator"
+              layoutId="app-sidebar-active-navigation"
+              transition={tabIndicatorTransition}
+              aria-hidden="true"
+            />
+          ) : null}
+          <Icon size={15} aria-hidden="true" />
+          <span className="app-sidebar-nav-label">{label}</span>
+          {count === undefined ? null : <span className="app-sidebar-nav-count">{count}</span>}
+        </>
+      )}
+    </NavLink>
+  );
+}
 
 export function AppShell({
   identityDeviceLabel,
@@ -19,9 +68,8 @@ export function AppShell({
 }) {
   const palette = useCommandPaletteController({ devices, onOpenDevice, onLoadDevices });
   const deviceCount = devices.desktopDevices.length + devices.mobileDevices.length + devices.tvDevices.length;
-
-  const navItemClassName = ({ isActive }: { isActive: boolean }) =>
-    `app-sidebar-nav-item${isActive ? " is-active" : ""}`;
+  const location = useLocation();
+  const outlet = useOutlet();
 
   return (
     <div className="app-shell">
@@ -40,21 +88,13 @@ export function AppShell({
           <kbd>⌘K</kbd>
         </button>
 
-        <nav className="app-sidebar-nav" aria-label="主导航">
-          <NavLink to="/devices" className={navItemClassName}>
-            <Monitor size={15} />
-            <span>我的设备</span>
-            <span className="app-sidebar-nav-count">{deviceCount}</span>
-          </NavLink>
-          <NavLink to="/partner" className={navItemClassName}>
-            <Handshake size={15} />
-            <span>远控伙伴</span>
-          </NavLink>
-          <NavLink to="/account" className={navItemClassName}>
-            <KeyRound size={15} />
-            <span>账号与凭证</span>
-          </NavLink>
-        </nav>
+        <LayoutGroup id="app-shell-navigation">
+          <nav className="app-sidebar-nav" aria-label="主导航">
+            <AppSidebarNavItem to="/devices" icon={Monitor} label="我的设备" count={deviceCount} />
+            <AppSidebarNavItem to="/partner" icon={Handshake} label="远控伙伴" />
+            <AppSidebarNavItem to="/account" icon={KeyRound} label="账号与凭证" />
+          </nav>
+        </LayoutGroup>
 
         <div className="app-sidebar-spacer" />
 
@@ -77,7 +117,18 @@ export function AppShell({
       </aside>
 
       <div className="app-shell-content">
-        <Outlet />
+        <AnimatePresence initial={false} mode="wait">
+          <m.div
+            key={location.pathname}
+            className="app-shell-page-transition"
+            variants={SHELL_PAGE_VARIANTS}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+          >
+            {outlet}
+          </m.div>
+        </AnimatePresence>
       </div>
 
       <CommandPalette {...palette} />

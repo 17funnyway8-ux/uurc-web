@@ -267,6 +267,6 @@
   vertical-align: middle;
 }
 
-.control-subdrawer[open] > summary::after {
+.control-subdrawer[data-expanded="true"] > summary::after {
   transform: rotate(225deg);
 }

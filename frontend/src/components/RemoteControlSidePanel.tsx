@@ -1,3 +1,6 @@
+import type { Variants } from "motion/react";
+import * as m from "motion/react-m";
+
 import { RemoteClipboardPanel, type RemoteClipboardPanelProps } from "./RemoteClipboardPanel.js";
 import {
   RemoteConnectionQualityPanel,
@@ -10,6 +13,22 @@ import {
 import { RemoteControlSettingsDrawer, type RemoteControlSettingsDrawerProps } from "./RemoteControlSettingsDrawer.js";
 import { RemoteVideoSourcePanel, type RemoteVideoSourcePanelProps } from "./RemoteVideoSourcePanel.js";
 import { Tabs } from "./ui/Tabs.js";
+
+const sidePanelVariants = {
+  initial: { opacity: 0, x: 14, scale: 0.992 },
+  animate: {
+    opacity: 1,
+    x: 0,
+    scale: 1,
+    transition: { duration: 0.18, ease: [0.22, 1, 0.36, 1] },
+  },
+  exit: {
+    opacity: 0,
+    x: 10,
+    scale: 0.995,
+    transition: { duration: 0.13, ease: [0.4, 0, 1, 1] },
+  },
+} satisfies Variants;
 
 interface RemoteControlSidePanelProps {
   tab: string;
@@ -31,7 +50,14 @@ export function RemoteControlSidePanel({
   diagnostics,
 }: RemoteControlSidePanelProps) {
   return (
-    <aside className="control-side-panel" aria-label="会话面板">
+    <m.aside
+      className="control-side-panel"
+      aria-label="会话面板"
+      variants={sidePanelVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+    >
       <Tabs
         ariaLabel="会话面板"
         variant="pill"
@@ -69,6 +95,6 @@ export function RemoteControlSidePanel({
           },
         ]}
       />
-    </aside>
+    </m.aside>
   );
 }

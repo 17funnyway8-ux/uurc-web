@@ -1,6 +1,10 @@
-import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, useIsPresent } from "motion/react";
+import * as m from "motion/react-m";
+import { useEffect } from "react";
+
+import { dialogCardVariants, dialogScrimVariants } from "../../motion/presets.js";
 
 export function Dialog({
   open,
@@ -24,19 +28,57 @@ export function Dialog({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div
+    <AnimatePresence>
+      {open ? (
+        <DialogSurface ariaLabel={ariaLabel} className={className} onClose={onClose}>
+          {children}
+        </DialogSurface>
+      ) : null}
+    </AnimatePresence>,
+    document.body,
+  );
+}
+
+function DialogSurface({
+  onClose,
+  children,
+  ariaLabel,
+  className,
+}: {
+  onClose: () => void;
+  children: ReactNode;
+  ariaLabel: string;
+  className: string;
+}) {
+  const isPresent = useIsPresent();
+
+  return (
+    <m.div
       className="dialog-scrim"
+      data-motion-state={isPresent ? "entered" : "exiting"}
+      aria-hidden={isPresent ? undefined : true}
+      inert={isPresent ? undefined : true}
+      style={{ pointerEvents: isPresent ? undefined : "none" }}
+      variants={dialogScrimVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (isPresent && event.target === event.currentTarget) onClose();
       }}
     >
-      <div className={`dialog-card ${className}`} role="dialog" aria-modal="true" aria-label={ariaLabel}>
+      <m.div
+        className={`dialog-card ${className}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={ariaLabel}
+        variants={dialogCardVariants}
+      >
         {children}
-      </div>
-    </div>,
-    document.body,
+      </m.div>
+    </m.div>
   );
 }

@@ -1,4 +1,5 @@
 import { MonitorX, TerminalSquare } from "lucide-react";
+import { AnimatePresence } from "motion/react";
 import { useState, type RefObject } from "react";
 
 import { RemoteCommandBar, type RemoteCommandBarProps } from "./RemoteCommandBar.js";
@@ -117,15 +118,18 @@ export function RemoteControlPage(props: RemoteControlPageProps) {
             <div className="fullscreen-hint">工具栏可拖到任意位置 · 无操作 2 秒后自动隐藏 · Esc 退出全屏</div>
           ) : null}
         </div>
-        {panelOpen ? (
-          <RemoteControlSidePanel
-            tab={sidePanelTab}
-            onTabChange={setSidePanelTab}
-            insights={props.insights}
-            settings={props.settings}
-            diagnostics={props.diagnostics}
-          />
-        ) : null}
+        <AnimatePresence initial={false}>
+          {panelOpen ? (
+            <RemoteControlSidePanel
+              key="remote-control-side-panel"
+              tab={sidePanelTab}
+              onTabChange={setSidePanelTab}
+              insights={props.insights}
+              settings={props.settings}
+              diagnostics={props.diagnostics}
+            />
+          ) : null}
+        </AnimatePresence>
       </section>
 
       <RemoteOccupiedDialog

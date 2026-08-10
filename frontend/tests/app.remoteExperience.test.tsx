@@ -143,6 +143,11 @@ describe("App remote experience", () => {
     const quality = screen.getByRole("region", { name: "连接质量" });
     await within(quality).findByText("帧率", undefined, { timeout: 3000 });
     expect(within(quality).getByText("30 fps")).toBeInTheDocument();
+    const moreMetrics = within(quality).getByText("更多指标");
+    const moreMetricsDetails = moreMetrics.closest("details");
+    expect(moreMetricsDetails).toHaveAttribute("data-expanded", "false");
+    await user.click(moreMetrics);
+    expect(moreMetricsDetails).toHaveAttribute("data-expanded", "true");
     expect(within(quality).getByText("接收码率")).toBeInTheDocument();
     expect(within(quality).getByText("4.8 Mbps")).toBeInTheDocument();
     expect(within(quality).getByText("延迟")).toBeInTheDocument();

@@ -2,6 +2,7 @@ import { lazy, Suspense, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router";
 
 import { useProductController } from "../controllers/useProductController.js";
+import { AppMotionProvider } from "../motion/AppMotionProvider.js";
 import { Toast } from "./Toast.js";
 
 const LoginPage = lazy(() => import("./LoginPage.js").then((module) => ({ default: module.LoginPage })));
@@ -51,7 +52,7 @@ export function ProductRoutes() {
   }
 
   return (
-    <>
+    <AppMotionProvider>
       <Suspense
         fallback={
           <main className="product-shell">
@@ -62,6 +63,6 @@ export function ProductRoutes() {
         {content}
       </Suspense>
       <Toast toast={controller.toast} onDismiss={controller.onDismissToast} />
-    </>
+    </AppMotionProvider>
   );
 }

@@ -1,6 +1,7 @@
 import { RotateCcw } from "lucide-react";
 
 import type { RemoteConnectionQuality } from "../app/remoteControlTypes.js";
+import { AnimatedDisclosure } from "./ui/AnimatedDisclosure.js";
 import { Switch } from "./ui/Switch.js";
 
 export interface RemoteConnectionQualityPanelProps {
@@ -34,8 +35,7 @@ export function RemoteConnectionQualityPanel({
         ))}
       </div>
       {advancedMetrics.length > 0 ? (
-        <details className="quality-more">
-          <summary>更多指标</summary>
+        <AnimatedDisclosure className="quality-more" contentClassName="quality-more-content" summary="更多指标">
           <div className="metric-rows" aria-label="更多连接质量指标">
             {advancedMetrics.map((metric) => (
               <div className="metric-row" key={metric.label}>
@@ -44,7 +44,7 @@ export function RemoteConnectionQualityPanel({
               </div>
             ))}
           </div>
-        </details>
+        </AnimatedDisclosure>
       ) : null}
       <Switch
         inline

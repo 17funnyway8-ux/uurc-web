@@ -5,6 +5,34 @@ import { describe, expect, it, vi } from "vitest";
 import { DeviceList } from "../src/components/DeviceControls.js";
 
 describe("DeviceList", () => {
+  it("keeps the offline device group as an accessible disclosure", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <DeviceList
+        devices={{
+          desktopDevices: [],
+          mobileDevices: [{ deviceId: "phone-1", alias: "iPhone 17", controllable: false, status: "OFFLINE", raw: {} }],
+          tvDevices: [],
+        }}
+        onSelect={vi.fn()}
+        onConnect={vi.fn()}
+      />,
+    );
+
+    const summary = screen.getByText("离线 · 1").closest("summary");
+    if (!summary) throw new Error("离线设备组缺少 summary 元素");
+    const disclosure = summary.closest("details");
+    if (!disclosure) throw new Error("离线设备组缺少 details 元素");
+    expect(summary).toHaveAttribute("aria-expanded", "true");
+    expect(disclosure).toHaveAttribute("data-expanded", "true");
+
+    await user.click(summary);
+
+    expect(summary).toHaveAttribute("aria-expanded", "false");
+    expect(disclosure).toHaveAttribute("data-expanded", "false");
+  });
+
   it("only exposes a connect action for controllable non-local online devices", async () => {
     const onSelect = vi.fn();
     const onConnect = vi.fn();

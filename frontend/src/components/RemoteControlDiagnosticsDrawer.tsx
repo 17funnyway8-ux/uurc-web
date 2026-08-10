@@ -9,6 +9,7 @@ import { DebugEventList } from "./DebugEventList.js";
 import { formatAppFlagControlMode, getDeviceConnectionLabel } from "../devices/deviceLabels.js";
 import { StatusRow } from "./Panel.js";
 import { ReadinessStrip } from "./ReadinessStrip.js";
+import { AnimatedDisclosure } from "./ui/AnimatedDisclosure.js";
 
 export interface RemoteControlDiagnosticsDrawerProps {
   audioPlaybackLabel: string;
@@ -86,8 +87,7 @@ export function RemoteControlDiagnosticsDrawer({
   videoFlowLabel,
 }: RemoteControlDiagnosticsDrawerProps) {
   return (
-    <details className="control-drawer">
-      <summary>调试信息</summary>
+    <AnimatedDisclosure className="control-drawer" contentClassName="control-drawer-content" summary="调试信息">
       <div className="status-list compact">
         <StatusRow label="目标设备" value={selectedDevice?.alias ?? "-"} />
         <StatusRow label="目标 ID" value={selectedDeviceId || "-"} />
@@ -121,8 +121,7 @@ export function RemoteControlDiagnosticsDrawer({
         <StatusRow label="释放详情" value={roomReleaseDetail} />
       </div>
       <ReadinessStrip diagnostics={signalReadiness} />
-      <details className="protocol-details">
-        <summary>协议细节</summary>
+      <AnimatedDisclosure className="protocol-details" contentClassName="protocol-details-content" summary="协议细节">
         <div className="status-list compact transport-details">
           <StatusRow label="Headers" value={signalHeaderSummary} />
           <StatusRow label="事件" value={remoteBootstrap ? remoteBootstrap.signalEvents.join(", ") : "-"} />
@@ -137,17 +136,19 @@ export function RemoteControlDiagnosticsDrawer({
           <StatusRow label="链路策略" value={effectiveConnectionRouteLabel} />
           <StatusRow label="Control ID" value={browserRemoteState.appControlId || "-"} />
         </div>
-      </details>
-      <details className="debug-details">
-        <summary>脱敏调试摘要</summary>
+      </AnimatedDisclosure>
+      <AnimatedDisclosure className="debug-details" contentClassName="debug-details-content" summary="脱敏调试摘要">
         <pre className="response-box">
           {roomDebugPayload ? JSON.stringify(roomDebugPayload, null, 2) : "No room response yet."}
         </pre>
-      </details>
-      <details className="debug-events-details">
-        <summary>远控调试日志</summary>
+      </AnimatedDisclosure>
+      <AnimatedDisclosure
+        className="debug-events-details"
+        contentClassName="debug-events-details-content"
+        summary="远控调试日志"
+      >
         <DebugEventList events={debugEvents} />
-      </details>
-    </details>
+      </AnimatedDisclosure>
+    </AnimatedDisclosure>
   );
 }

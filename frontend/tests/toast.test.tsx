@@ -1,8 +1,14 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Toast } from "../src/components/Toast.js";
+import { AppMotionProvider } from "../src/motion/AppMotionProvider.js";
 import { rectFrom } from "./appTestValues.js";
+
+function renderWithMotion(children: ReactNode) {
+  return render(<AppMotionProvider>{children}</AppMotionProvider>);
+}
 
 describe("Toast", () => {
   afterEach(() => {
@@ -27,7 +33,7 @@ describe("Toast", () => {
       return rectFrom({ left: 0, top: 0, width: 0, height: 0 });
     });
 
-    render(
+    renderWithMotion(
       <>
         <div className="control-stage-frame">
           <div className="control-command-bar" />
@@ -39,7 +45,8 @@ describe("Toast", () => {
     const toast = screen.getByRole("status");
     await waitFor(() => {
       expect(toast).toHaveClass("app-toast--positioned");
-      expect(toast).toHaveStyle({ bottom: "auto", left: "698px", top: "695px", transform: "none" });
+      expect(toast).toHaveStyle({ bottom: "auto", left: "698px", right: "auto", top: "695px" });
+      expect(toast.style.transform).not.toContain("translateX");
     });
   });
 
@@ -59,7 +66,7 @@ describe("Toast", () => {
       return rectFrom({ left: 0, top: 0, width: 0, height: 0 });
     });
 
-    render(
+    renderWithMotion(
       <>
         <div className="control-stage-frame">
           <div className="control-command-bar" />
@@ -73,5 +80,28 @@ describe("Toast", () => {
       expect(toast).toHaveClass("app-toast--positioned");
       expect(toast).toHaveStyle({ left: "80px", top: "52px" });
     });
+  });
+
+  it("keys replacements by id and hides exiting feedback from interaction and assistive technology", () => {
+    const onDismiss = vi.fn();
+    const { rerender } = renderWithMotion(<Toast toast={{ id: 1, message: "第一条反馈" }} onDismiss={onDismiss} />);
+
+    rerender(
+      <AppMotionProvider>
+        <Toast toast={{ id: 2, message: "第二条反馈" }} onDismiss={onDismiss} />
+      </AppMotionProvider>,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("第二条反馈");
+    const exitingToast = Array.from(document.querySelectorAll<HTMLElement>(".app-toast")).find(
+      (element) => element.dataset.motionState === "exiting",
+    );
+    expect(exitingToast).toHaveTextContent("第一条反馈");
+    expect(exitingToast).toHaveAttribute("aria-hidden", "true");
+    expect(exitingToast).toHaveAttribute("inert");
+    expect(exitingToast).toHaveStyle({ pointerEvents: "none" });
+
+    fireEvent.click(exitingToast!);
+    expect(onDismiss).not.toHaveBeenCalled();
   });
 });

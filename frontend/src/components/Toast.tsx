@@ -1,3 +1,5 @@
+import { AnimatePresence, useIsPresent, type Variants } from "motion/react";
+import * as m from "motion/react-m";
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 
 type ToastPosition = {
@@ -10,6 +12,21 @@ type ToastPlacement = "bottom" | "remote";
 
 const TOAST_GAP = 8;
 const TOAST_MARGIN = 8;
+const TOAST_VARIANTS = {
+  initial: { opacity: 0, y: 8, scale: 0.98 },
+  animate: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: { duration: 0.18, ease: [0.22, 1, 0.36, 1] },
+  },
+  exit: {
+    opacity: 0,
+    y: 6,
+    scale: 0.985,
+    transition: { duration: 0.14, ease: [0.4, 0, 1, 1] },
+  },
+} satisfies Variants;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -42,11 +59,28 @@ export function Toast({
   onDismiss: () => void;
   placement?: ToastPlacement;
 }) {
+  return (
+    <AnimatePresence>
+      {toast ? <ToastItem key={toast.id} toast={toast} onDismiss={onDismiss} placement={placement} /> : null}
+    </AnimatePresence>
+  );
+}
+
+function ToastItem({
+  toast,
+  onDismiss,
+  placement,
+}: {
+  toast: { id: number; message: string };
+  onDismiss: () => void;
+  placement: ToastPlacement;
+}) {
   const toastRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<ToastPosition | null>(null);
+  const isPresent = useIsPresent();
 
   useLayoutEffect(() => {
-    if (!toast || placement !== "remote") {
+    if (placement !== "remote") {
       setPosition(null);
       return;
     }
@@ -166,30 +200,37 @@ export function Toast({
       window.removeEventListener("resize", scheduleUpdate);
       window.removeEventListener("scroll", scheduleUpdate, true);
     };
-  }, [placement, toast]);
-
-  if (!toast) return null;
+  }, [placement, toast.id]);
 
   const positionedStyle: CSSProperties | undefined = position
     ? {
         bottom: "auto",
         left: `${position.left}px`,
+        marginInline: 0,
         maxWidth: `${position.maxWidth}px`,
+        right: "auto",
         top: `${position.top}px`,
-        transform: "none",
       }
     : undefined;
 
   return (
-    <div
+    <m.div
       className={`app-toast${placement === "remote" ? " app-toast--remote" : ""}${position ? " app-toast--positioned" : ""}`}
       ref={toastRef}
       role="status"
       aria-live="polite"
-      style={positionedStyle}
-      onClick={onDismiss}
+      aria-atomic="true"
+      aria-hidden={isPresent ? undefined : true}
+      inert={isPresent ? undefined : true}
+      data-motion-state={isPresent ? "entered" : "exiting"}
+      variants={TOAST_VARIANTS}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      style={{ ...positionedStyle, pointerEvents: isPresent ? undefined : "none" }}
+      onClick={isPresent ? onDismiss : undefined}
     >
       {toast.message}
-    </div>
+    </m.div>
   );
 }

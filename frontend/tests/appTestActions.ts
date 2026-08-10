@@ -41,12 +41,12 @@ export async function openAdvancedSettings(user: ReturnType<typeof userEvent.set
   await openSettingsTab(user);
   const advanced = screen.getByText("高级设置（调试用）");
   const advancedDetails = advanced.closest("details");
-  if (!advancedDetails?.hasAttribute("open")) {
+  if (advancedDetails?.getAttribute("data-expanded") !== "true") {
     await user.click(advanced);
   }
   const debugInfo = screen.getByText("调试信息");
   const details = debugInfo.closest("details");
-  if (!details?.hasAttribute("open")) {
+  if (details?.getAttribute("data-expanded") !== "true") {
     await user.click(debugInfo);
   }
 }

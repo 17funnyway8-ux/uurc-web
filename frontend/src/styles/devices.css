@@ -147,7 +147,7 @@
   font-weight: 400;
 }
 
-.device-offline-section[open] .device-group-collapse-hint::after {
+.device-offline-section[data-expanded="true"] .device-group-collapse-hint::after {
   content: "收起";
 }
 

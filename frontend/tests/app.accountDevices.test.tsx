@@ -84,7 +84,8 @@ describe("App account and devices", () => {
     await user.click(screen.getByRole("link", { name: /账号与凭证/ }));
     await screen.findByRole("heading", { name: "账号与凭证" });
     expect(screen.getAllByText("已登录").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("user-1").length).toBeGreaterThan(0);
+    await user.click(screen.getByText("账号详情"));
+    expect((await screen.findAllByText("user-1")).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "导出账号凭证" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("账号凭证 JSON")).not.toBeInTheDocument();
 
@@ -192,7 +193,16 @@ describe("App account and devices", () => {
     expect(screen.getByRole("button", { name: "返回设备列表" })).toBeInTheDocument();
 
     await openAdvancedSettings(user);
-    expect(screen.getByText("调试信息")).toBeInTheDocument();
+    const diagnostics = screen.getByText("调试信息").closest("details");
+    expect(diagnostics).toHaveAttribute("data-expanded", "true");
+
+    for (const label of ["协议细节", "脱敏调试摘要", "远控调试日志"]) {
+      const summary = screen.getByText(label);
+      const disclosure = summary.closest("details");
+      expect(disclosure).toHaveAttribute("data-expanded", "false");
+      await user.click(summary);
+      expect(disclosure).toHaveAttribute("data-expanded", "true");
+    }
   });
 
   it("auto-connects on entering a device when auto-connect is enabled", async () => {

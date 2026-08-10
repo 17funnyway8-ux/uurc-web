@@ -4,6 +4,7 @@ import type { UuDevice, UuParticipantInfo } from "@uurc/shared/devices";
 
 import type { BusyAction, ConnectionRouteMode, SdpTransportMode } from "../app/remoteControlTypes.js";
 import { ParticipantList } from "./ParticipantList.js";
+import { AnimatedDisclosure } from "./ui/AnimatedDisclosure.js";
 import { SegmentedControl } from "./ui/SegmentedControl.js";
 import { Switch } from "./ui/Switch.js";
 
@@ -73,8 +74,11 @@ export function RemoteControlSettingsDrawer({
         </div>
       ) : null}
 
-      <details className="control-subdrawer">
-        <summary>高级设置（调试用）</summary>
+      <AnimatedDisclosure
+        className="control-subdrawer"
+        contentClassName="control-subdrawer-content"
+        summary="高级设置（调试用）"
+      >
         <div className="transport-actions">
           <button onClick={onStartSignalGateway} disabled={busy !== null}>
             {busy === "signal-start" ? <LoaderCircle className="spin" size={17} /> : <PlugZap size={17} />}
@@ -132,7 +136,7 @@ export function RemoteControlSettingsDrawer({
             ]}
           />
         </div>
-      </details>
+      </AnimatedDisclosure>
     </div>
   );
 }

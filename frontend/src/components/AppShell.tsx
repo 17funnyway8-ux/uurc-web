@@ -117,7 +117,7 @@ export function AppShell({
       </aside>
 
       <div className="app-shell-content">
-        <AnimatePresence initial={false} mode="wait">
+        <AnimatePresence initial={false} mode="popLayout">
           <m.div
             key={location.pathname}
             className="app-shell-page-transition"

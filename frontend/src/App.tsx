@@ -3,12 +3,11 @@ import { BrowserRouter, useLocation } from "react-router";
 
 import { LandingPage } from "./components/LandingPage.js";
 import { PageMetadata } from "./components/PageMetadata.js";
+import { loadProductRoutes } from "./routeLoaders.js";
 import { getStoredAuthStatus } from "./uu/loginStateStore.js";
 import "./styles/index.css";
 
-const ProductRoutes = lazy(() =>
-  import("./components/ProductRoutes.js").then((module) => ({ default: module.ProductRoutes })),
-);
+const ProductRoutes = lazy(loadProductRoutes);
 
 interface AppProps {
   initialLandingLoggedIn?: boolean;

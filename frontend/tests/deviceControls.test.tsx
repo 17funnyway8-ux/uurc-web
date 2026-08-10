@@ -1,10 +1,20 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DeviceList } from "../src/components/DeviceControls.js";
 
+const routeLoaderMocks = vi.hoisted(() => ({
+  preloadRemoteControlRoute: vi.fn(),
+}));
+
+vi.mock("../src/routeLoaders.js", () => ({
+  preloadRemoteControlRoute: routeLoaderMocks.preloadRemoteControlRoute,
+}));
+
 describe("DeviceList", () => {
+  beforeEach(() => routeLoaderMocks.preloadRemoteControlRoute.mockReset());
+
   it("keeps the offline device group as an accessible disclosure", async () => {
     const user = userEvent.setup();
 
@@ -58,7 +68,13 @@ describe("DeviceList", () => {
     expect(screen.queryByRole("button", { name: /连接 iPhone 17/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /连接 本机控制端/ })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /连接 Office Mac/ }));
+    const connectButton = screen.getByRole("button", { name: /连接 Office Mac/ });
+    fireEvent.mouseEnter(connectButton);
+    fireEvent.focus(connectButton);
+    fireEvent.pointerDown(connectButton);
+    expect(routeLoaderMocks.preloadRemoteControlRoute).toHaveBeenCalledTimes(3);
+
+    await user.click(connectButton);
     expect(onSelect).toHaveBeenCalledWith("mac-1");
     expect(onConnect).toHaveBeenCalledWith("mac-1");
   });

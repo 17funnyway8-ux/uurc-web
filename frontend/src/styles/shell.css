@@ -241,6 +241,7 @@
 }
 
 .app-shell-content {
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -252,6 +253,7 @@
 
 .app-shell-page-transition {
   flex: 1;
+  width: 100%;
   min-width: 0;
   min-height: 0;
   display: flex;

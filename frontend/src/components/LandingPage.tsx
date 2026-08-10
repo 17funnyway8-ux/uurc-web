@@ -1,6 +1,8 @@
 import { ArrowRight, Github, Monitor, MoveUpRight } from "lucide-react";
 import { Link } from "react-router";
 
+import { preloadProductRoutes } from "../routeLoaders.js";
+
 const GITHUB_URL = "https://github.com/iola1999/uurc-web";
 const V2EX_URL = "https://www.v2ex.com/t/1225978";
 
@@ -35,7 +37,13 @@ export function LandingPage({ loggedIn }: { loggedIn: boolean }) {
               <Github size={16} />
               <span>GitHub</span>
             </a>
-            <Link className="landing-nav-action" to={consolePath}>
+            <Link
+              className="landing-nav-action"
+              to={consolePath}
+              onFocus={preloadProductRoutes}
+              onMouseEnter={preloadProductRoutes}
+              onPointerDown={preloadProductRoutes}
+            >
               进入控制台
             </Link>
           </nav>
@@ -54,7 +62,13 @@ export function LandingPage({ loggedIn }: { loggedIn: boolean }) {
             无需安装主控客户端。支持短信登录、设备列表和网页远程控制，可自托管部署。
           </p>
           <div className="landing-actions">
-            <Link className="landing-primary-action" to={consolePath}>
+            <Link
+              className="landing-primary-action"
+              to={consolePath}
+              onFocus={preloadProductRoutes}
+              onMouseEnter={preloadProductRoutes}
+              onPointerDown={preloadProductRoutes}
+            >
               进入控制台
               <ArrowRight size={18} />
             </Link>
@@ -134,7 +148,13 @@ export function LandingPage({ loggedIn }: { loggedIn: boolean }) {
           <h2 id="landing-final-title">准备开始？</h2>
           <p>短信登录，也支持导入已有账号凭证。</p>
           <div className="landing-final-actions">
-            <Link className="landing-primary-action" to={consolePath}>
+            <Link
+              className="landing-primary-action"
+              to={consolePath}
+              onFocus={preloadProductRoutes}
+              onMouseEnter={preloadProductRoutes}
+              onPointerDown={preloadProductRoutes}
+            >
               进入控制台
               <ArrowRight size={18} />
             </Link>

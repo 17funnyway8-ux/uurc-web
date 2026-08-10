@@ -3,20 +3,15 @@ import { Navigate, Route, Routes } from "react-router";
 
 import { useProductController } from "../controllers/useProductController.js";
 import { AppMotionProvider } from "../motion/AppMotionProvider.js";
+import { loadRemoteControlRoute } from "../routeLoaders.js";
+import { AccountCredentialsPage } from "./AccountCredentialsPage.js";
+import { AppShell } from "./AppShell.js";
+import { DeviceListPage } from "./DeviceListPage.js";
+import { LoginPage } from "./LoginPage.js";
+import { RemoteAssistancePage } from "./RemoteAssistancePage.js";
 import { Toast } from "./Toast.js";
 
-const LoginPage = lazy(() => import("./LoginPage.js").then((module) => ({ default: module.LoginPage })));
-const AppShell = lazy(() => import("./AppShell.js").then((module) => ({ default: module.AppShell })));
-const DeviceListPage = lazy(() => import("./DeviceListPage.js").then((module) => ({ default: module.DeviceListPage })));
-const RemoteAssistancePage = lazy(() =>
-  import("./RemoteAssistancePage.js").then((module) => ({ default: module.RemoteAssistancePage })),
-);
-const AccountCredentialsPage = lazy(() =>
-  import("./AccountCredentialsPage.js").then((module) => ({ default: module.AccountCredentialsPage })),
-);
-const RemoteControlRoute = lazy(() =>
-  import("./RemoteControlRoute.js").then((module) => ({ default: module.RemoteControlRoute })),
-);
+const RemoteControlRoute = lazy(loadRemoteControlRoute);
 
 export function ProductRoutes() {
   const controller = useProductController();

@@ -3,6 +3,7 @@ import { ChevronRight, LoaderCircle, RefreshCw, TerminalSquare } from "lucide-re
 import type { AuthStatus } from "@uurc/shared/authState";
 import type { UuDeviceGroups } from "@uurc/shared/devices";
 
+import { preloadRemoteControlRoute } from "../routeLoaders.js";
 import { DeviceList } from "./DeviceControls.js";
 
 export function DeviceListPage({
@@ -41,6 +42,9 @@ export function DeviceListPage({
         <h1>我的设备</h1>
         <form
           className="device-quick-connect"
+          onFocusCapture={preloadRemoteControlRoute}
+          onMouseEnter={preloadRemoteControlRoute}
+          onPointerDown={preloadRemoteControlRoute}
           onSubmit={(event) => {
             event.preventDefault();
             if (canQuickConnect) onStartRemoteAssistance();

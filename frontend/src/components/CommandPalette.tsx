@@ -7,6 +7,7 @@ import { createPortal } from "react-dom";
 import type { CommandPaletteController } from "../controllers/useCommandPaletteController.js";
 import { isDeviceOnline } from "../devices/deviceLabels.js";
 import { dialogCardVariants, dialogScrimVariants } from "../motion/presets.js";
+import { preloadRemoteControlRoute } from "../routeLoaders.js";
 
 const paletteLayoutTransition = { type: "spring" as const, stiffness: 520, damping: 40, mass: 0.7 };
 
@@ -24,7 +25,10 @@ export function CommandPalette({
   const firstMatch = matches[0];
 
   useEffect(() => {
-    if (open) inputRef.current?.focus();
+    if (open) {
+      preloadRemoteControlRoute();
+      inputRef.current?.focus();
+    }
   }, [open]);
 
   if (typeof document === "undefined") return null;

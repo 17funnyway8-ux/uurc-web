@@ -12,6 +12,7 @@ import {
   type CategorizedDevice,
   type DeviceCategory,
 } from "../devices/deviceLabels.js";
+import { preloadRemoteControlRoute } from "../routeLoaders.js";
 import { AnimatedDisclosure } from "./ui/AnimatedDisclosure.js";
 
 const CATEGORY_ICON: Record<DeviceCategory, typeof Monitor> = {
@@ -92,6 +93,9 @@ export function DeviceList({
             type="button"
             className="primary-action-button device-row-connect"
             aria-label={`连接 ${device.alias}`}
+            onFocus={preloadRemoteControlRoute}
+            onMouseEnter={preloadRemoteControlRoute}
+            onPointerDown={preloadRemoteControlRoute}
             onClick={(event) => {
               event.stopPropagation();
               onSelect(device.deviceId);

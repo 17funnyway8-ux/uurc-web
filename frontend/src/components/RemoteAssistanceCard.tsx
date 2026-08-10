@@ -1,5 +1,7 @@
 import { Handshake, Info, KeyRound, LoaderCircle } from "lucide-react";
 
+import { preloadRemoteControlRoute } from "../routeLoaders.js";
+
 export function RemoteAssistanceCard({
   busy,
   connectCode,
@@ -34,6 +36,9 @@ export function RemoteAssistanceCard({
 
       <form
         className="assistance-form"
+        onFocusCapture={preloadRemoteControlRoute}
+        onMouseEnter={preloadRemoteControlRoute}
+        onPointerDown={preloadRemoteControlRoute}
         onSubmit={(event) => {
           event.preventDefault();
           if (!disabled) onStart();

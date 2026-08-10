@@ -1,11 +1,22 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 
 import { LandingPage } from "../src/components/LandingPage.js";
 
+const routeLoaderMocks = vi.hoisted(() => ({
+  preloadProductRoutes: vi.fn(),
+}));
+
+vi.mock("../src/routeLoaders.js", () => ({
+  preloadProductRoutes: routeLoaderMocks.preloadProductRoutes,
+}));
+
 describe("LandingPage", () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    routeLoaderMocks.preloadProductRoutes.mockReset();
+  });
 
   it("sends signed-in visitors to their devices", () => {
     const { container } = render(
@@ -36,5 +47,20 @@ describe("LandingPage", () => {
     for (const link of screen.getAllByRole("link", { name: /进入控制台/ })) {
       expect(link).toHaveAttribute("href", "/login");
     }
+  });
+
+  it("preloads the console when a visitor signals navigation intent", () => {
+    render(
+      <MemoryRouter>
+        <LandingPage loggedIn />
+      </MemoryRouter>,
+    );
+
+    const link = screen.getAllByRole("link", { name: /进入控制台/ })[0];
+    fireEvent.mouseEnter(link);
+    fireEvent.focus(link);
+    fireEvent.pointerDown(link);
+
+    expect(routeLoaderMocks.preloadProductRoutes).toHaveBeenCalledTimes(3);
   });
 });

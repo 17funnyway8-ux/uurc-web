@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import type { RemoteAssistanceJoinResult } from "@uurc/shared/roomSession";
@@ -24,6 +24,7 @@ import { stopRemoteSignalGateway } from "../api/remoteSignalApi.js";
 import { writeLocalClipboardText } from "../browser/clipboard.js";
 import { pickControllableDesktop } from "../devices/deviceSummary.js";
 import { formatRemoteAssistanceMode } from "../remote/remoteRoomUiModel.js";
+import { preloadRemoteControlRoute } from "../routeLoaders.js";
 import { useAccountController } from "./useAccountController.js";
 import { useAutoLoadDevices } from "./useAutoLoadDevices.js";
 import { useBusyAction } from "./useBusyAction.js";
@@ -177,9 +178,10 @@ export function useProductController() {
   }
 
   function handleOpenDevice(deviceId: string) {
+    preloadRemoteControlRoute();
     deviceState.setSelectedDeviceId(deviceId);
     setControlHandoff(null);
-    navigate(`/devices/${encodeURIComponent(deviceId)}/control`);
+    startTransition(() => navigate(`/devices/${encodeURIComponent(deviceId)}/control`));
   }
 
   async function handleStartRemoteAssistance() {
@@ -189,6 +191,7 @@ export function useProductController() {
       return;
     }
 
+    preloadRemoteControlRoute();
     deviceState.setAssistanceNotice("");
     await runProductAction("assistance", async () => {
       const connectId = deviceState.assistanceConnectId.trim();
@@ -246,7 +249,7 @@ export function useProductController() {
       });
       deviceState.setForceJoin(false);
       deviceState.setAssistanceNotice(`已进入远程协助：${formatRemoteAssistanceMode(modeResult.controlMode)}`);
-      navigate(`/devices/${encodeURIComponent(joined.assistance.connectId)}/control`);
+      startTransition(() => navigate(`/devices/${encodeURIComponent(joined.assistance.connectId)}/control`));
     });
   }
 

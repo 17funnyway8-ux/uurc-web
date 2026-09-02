@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
 
+import {
+  DEFAULT_STREAMER_FPS,
+  DEFAULT_STREAMER_VIDEO_QUALITY,
+  isStreamerFps,
+  isStreamerVideoQuality,
+  type StreamerFps,
+  type StreamerVideoQuality,
+} from "../remote/remoteControlPreferences.js";
 import type { ConnectionRouteMode, RemoteStageViewMode, SdpTransportMode } from "../app/remoteControlTypes.js";
 
 export function useRemoteControlPreferences(signalServerCount: number) {
@@ -10,6 +18,8 @@ export function useRemoteControlPreferences(signalServerCount: number) {
   const [remoteStageViewMode, setRemoteStageViewMode] = useState<RemoteStageViewMode>("fit");
   const [signalServerIndex, setSignalServerIndex] = useState(0);
   const [browserWebRtcUnavailableReason] = useState(detectBrowserWebRtcUnavailableReason);
+  const [fps, setFps] = useState<StreamerFps>(readFpsPreference);
+  const [videoQuality, setVideoQuality] = useState<StreamerVideoQuality>(readVideoQualityPreference);
 
   useEffect(() => {
     if (signalServerCount > 0 && signalServerIndex >= signalServerCount) {
@@ -25,6 +35,22 @@ export function useRemoteControlPreferences(signalServerCount: number) {
     }
   }, [autoConnect]);
 
+  useEffect(() => {
+    try {
+      globalThis.localStorage?.setItem("uurc.fps", String(fps));
+    } catch {
+      // Ignore persistence failures in private or sandboxed browser contexts.
+    }
+  }, [fps]);
+
+  useEffect(() => {
+    try {
+      globalThis.localStorage?.setItem("uurc.videoQuality", String(videoQuality));
+    } catch {
+      // Ignore persistence failures in private or sandboxed browser contexts.
+    }
+  }, [videoQuality]);
+
   return {
     autoReconnectEnabled,
     setAutoReconnectEnabled,
@@ -39,6 +65,10 @@ export function useRemoteControlPreferences(signalServerCount: number) {
     signalServerIndex,
     setSignalServerIndex,
     browserWebRtcUnavailableReason,
+    fps,
+    setFps,
+    videoQuality,
+    setVideoQuality,
   };
 }
 
@@ -47,6 +77,24 @@ function readAutoConnectPreference(): boolean {
     return globalThis.localStorage?.getItem("uurc.autoConnect") !== "false";
   } catch {
     return true;
+  }
+}
+
+function readFpsPreference(): StreamerFps {
+  try {
+    const raw = globalThis.localStorage?.getItem("uurc.fps");
+    return isStreamerFps(raw) ? raw : DEFAULT_STREAMER_FPS;
+  } catch {
+    return DEFAULT_STREAMER_FPS;
+  }
+}
+
+function readVideoQualityPreference(): StreamerVideoQuality {
+  try {
+    const raw = globalThis.localStorage?.getItem("uurc.videoQuality");
+    return isStreamerVideoQuality(raw) ? raw : DEFAULT_STREAMER_VIDEO_QUALITY;
+  } catch {
+    return DEFAULT_STREAMER_VIDEO_QUALITY;
   }
 }
 

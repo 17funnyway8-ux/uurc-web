@@ -3,6 +3,14 @@ import { CircleStop, LoaderCircle, Monitor, PlugZap } from "lucide-react";
 import type { UuDevice, UuParticipantInfo } from "@uurc/shared/devices";
 
 import type { BusyAction, ConnectionRouteMode, SdpTransportMode } from "../app/remoteControlTypes.js";
+import {
+  STREAMER_FPS_LABELS,
+  STREAMER_FPS_OPTIONS,
+  STREAMER_VIDEO_QUALITY_LABELS,
+  STREAMER_VIDEO_QUALITY_OPTIONS,
+  type StreamerFps,
+  type StreamerVideoQuality,
+} from "../remote/remoteControlPreferences.js";
 import { ParticipantList } from "./ParticipantList.js";
 import { AnimatedDisclosure } from "./ui/AnimatedDisclosure.js";
 import { SegmentedControl } from "./ui/SegmentedControl.js";
@@ -14,19 +22,23 @@ export interface RemoteControlSettingsDrawerProps {
   busy: BusyAction;
   connectionRouteMode: ConnectionRouteMode;
   forceJoin: boolean;
+  fps: StreamerFps;
   onAutoConnectChange: (enabled: boolean) => void;
   onConnectionRouteModeChange: (mode: ConnectionRouteMode) => void;
   onForceJoinChange: (forceJoin: boolean) => void;
+  onFpsChange: (fps: StreamerFps) => void;
   onSignalServerIndexChange: (index: number) => void;
   onSdpTransportModeChange: (mode: SdpTransportMode) => void;
   onStartBrowserRemote: () => void;
   onStartSignalGateway: () => void;
   onStopSignalGateway: () => void;
+  onVideoQualityChange: (quality: StreamerVideoQuality) => void;
   sdpTransportMode: SdpTransportMode;
   selectedDevice: UuDevice | null;
   selectedParticipants: UuParticipantInfo[];
   signalServerIndex: number;
   signalServerOptions: string[];
+  videoQuality: StreamerVideoQuality;
 }
 
 export function RemoteControlSettingsDrawer({
@@ -35,23 +47,53 @@ export function RemoteControlSettingsDrawer({
   busy,
   connectionRouteMode,
   forceJoin,
+  fps,
   onAutoConnectChange,
   onConnectionRouteModeChange,
   onForceJoinChange,
+  onFpsChange,
   onSignalServerIndexChange,
   onSdpTransportModeChange,
   onStartBrowserRemote,
   onStartSignalGateway,
   onStopSignalGateway,
+  onVideoQualityChange,
   sdpTransportMode,
   selectedDevice,
   selectedParticipants,
   signalServerIndex,
   signalServerOptions,
+  videoQuality,
 }: RemoteControlSettingsDrawerProps) {
   return (
     <div className="control-settings-tab">
       <Switch checked={autoConnect} label="进入设备自动连接" onChange={onAutoConnectChange} />
+      <div className="control-field">
+        <span className="control-field-label">画质</span>
+        <SegmentedControl
+          name="videoQuality"
+          ariaLabel="画质"
+          value={videoQuality}
+          onChange={onVideoQualityChange}
+          options={STREAMER_VIDEO_QUALITY_OPTIONS.map((quality) => ({
+            value: quality,
+            label: STREAMER_VIDEO_QUALITY_LABELS[quality],
+          }))}
+        />
+      </div>
+      <div className="control-field">
+        <span className="control-field-label">帧率</span>
+        <SegmentedControl
+          name="fps"
+          ariaLabel="帧率"
+          value={fps}
+          onChange={onFpsChange}
+          options={STREAMER_FPS_OPTIONS.map((fpsOption) => ({
+            value: fpsOption,
+            label: STREAMER_FPS_LABELS[fpsOption],
+          }))}
+        />
+      </div>
       {selectedDevice ? (
         <div className="control-field">
           <span className="control-field-label">正在占用该设备的控制端</span>

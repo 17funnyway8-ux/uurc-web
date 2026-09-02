@@ -8,15 +8,23 @@ import { buildStreamerControlStreamerDataJson } from "@uurc/shared/streamer/cont
 import { sendRemoteSignalControl, sendRemoteSignalSoac } from "../api/remoteSignalApi.js";
 import { BrowserRemoteSession } from "../remote/browserRemoteSession.js";
 import type { BrowserRemoteDebugEvent, BrowserRemoteSessionState } from "../remote/browserRemoteSessionTypes.js";
+import {
+  toProtocolFpsValue,
+  toProtocolVideoQualityValue,
+  type StreamerFps,
+  type StreamerVideoQuality,
+} from "../remote/remoteControlPreferences.js";
 import { REMOTE_CURSOR_LOCAL_RENDERING_ENABLED } from "../remote/remoteCursor.js";
 import { createAppControlId, createIdleBrowserRemoteState } from "../remote/remoteSessionUiModel.js";
 
 interface StartBrowserRemoteSessionInput {
   deviceId: string;
   forceRelay: boolean | undefined;
+  fps?: StreamerFps;
   gzipSdp: boolean;
   remoteAssistance: boolean;
   targetPlatform: number | undefined;
+  videoQuality?: StreamerVideoQuality;
   onRemoteClipboard(text: string): void;
   onRemoteCursorShape(shape: DecodedStreamerCursorShape | null): void;
   onRemoteStream(stream: MediaStream): void;
@@ -71,6 +79,8 @@ export function useBrowserRemoteSessionController() {
           ? STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_Assistance
           : STREAMER_CONTROL_CONNECT_TYPES.ControlConnectType_Normal,
         cursorCapture: !REMOTE_CURSOR_LOCAL_RENDERING_ENABLED,
+        fps: input.fps ? toProtocolFpsValue(input.fps) : undefined,
+        videoQuality: input.videoQuality ? toProtocolVideoQualityValue(input.videoQuality) : undefined,
       }),
       streamerData: buildStreamerControlStreamerDataJson({ controlId: appControlId }),
       forceRelay: input.forceRelay,

@@ -12,7 +12,7 @@
   "dependencies": {
     "@mercuryworkshop/wisp-js": "^0.4.1",
     "@uurc/shared": "file:../shared",
-    "compression": "^1.8.1",
+    "compression": "^1.8.2",
     "express": "^4.21.2",
     "socket.io-client": "^4.8.3"
   },
